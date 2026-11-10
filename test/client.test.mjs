@@ -345,7 +345,20 @@ let embeddingPresent = false
 function apiPayload(endpoint, payload) {
 	switch (endpoint) {
 		case 'overview':
-			return { version: '9.9.9', root: '/data/evolver', projection: { entries: 3, injectedBytes: 100, injectedBudget: 2048, byKind: [] }, cards: { total: 3 }, suggestions: [] }
+			return {
+				version: '9.9.9',
+				root: '/data/evolver',
+				projection: { entries: 3, injectedBytes: 100, injectedBudget: 2048, byKind: [] },
+				cards: { total: 3 },
+				stats: { cards: 3, tags: 2, days: 10 },
+				activity: [{ date: '2026-11-09', count: 1 }, { date: '2026-11-10', count: 2 }],
+				tree: [{
+					path: '践行', name: '践行', count: 2, direct: 0, children: [{
+						path: '践行/工作流', name: '工作流', count: 1, direct: 1, children: [],
+					}],
+				}],
+				suggestions: [],
+			}
 		case 'injection':
 			return {
 				cards: { text: '[卡片]', bytes: 10, budget: 2048, entries: 3, dropped: 0 },
@@ -607,6 +620,10 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
 		let tree = await runtime.settle(render)
 		const tabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.stats').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.heatmap').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.tree').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === '#践行').length >= 1)
 		assert.ok(tabs.includes('tab.cards'))
 		assert.ok(tabs.includes('tab.soul'))
 		assert.equal(tabs.includes('tab.sight'), false)

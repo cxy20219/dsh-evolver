@@ -117,6 +117,10 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 
 			const overview = await (await post(routes, 'overview', {})).json()
 			assert.ok(overview.projection.entries >= 2)
+			assert.ok(overview.stats.cards >= 2)
+			assert.equal(Array.isArray(overview.activity), true)
+			assert.equal(overview.activity.length, 30)
+			assert.equal(Array.isArray(overview.tree), true)
 			const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 			assert.equal(overview.version, pkg.version)
 

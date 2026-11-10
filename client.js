@@ -97,6 +97,21 @@ window.__ModuleLoader__.load({
 			'state.error': '读取失败',
 			'state.saved': '已保存',
 			'state.linked': '已建立全局链接',
+			'overview.stats': '数据概览',
+			'overview.notes': '笔记',
+			'overview.tags': '标签',
+			'overview.days': '天',
+			'overview.notesHint': '全部卡片',
+			'overview.tagsHint': '唯一标签',
+			'overview.daysHint': '自首张卡',
+			'overview.heatmap': '最近一个月热力',
+			'overview.heatmap.hint': '按卡片创建日期统计最近 30 天。',
+			'overview.heatmap.empty': '还没有卡片活动。',
+			'overview.heatmap.unit': '张',
+			'overview.heatmap.less': '少',
+			'overview.heatmap.more': '多',
+			'overview.tree': '标签树',
+			'overview.tree.empty': '还没有标签。',
 			'overview.injection': '注入的上下文',
 			'overview.injection.hint': 'Agent 每次请求都会拿到这三块，别的地方都不占它的上下文。',
 			'overview.cards': '标签树',
@@ -292,6 +307,21 @@ window.__ModuleLoader__.load({
 			'state.error': 'Failed to read',
 			'state.saved': 'Saved',
 			'state.linked': 'The global link is in place',
+			'overview.stats': 'Overview',
+			'overview.notes': 'Notes',
+			'overview.tags': 'Tags',
+			'overview.days': 'Days',
+			'overview.notesHint': 'All cards',
+			'overview.tagsHint': 'Unique tags',
+			'overview.daysHint': 'Since the first card',
+			'overview.heatmap': 'Last 30 days',
+			'overview.heatmap.hint': 'Cards by creation date over the last 30 days.',
+			'overview.heatmap.empty': 'No card activity yet.',
+			'overview.heatmap.unit': 'cards',
+			'overview.heatmap.less': 'Less',
+			'overview.heatmap.more': 'More',
+			'overview.tree': 'Tag tree',
+			'overview.tree.empty': 'No tags yet.',
 			'overview.injection': 'Injected context',
 			'overview.injection.hint': 'The agent gets exactly these three blocks in every request.',
 			'overview.cards': 'Tag tree',
@@ -476,6 +506,23 @@ window.__ModuleLoader__.load({
 			'.evrTagBtnActive{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary)}',
 			'.evrTagName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}',
 			'.evrTagCount{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
+			'.evrTagBtnStatic{cursor:default}',
+			'.evrTagBtnStatic:hover{background:transparent;color:var(--dsw-alias-label-secondary)}',
+			'.evrOverviewSplit{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}',
+			'.evrOverviewHeat{flex:1 1 0;min-width:280px;max-width:none}',
+			'.evrOverviewTags{flex:0 1 380px;max-width:380px;min-width:280px}',
+			'.evrHeatmapWrap{overflow-x:auto;padding:2px 0}',
+			'.evrHeatmapBody{display:flex;gap:6px;align-items:flex-start}',
+			'.evrHeatmapDays{display:grid;grid-template-rows:repeat(7,18px);gap:4px;font-size:9px;line-height:18px;color:var(--dsw-alias-label-tertiary);text-align:right;width:12px}',
+			'.evrHeatmapMonths{display:grid;grid-auto-flow:column;grid-auto-columns:18px;gap:4px;margin-left:18px;margin-bottom:4px;font-size:10px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}',
+			'.evrHeatmap{display:flex;gap:4px;align-items:flex-start}',
+			'.evrHeatmapWeek{display:grid;grid-template-rows:repeat(7,18px);gap:4px}',
+			'.evrHeatCell{width:18px;height:18px;border-radius:3px;background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l1);box-sizing:border-box}',
+			'.evrHeat1{background:rgba(72,187,120,.28)}',
+			'.evrHeat2{background:rgba(72,187,120,.55)}',
+			'.evrHeat3{background:rgba(47,174,114,.85)}',
+			'.evrHeatLegend{display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:var(--dsw-alias-label-tertiary)}',
+			'.evrHeatLegend .evrHeatCell{width:10px;height:10px}',
 			'.evrTag{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:var(--dsw-radius-xs);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:11px;flex:none}',
 			'.evrToolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}',
 			'.evrInput{flex:1;min-width:160px;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;box-sizing:border-box}',
@@ -656,6 +703,143 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * A read-only or clickable hierarchical tag tree.
+		 *
+		 * Every node with children can be collapsed independently, recursively.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function TagTree(props) {
+			var nodes = Array.isArray(props.nodes) ? props.nodes : [];
+			var activePath = props.activePath ?? '';
+			var onSelect = props.onSelect;
+			var [collapsed, setCollapsed] = useState({});
+
+			function toggle(path) {
+				setCollapsed(function (current) {
+					return { ...current, [path]: current[path] !== true };
+				});
+			}
+
+			function rows(list, depth) {
+				var result = [];
+				(list ?? []).forEach(function (node) {
+					var children = node.children ?? [];
+					var hasChildren = children.length > 0;
+					var isCollapsed = collapsed[node.path] === true;
+					var active = activePath === node.path;
+					result.push(h('div', {
+						key: node.path,
+						className: 'evrTagNode',
+						style: { paddingLeft: (4 + depth * 12) + 'px' },
+					},
+						hasChildren
+							? h('button', {
+								type: 'button',
+								className: 'evrTagToggle',
+								'aria-label': (isCollapsed ? '展开标签 ' : '收起标签 ') + node.path,
+								'aria-expanded': isCollapsed ? 'false' : 'true',
+								onClick: function (event) { if (event && typeof event.stopPropagation === 'function') event.stopPropagation(); toggle(node.path); },
+							}, isCollapsed ? '▸' : '▾')
+							: h('span', { className: 'evrTagToggle evrTagToggleSpacer' }),
+						onSelect === undefined
+							? h('div', { className: 'evrTagBtn evrTagBtnStatic', title: node.path },
+								h('span', { className: 'evrTagName' }, '#' + node.name),
+								h('span', { className: 'evrTagCount' }, String(node.count)))
+							: h('button', {
+								type: 'button',
+								className: 'evrTagBtn' + (active ? ' evrTagBtnActive' : ''),
+								title: node.path,
+								onClick: function () { onSelect(node.path); },
+							},
+								h('span', { className: 'evrTagName' }, '#' + node.name),
+								h('span', { className: 'evrTagCount' }, String(node.count)))));
+					if (hasChildren && !isCollapsed) result = result.concat(rows(children, depth + 1));
+				});
+				return result;
+			}
+
+			return h('div', null, rows(nodes, 0));
+		}
+
+		/**
+		 * The last-30-days card activity heatmap.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function Heatmap(props) {
+			var t = props.t;
+			var activity = Array.isArray(props.activity) ? props.activity : [];
+			if (activity.length === 0) return h('div', { className: 'evrHint' }, t('overview.heatmap.empty'));
+			var counts = {};
+			activity.forEach(function (item) { counts[item.date] = item.count; });
+			function parse(key) { return new Date(key + 'T00:00:00'); }
+			function keyOf(date) {
+				return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+			}
+			var first = parse(activity[0].date);
+			var last = parse(activity[activity.length - 1].date);
+			var start = new Date(first);
+			start.setDate(start.getDate() - start.getDay());
+			var end = new Date(last);
+			end.setDate(end.getDate() + (6 - end.getDay()));
+			var weeks = [];
+			var cursor = new Date(start);
+			while (cursor <= end) {
+				var week = [];
+				for (var day = 0; day < 7; day += 1) {
+					var date = new Date(cursor);
+					date.setDate(date.getDate() + day);
+					var key = keyOf(date);
+					week.push({ key, count: counts[key], inside: date >= first && date <= last });
+				}
+				weeks.push(week);
+				cursor.setDate(cursor.getDate() + 7);
+			}
+			var monthLabels = weeks.map(function (week, index) {
+				var date = parse(week[0].key);
+				var previous = index === 0 ? null : parse(weeks[index - 1][0].key);
+				if (index === 0 || (previous !== null && previous.getMonth() !== date.getMonth())) {
+					return (date.getMonth() + 1) + '月';
+				}
+				return '';
+			});
+			function level(count) {
+				if (count === undefined || count === 0) return 0;
+				if (count === 1) return 1;
+				if (count === 2) return 2;
+				return 3;
+			}
+			return h('div', { className: 'evrHeatmapWrap' },
+				h('div', { className: 'evrHeatmapMonths' }, monthLabels.map(function (label, index) {
+					return h('span', { key: index }, label);
+				})),
+				h('div', { className: 'evrHeatmapBody' },
+					h('div', { className: 'evrHeatmapDays' }, ['', '一', '', '三', '', '五', ''].map(function (label, index) {
+						return h('span', { key: index }, label);
+					})),
+					h('div', { className: 'evrHeatmap' }, weeks.map(function (week) {
+						return h('div', { key: week[0].key, className: 'evrHeatmapWeek' }, week.map(function (cell) {
+							return h('div', {
+								key: cell.key,
+								className: 'evrHeatCell evrHeat' + level(cell.count),
+								title: cell.inside ? cell.key + ' · ' + (cell.count ?? 0) + ' ' + t('overview.heatmap.unit') : '',
+								'aria-label': cell.inside ? cell.key + ' · ' + (cell.count ?? 0) : '',
+							});
+						}));
+					}))),
+				h('div', { className: 'evrHeatLegend' },
+					h('span', null, t('overview.heatmap.less')),
+					h('span', { className: 'evrHeatCell evrHeat0' }),
+					h('span', { className: 'evrHeatCell evrHeat1' }),
+					h('span', { className: 'evrHeatCell evrHeat2' }),
+					h('span', { className: 'evrHeatCell evrHeat3' }),
+					h('span', null, t('overview.heatmap.more'))));
+		}
+
+		/**
 		 * One labelled field.
 		 *
 		 * @param {object} props - Component props.
@@ -684,7 +868,24 @@ window.__ModuleLoader__.load({
 			var overview = props.overview;
 			if (injection === null || overview === null) return h(Spinner, null, t('state.loading'));
 			var projection = overview.projection ?? {};
+			var stats = overview.stats ?? {};
+			var tree = Array.isArray(overview.tree) ? overview.tree : [];
 			return h('div', null,
+				h('div', { className: 'evrSection' }, t('overview.stats')),
+				h('div', { className: 'evrGrid' },
+					h(StatCard, { title: t('overview.notes'), value: String(stats.cards ?? 0), hint: t('overview.notesHint') }),
+					h(StatCard, { title: t('overview.tags'), value: String(stats.tags ?? 0), hint: t('overview.tagsHint') }),
+					h(StatCard, { title: t('overview.days'), value: String(stats.days ?? 0), hint: t('overview.daysHint') })),
+				h('div', { className: 'evrOverviewSplit' },
+					h('div', { className: 'evrOverviewPane evrOverviewHeat' },
+						h('div', { className: 'evrSection' }, t('overview.heatmap')),
+						h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.heatmap.hint')),
+						h(Heatmap, { t: t, activity: overview.activity })),
+					h('div', { className: 'evrOverviewPane evrOverviewTags' },
+						h('div', { className: 'evrSection' }, t('overview.tree')),
+						tree.length === 0
+							? h('div', { className: 'evrHint' }, t('overview.tree.empty'))
+							: h(TagTree, { nodes: tree }))),
 				h('div', { className: 'evrSection' }, t('overview.injection')),
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('overview.injection.hint')),
 				h('div', { className: 'evrGrid' },
@@ -776,52 +977,11 @@ window.__ModuleLoader__.load({
 			var filter = props.filter ?? {};
 			var [search, setSearch] = useState(filter.query ?? '');
 			var [promoteTarget, setPromoteTarget] = useState('践行');
-			var [collapsedTags, setCollapsedTags] = useState({});
-
-			function toggleTag(path) {
-				setCollapsedTags(function (current) {
-					return { ...current, [path]: current[path] !== true };
-				});
-			}
 			if (state === null || state === undefined) return h(Spinner, null, t('state.loading'));
 			var cards = Array.isArray(state.cards) ? state.cards : [];
 			var tree = Array.isArray(state.tree) ? state.tree : [];
 			var ingest = props.ingest;
 			var ingestDraft = props.ingestDraft;
-
-			function tagRows(nodes, depth) {
-				var rows = [];
-				(nodes ?? []).forEach(function (node) {
-					var children = node.children ?? [];
-					var hasChildren = children.length > 0;
-					var collapsed = collapsedTags[node.path] === true;
-					var active = filter.tag === node.path;
-					rows.push(h('div', {
-						key: node.path,
-						className: 'evrTagNode',
-						style: { paddingLeft: (4 + depth * 12) + 'px' },
-					},
-						hasChildren
-							? h('button', {
-								type: 'button',
-								className: 'evrTagToggle',
-								'aria-label': (collapsed ? '展开标签 ' : '收起标签 ') + node.path,
-								'aria-expanded': collapsed ? 'false' : 'true',
-								onClick: function (event) { if (event && typeof event.stopPropagation === 'function') event.stopPropagation(); toggleTag(node.path); },
-							}, collapsed ? '▸' : '▾')
-							: h('span', { className: 'evrTagToggle evrTagToggleSpacer' }),
-						h('button', {
-							type: 'button',
-							className: 'evrTagBtn' + (active ? ' evrTagBtnActive' : ''),
-							title: node.path,
-							onClick: function () { props.onFilter({ tag: node.path, anyTags: [], archivedOnly: false }); },
-						},
-							h('span', { className: 'evrTagName' }, '#' + node.name),
-							h('span', { className: 'evrTagCount' }, String(node.count)))));
-					if (hasChildren && !collapsed) rows = rows.concat(tagRows(children, depth + 1));
-				});
-				return rows;
-			}
 
 			function filterButton(label, patch, active) {
 				return h('button', {
@@ -975,7 +1135,11 @@ window.__ModuleLoader__.load({
 						style: { width: '100%', marginBottom: '6px' },
 						onClick: function () { props.onFilter({ tag: '', anyTags: [], archivedOnly: false }); },
 					}, t('cards.tagReset')),
-					tagRows(tree, 0)),
+					h(TagTree, {
+						nodes: tree,
+						activePath: filter.tag,
+						onSelect: function (path) { props.onFilter({ tag: path, anyTags: [], archivedOnly: false }); },
+					})),
 				h('div', { style: { flex: 1, minWidth: 0 } },
 					h('div', { className: 'evrToolbar' },
 						filterButton(t('cards.filter.all'), { tag: '', anyTags: [], archivedOnly: false }, filter.tag === '' && (filter.anyTags ?? []).length === 0 && filter.archivedOnly !== true),

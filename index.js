@@ -286,6 +286,52 @@ export async function apply(ctx, config) {
 	 * Reads enrich link ids with labels; writes go through the same CardStore
 	 * as the tools, so the panel and the agent cannot disagree.
 	 */
+	/**
+	 * The local calendar key of a date.
+	 *
+	 * @param {Date} date - The date.
+	 * @returns {string} `YYYY-MM-DD` in local time.
+	 */
+	function dayKey(date) {
+		const year = date.getFullYear()
+		const month = String(date.getMonth() + 1).padStart(2, '0')
+		const day = String(date.getDate()).padStart(2, '0')
+		return `${year}-${month}-${day}`
+	}
+
+	/**
+	 * Build the overview statistics: cards, unique tags, days and last 30 days.
+	 *
+	 * @param {object[]} cards - The card views.
+	 * @returns {{cards: number, tags: number, days: number, activity: Array<{date: string, count: number}>}} The stats.
+	 */
+	function overviewStats(cards) {
+		const createdDays = cards
+			.map((card) => new Date(card.created))
+			.filter((date) => Number.isFinite(date.getTime()))
+			.map((date) => {
+				date.setHours(0, 0, 0, 0)
+				return date
+			})
+			.sort((left, right) => left - right)
+		const today = new Date()
+		today.setHours(0, 0, 0, 0)
+		const counts = new Map()
+		for (const day of createdDays) counts.set(dayKey(day), (counts.get(dayKey(day)) ?? 0) + 1)
+		const activity = []
+		for (let offset = 29; offset >= 0; offset -= 1) {
+			const date = new Date(today)
+			date.setDate(date.getDate() - offset)
+			const key = dayKey(date)
+			activity.push({ date: key, count: counts.get(key) ?? 0 })
+		}
+		const first = createdDays[0]
+		const days = first === undefined ? 0 : Math.max(1, Math.floor((today - first) / 86_400_000) + 1)
+		const active = cards.filter((card) => !card.tags.some((tag) => tag.endsWith('/归档')))
+		const tags = new Set(active.flatMap((card) => card.tags)).size
+		return { cards: cards.length, tags, days, activity }
+	}
+
 	const cardsApi = {
 		async status() {
 			const store = cardStoreRef.current
@@ -300,8 +346,13 @@ export async function apply(ctx, config) {
 			const base = await evolver.overview()
 			const status = store.status()
 			const text = cardPrompt(store)
+			const all = store.all()
+			const stats = overviewStats(all)
 			return {
 				...base,
+				stats: { cards: stats.cards, tags: stats.tags, days: stats.days },
+				activity: stats.activity,
+				tree: store.tagTree(),
 				projection: {
 					entries: status.cards,
 					bytes: Buffer.byteLength(text, 'utf8'),
