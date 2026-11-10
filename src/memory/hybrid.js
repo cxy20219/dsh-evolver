@@ -42,6 +42,16 @@ export const VECTOR_SIGMA = 2.5
 export const MIN_SIGMA = 0.01
 
 /**
+ * The smallest corpus the sigma rule can judge.
+ *
+ * With one or two vectors the standard deviation is a quarter of their
+ * distance, so "baseline + 2.5σ" is always above the best score and every
+ * semantic hit is filtered out. A small store therefore uses the backend's
+ * absolute floor (or no floor at all) instead.
+ */
+export const MIN_SIGMA_SAMPLE = 5
+
+/**
  * The share of the query's tokens a memory has to match.
  *
  * One shared bigram is not evidence: 「怎么」appears in half of Chinese.
@@ -214,7 +224,9 @@ export async function hybridRetrieve({ db, query, queryVector, limit = 8, minSco
 	const spread = vector.length === 0
 		? 0
 		: Math.sqrt(vector.reduce((sum, item) => sum + (item.score - baseline) ** 2, 0) / vector.length)
-	const relativeFloor = baseline + VECTOR_SIGMA * Math.max(spread, MIN_SIGMA)
+	const relativeFloor = vector.length < MIN_SIGMA_SAMPLE
+		? 0
+		: baseline + VECTOR_SIGMA * Math.max(spread, MIN_SIGMA)
 	// A backend that knows where its hits start has an absolute floor; one
 	// that does not is judged against the corpus baseline alone.
 	const vectorFloor = typeof floor === 'number'

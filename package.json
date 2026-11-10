@@ -1,6 +1,6 @@
 {
   "name": "dsh-evolver",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "private": true,
   "description": "Self-evolution console for the DeepSeek Harness: one folder holds the practice layer, the sight layer and the global preferences; the sinking discipline lives in the plugin, so no extra skill is needed.",
   "type": "module",

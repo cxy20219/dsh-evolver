@@ -353,6 +353,33 @@ test('记忆列表的 total 是过滤后的总数，不是当前页条数', asyn
 	}
 })
 
+test('小记忆库的语义命中不会被统计门槛全部滤掉', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-small-'))
+	try {
+		const store = new MemoryStore({
+			dataDir: dir,
+			embedding: {
+				id: 'fake',
+				dimensions: 2,
+				embedDocument: async (text) => (text.includes('甲') ? new Float32Array([1, 0]) : new Float32Array([0, 1])),
+				embedQuery: async () => new Float32Array([1, 0]),
+			},
+		})
+		await store.init()
+		await store.ready
+		const memory = createMemoryActions(store)
+		await memory.save({ content: '甲：向量召回测试', kind: 'fact' })
+		await memory.save({ content: '乙：另一条无关记忆', kind: 'fact' })
+		assert.equal(store.vectorsReady(), true)
+		// 查询词与两条记忆都没有词面重叠；只有向量能命中“甲”。
+		const results = await store.retrieve({ query: '完全不同的说法', limit: 5 })
+		assert.ok(results.some((item) => item.memory.text.includes('甲')), '小库的语义命中被过滤了')
+		await store.close()
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
 test('相同内容在不同作用域各自成条，同作用域才合并', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-scope-'))
 	try {

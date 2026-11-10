@@ -88,6 +88,23 @@ export class MemoryStore {
 	}
 
 	/**
+	 * What the panel needs to describe the vector side of the store.
+	 *
+	 * @returns {{embedder: string, dimensions: number, aligned: boolean, ready: boolean, backend: string | null, model: string | null, entries: number}} The state.
+	 */
+	status() {
+		return {
+			embedder: this.embedder?.id ?? 'none',
+			dimensions: this.embedder?.dimensions || this.db.vectorDimensions || 0,
+			aligned: this.vectorsAligned === true,
+			ready: this.vectorsReady(),
+			backend: this.db.vectorBackend ?? null,
+			model: this.db.vectorModel ?? null,
+			entries: this.db.memories.size,
+		}
+	}
+
+	/**
 	 * Whether the stored vectors belong to the configured embedder.
 	 *
 	 * Vectors from two different backends (or two different models) live in

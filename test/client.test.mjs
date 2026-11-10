@@ -383,6 +383,31 @@ function apiPayload(endpoint, payload) {
 			return { file: `${payload.dir}/${payload.name}`, files: 4, bytes: 1234 }
 		case 'data-import':
 			return { root: '/data/evolver', files: 2, bytes: 99, skipped: 0 }
+		case 'embedding-status':
+			return {
+				embedding: {
+					provider: 'local',
+					model: 'multilingual-e5-small',
+					modelPath: '',
+					runtimePath: '',
+					baseURL: '',
+					hasApiKey: false,
+					mirror: 'https://hf-mirror.com',
+				},
+				resolved: { modelsDir: '/data/models', runtimePath: '/data/runtime' },
+				runtime: { path: '/data/runtime', available: false, hint: 'npm install --prefix /data/runtime @huggingface/transformers' },
+				catalog: [{
+					id: 'multilingual-e5-small',
+					label: 'E5 Small',
+					languages: '中文 + 英文',
+					dimensions: 384,
+					bytes: 135392183,
+					note: '默认推荐',
+				}],
+				present: { 'multilingual-e5-small': false },
+				download: { status: 'idle', model: '', file: '', fileIndex: 0, fileCount: 0, bytes: 0, totalBytes: 0, error: '' },
+				store: { embedder: 'local', dimensions: 256, aligned: true, ready: false, backend: 'local', model: '', entries: 0 },
+			}
 		case 'data-archives':
 			return {
 				dir: payload.dir,
@@ -441,6 +466,43 @@ test('点击导出后面板显示可见的成功提示', async () => {
 		close[0].props.onClick()
 		tree = await runtime.settle(render)
 		assert.equal(findAll(tree, isToast).length, 0)
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('设置里的向量模型子标签展示可选模型和下载入口', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const embeddingTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.section.embedding')
+		assert.equal(embeddingTab.length, 1)
+		embeddingTab[0].props.onClick()
+		tree = await runtime.settle(render)
+		// 切到“本地模型”，模型目录与下载按钮才会出现
+		const providers = findAll(tree, (node) => node.type === 'input' && node.props?.name === 'evr-embedding-provider')
+		assert.equal(providers.length, 3)
+		providers[1].props.onChange({ target: { checked: true } })
+		tree = await runtime.settle(render)
+		const text = textOf(tree)
+		assert.match(text, /E5 Small/)
+		assert.match(text, /settings\.embedding\.download/)
+		assert.match(text, /settings\.embedding\.providerModel/)
 	} finally {
 		globalThis.fetch = previousFetch
 	}

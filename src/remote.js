@@ -40,6 +40,11 @@ export const ENDPOINTS = [
 	'data-archives',
 	'backup-now',
 	'backup-test',
+	'embedding-status',
+	'embedding-save',
+	'embedding-download',
+	'embedding-cancel',
+	'embedding-test',
 ]
 
 /**
@@ -92,7 +97,7 @@ function count(payload, field, fallback, max) {
  * @param {{evolver: object, memory: object}} deps - The evolver and the memory actions.
  * @returns {(endpoint: string, payload: unknown) => Promise<object>} The handler.
  */
-export function createEvolverHandler({ evolver, memory, settings, backup, workspace, view }) {
+export function createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding }) {
 	return async function handleEvolver(endpoint, payload) {
 		try {
 			switch (endpoint) {
@@ -224,6 +229,21 @@ export function createEvolverHandler({ evolver, memory, settings, backup, worksp
 				}
 				case 'backup-test': {
 					return { ok: true, value: await backup.testConnection() }
+				}
+				case 'embedding-status': {
+					return { ok: true, value: await embedding.status() }
+				}
+				case 'embedding-save': {
+					return { ok: true, value: await embedding.save(payload?.embedding ?? {}) }
+				}
+				case 'embedding-download': {
+					return { ok: true, value: await embedding.download(text(payload, 'model')) }
+				}
+				case 'embedding-cancel': {
+					return { ok: true, value: await embedding.cancel() }
+				}
+				case 'embedding-test': {
+					return { ok: true, value: await embedding.test() }
 				}
 				default: {
 					return {

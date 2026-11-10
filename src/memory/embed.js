@@ -275,7 +275,7 @@ export class ModelEmbedder {
 		this.modelName = config.modelName ?? 'multilingual-e5-small'
 		this.logger = config.logger
 		this.id = 'model'
-		this.dimensions = 0
+		this.dimensions = Number.isFinite(config.dimensions) ? config.dimensions : 0
 		this.extractor = undefined
 		this.loading = undefined
 		this.failed = false
@@ -340,7 +340,10 @@ export class ModelEmbedder {
 		}
 		return module.pipeline('feature-extraction', this.modelName, {
 			device: 'cpu',
+			// `dtype` is the transformers.js v3+ spelling, `quantized` the v2
+			// one; passing both keeps one model folder usable across versions.
 			dtype: 'q8',
+			quantized: true,
 			local_files_only: true,
 		})
 	}

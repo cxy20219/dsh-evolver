@@ -11,7 +11,7 @@
  */
 
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 
 /** How many searches may be stored remotely. */
 const KEEP_MIN = 1
@@ -23,6 +23,12 @@ const INTERVAL_MAX = 10_080
 
 /** A backup prefix is one safe object-name segment. */
 const PREFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+/** The embedding backends the panel may select. */
+const EMBEDDING_PROVIDERS = new Set(['local', 'model', 'http', 'none'])
+
+/** The default download mirror. */
+const DEFAULT_EMBEDDING_MIRROR = 'https://hf-mirror.com'
 
 /** An access key id is an identifier, not a secret, but still has a shape. */
 const KEY_ID_PATTERN = /^[A-Za-z0-9_=+-]{3,128}$/
@@ -42,6 +48,55 @@ export function defaultBackup() {
 		prefix: 'dsh-evolver',
 		keep: 7,
 		intervalMinutes: 1440,
+	}
+}
+
+/**
+ * The default embedding configuration.
+ *
+ * `local` is the zero-config hashing backend; `model` needs downloaded
+ * weights plus a separately installed ONNX runtime; `http` talks to any
+ * OpenAI-compatible endpoint (Ollama, LM Studio, llama.cpp).
+ *
+ * @returns {object} A fresh object.
+ */
+export function defaultEmbedding() {
+	return {
+		provider: 'local',
+		model: 'multilingual-e5-small',
+		modelPath: '',
+		runtimePath: '',
+		baseURL: '',
+		apiKey: '',
+		mirror: DEFAULT_EMBEDDING_MIRROR,
+	}
+}
+
+/**
+ * Normalise one embedding configuration.
+ *
+ * Empty paths mean "use the default location"; the panel shows the resolved
+ * value. An API key is kept as-is (write-only from the browser's view).
+ *
+ * @param {unknown} value - The raw configuration.
+ * @returns {object} The normalised configuration.
+ */
+export function normalizeEmbedding(value) {
+	const source = value !== null && typeof value === 'object' ? value : {}
+	const fallback = defaultEmbedding()
+	const model = readString(source.model, fallback.model, 128)
+	const modelPath = readString(source.modelPath, '', 300)
+	const runtimePath = readString(source.runtimePath, '', 300)
+	const baseURL = readString(source.baseURL, '', 300).replace(/\/+$/, '')
+	const mirror = readString(source.mirror, fallback.mirror, 300).replace(/\/+$/, '')
+	return {
+		provider: EMBEDDING_PROVIDERS.has(source.provider) ? source.provider : fallback.provider,
+		model: /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(model) ? model : fallback.model,
+		modelPath: isAbsolute(modelPath) ? modelPath : '',
+		runtimePath: isAbsolute(runtimePath) ? runtimePath : '',
+		baseURL: /^https?:\/\//i.test(baseURL) ? baseURL : '',
+		apiKey: typeof source.apiKey === 'string' ? source.apiKey.trim() : '',
+		mirror: /^https?:\/\//i.test(mirror) ? mirror : fallback.mirror,
 	}
 }
 
@@ -68,7 +123,7 @@ export function defaultStatus() {
  * @returns {object} A fresh object.
  */
 export function defaultSettings() {
-	return { dataDir: '', backup: defaultBackup(), status: defaultStatus() }
+	return { dataDir: '', backup: defaultBackup(), status: defaultStatus(), embedding: defaultEmbedding() }
 }
 
 /**
@@ -211,6 +266,7 @@ export class SettingsStore {
 				dataDir: typeof parsed?.dataDir === 'string' ? parsed.dataDir : '',
 				backup: normalizeBackup(parsed?.backup),
 				status: normalizeStatus(parsed?.status),
+				embedding: normalizeEmbedding(parsed?.embedding),
 			}
 		} catch (error) {
 			// Keep the broken file around: it explains what happened after a
@@ -244,6 +300,17 @@ export class SettingsStore {
 	async update(patch = {}) {
 		if (typeof patch.dataDir === 'string') {
 			this.data.dataDir = patch.dataDir.trim()
+		}
+		const embedding = patch.embedding
+		if (embedding !== null && typeof embedding === 'object') {
+			const next = normalizeEmbedding({ ...this.data.embedding, ...embedding })
+			// The API key is write-only from the browser's point of view.
+			if (embedding.clearApiKey === true) {
+				next.apiKey = ''
+			} else if (typeof embedding.apiKey !== 'string' || embedding.apiKey.trim() === '') {
+				next.apiKey = this.data.embedding.apiKey
+			}
+			this.data.embedding = next
 		}
 		const backup = patch.backup
 		if (backup !== null && typeof backup === 'object') {
@@ -325,6 +392,15 @@ export class SettingsStore {
 				intervalMinutes: backup.intervalMinutes,
 			},
 			status: { ...this.data.status },
+			embedding: {
+				provider: this.data.embedding.provider,
+				model: this.data.embedding.model,
+				modelPath: this.data.embedding.modelPath,
+				runtimePath: this.data.embedding.runtimePath,
+				baseURL: this.data.embedding.baseURL,
+				hasApiKey: this.data.embedding.apiKey !== '',
+				mirror: this.data.embedding.mirror,
+			},
 		}
 	}
 }
