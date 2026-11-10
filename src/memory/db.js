@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /**
@@ -497,12 +497,22 @@ export class MemoryDatabase {
 	 * @param {Float32Array | number[]} vector - The vector.
 	 * @returns {Promise<void>} Resolves once the vector is scheduled for writing.
 	 */
-	async setVector(id, vector) {
+	async setVector(id, vector, { adopt = false } = {}) {
 		if (!vector || vector.length === 0) return
+		const first = this.vectors.size === 0
 		this.vectors.set(id, vector instanceof Float32Array ? vector : Float32Array.from(vector))
-		this.vectorBackend = this.embedder?.id
-		this.vectorModel = this.embedder?.modelName
-		this.vectorDimensions = vector.length
+		const backend = this.embedder?.id
+		const model = this.embedder?.modelName
+		const sameSpace = this.vectorBackend === backend && this.vectorModel === model
+		// The metadata describes the *whole* vector set. A single save must not
+		// relabel old vectors as belonging to a new backend: after a restart the
+		// store would believe it was aligned and compare vectors from two
+		// different spaces. Only a rebuild (adopt) or an empty store may relabel.
+		if (adopt || first || sameSpace) {
+			this.vectorBackend = backend
+			this.vectorModel = model
+			this.vectorDimensions = vector.length
+		}
 		this.markDirty(VECTORS)
 	}
 
@@ -681,26 +691,35 @@ export class MemoryDatabase {
 	 */
 	async writeMemories() {
 		const appends = this.pendingAppends
+		// Records saved while this write is in flight are pushed onto the same
+		// array; only the first `written` belong to this pass.
+		const written = appends.length
 		const limit = Math.max(64, this.memories.size * 3)
-		const compact = this.logRewrite || this.logLength + appends.length > limit
+		const compact = this.logRewrite || this.logLength + written > limit
 		try {
 			if (compact) {
 				await this.writeLines(MEMORIES_FILE, this.memories.values())
 				this.logLength = this.memories.size
 				this.logRewrite = false
-			} else if (appends.length > 0) {
+				// The compaction carries every record currently in memory; any
+				// record saved after that snapshot stays queued for the next
+				// append instead of being dropped.
+				this.pendingAppends = appends.slice(written)
+			} else if (written > 0) {
 				await appendFile(
 					join(this.folder, MEMORIES_FILE),
-					`${appends.map(record => JSON.stringify(record)).join('\n')}\n`,
+					`${appends.slice(0, written).map(record => JSON.stringify(record)).join('\n')}\n`,
 					{ encoding: 'utf8', mode: 0o600 },
 				)
-				this.logLength += appends.length
+				this.logLength += written
+				this.pendingAppends = appends.slice(written)
+			} else {
+				this.pendingAppends = []
 			}
-			this.pendingAppends = []
 		} catch (error) {
-			// Re-queue: a duplicate line is harmless (last one wins), a lost
-			// save is not.
-			this.pendingAppends = [...appends, ...this.pendingAppends]
+			// Re-queue everything (including what arrived during the attempt):
+			// a duplicate line is harmless (last one wins), a lost save is not.
+			this.pendingAppends = appends
 			throw error
 		}
 	}
@@ -746,8 +765,13 @@ export class MemoryDatabase {
 		const target = join(this.folder, name)
 		this.writeSequence += 1
 		const temp = `${target}.${process.pid}.${this.writeSequence}.tmp`
-		await writeFile(temp, content, { encoding: 'utf8', mode: 0o600 })
-		await rename(temp, target)
+		try {
+			await writeFile(temp, content, { encoding: 'utf8', mode: 0o600 })
+			await rename(temp, target)
+		} catch (error) {
+			await rm(temp, { force: true }).catch(() => {})
+			throw error
+		}
 	}
 
 	/**

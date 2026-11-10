@@ -152,6 +152,11 @@ export function readTar(archive) {
 		const mode = Number.parseInt(readField(header, 100, 8).replace(/[^0-7]/g, ''), 8)
 		const size = Number.parseInt(readField(header, 124, 12).replace(/[^0-7]/g, ''), 8)
 		const type = String.fromCharCode(header[156])
+		if (type === 'L' || type === 'K' || type === 'x' || type === 'g') {
+			// A pax/GNU extension carries the real path of the next entry.
+			// Ignoring it would import files under truncated names, so refuse.
+			throw new Error('tar 使用了 GNU/pax 扩展头，无法安全解析；请用 ustar 格式（本插件的导出即为 ustar）。')
+		}
 		if (!Number.isFinite(size) || size < 0 || size > MAX_ENTRY_BYTES) {
 			throw new Error('tar 条目大小不合法')
 		}

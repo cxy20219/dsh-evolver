@@ -11,7 +11,7 @@
  * stores — a downloaded snapshot can be imported without converting it.
  */
 
-import { lstat, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 
@@ -183,6 +183,11 @@ export async function restoreEntries(root, entries, { force = false } = {}) {
  */
 export async function writeArchive(target, archive) {
 	const temp = `${target}.${process.pid}.${Date.now()}.tmp`
-	await writeFile(temp, archive, { mode: 0o600 })
-	await rename(temp, target)
+	try {
+		await writeFile(temp, archive, { mode: 0o600 })
+		await rename(temp, target)
+	} catch (error) {
+		await rm(temp, { force: true }).catch(() => {})
+		throw error
+	}
 }

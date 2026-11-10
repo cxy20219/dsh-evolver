@@ -202,12 +202,12 @@ export function createMemoryActions(store, { now = () => new Date() } = {}) {
 	 * @returns {object} The result.
 	 */
 	function list({ kind, scope, limit } = {}) {
-		const all = store.entries()
+		const filtered = store.entries()
 			.filter((entry) => (kind === undefined || entry.kind === kind))
 			.filter((entry) => (scope === undefined || parseScope(entry.scope).kind === scope || entry.scope === scope))
 			.sort((left, right) => (right.importance ?? 0) - (left.importance ?? 0) || String(right.updatedAt).localeCompare(String(left.updatedAt)))
-			.slice(0, boundedCount(limit, 20, 200))
-		return { success: true, total: all.length, results: all }
+		// `total` is how many matched, not how many fit on this page.
+		return { success: true, total: filtered.length, results: filtered.slice(0, boundedCount(limit, 20, 200)) }
 	}
 
 	/**

@@ -60,6 +60,26 @@ test('parseFrontmatter 读取标量、内联数组与块数组', () => {
 	assert.deepEqual(data.tags, ['x', 'y'])
 })
 
+test('崩溃残留的 .tmp 文件不会被当成条目', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-tmp-'))
+	try {
+		await mkdir(join(dir, 'docs', 't'), { recursive: true })
+		await writeFile(join(dir, 'docs', 't', 'good.md'), '---\ntitle: 好条目\npurpose: p\n---\n\nbody\n', 'utf8')
+		await writeFile(join(dir, 'docs', 't', 'good.md.123.4.tmp'), 'half written', 'utf8')
+		const scan = await scanPractice(dir)
+		assert.deepEqual(scan.entries.map((entry) => entry.name), ['good.md'])
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('只有 links/tags 会解析成数组，标题里的方括号保持原样', () => {
+	const { data } = splitEntry('---\ntitle: [草稿] 结论\npurpose: p\nlinks: [a, b]\ntags: [x]\n---\n\nbody\n')
+	assert.equal(data.title, '[草稿] 结论')
+	assert.deepEqual(data.links, ['a', 'b'])
+	assert.deepEqual(data.tags, ['x'])
+})
+
 test('splitEntry 把前言和正文分开', () => {
 	const { data, body } = splitEntry(ENTRY)
 	assert.equal(data.title, '如何确认插件改动生效')

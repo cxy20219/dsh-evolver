@@ -125,32 +125,57 @@ export class BackupService {
 		if (!config.enabled && !force) throw new Error('自动备份未启用，先打开开关并保存。')
 		const readiness = this.readiness()
 		if (!readiness.ready) throw new Error(`云端备份配置不完整：缺少 ${readiness.missing.join('、')}。`)
-		this.running = true
 		const startedAt = this.now()
-		await this.settings.updateStatus({ lastAttemptAt: startedAt.toISOString() })
+		// Everything below runs inside the try: a failed settings write used to
+		// leave `running` set forever, and every later backup was refused with
+		// "already running" until the Host restarted.
+		this.running = true
 		try {
+			await this.settings.updateStatus({ lastAttemptAt: startedAt.toISOString() })
 			const files = await this.collectFiles()
 			const archive = createTar(files, { now: startedAt })
 			const key = `${config.prefix}/backup-${keyStamp(startedAt)}.tar`
 			const client = this.client()
 			await client.putObject(key, archive, 'application/x-tar')
-			// Retention is decided on the key order: the timestamps sort. Only
-			// snapshots take part — other objects under the prefix stay put.
-			const keys = (await client.listObjects(`${config.prefix}/`))
-				.filter((key) => isBackupKey(config.prefix, key))
-				.sort()
-			const excess = keys.slice(0, Math.max(0, keys.length - config.keep))
-			for (const old of excess) await client.deleteObject(old)
+			// The snapshot exists now. Record it before retention: a failing
+			// delete must not make the next heartbeat upload another copy of
+			// the same data while the old objects linger.
 			await this.settings.updateStatus({
 				lastBackupAt: this.now().toISOString(),
 				lastObjectKey: key,
 				lastBytes: archive.length,
 				lastFiles: files.length,
-				lastRemoved: excess.length,
+				lastRemoved: 0,
 				lastError: '',
 			})
-			this.logger?.info?.(`dsh-evolver: backup ${key} (${archive.length} bytes, ${files.length} files, ${excess.length} old)`)
-			return { key, bytes: archive.length, files: files.length, removed: excess.length, reason }
+			let removed = 0
+			let cleanupError = ''
+			try {
+				// Retention is decided on the key order: the timestamps sort.
+				// Only snapshots take part — other objects under the prefix stay.
+				const keys = (await client.listObjects(`${config.prefix}/`))
+					.filter((candidate) => isBackupKey(config.prefix, candidate))
+					.sort()
+				const excess = keys.slice(0, Math.max(0, keys.length - config.keep))
+				for (const old of excess) await client.deleteObject(old)
+				removed = excess.length
+				await this.settings.updateStatus({ lastRemoved: removed }).catch(() => {})
+			} catch (error) {
+				cleanupError = error instanceof Error ? error.message : String(error)
+				await this.settings.updateStatus({
+					lastError: `快照已上传，但清理旧备份失败：${cleanupError}`,
+				}).catch(() => {})
+				this.logger?.warn?.(`dsh-evolver: backup cleanup failed: ${cleanupError}`)
+			}
+			this.logger?.info?.(`dsh-evolver: backup ${key} (${archive.length} bytes, ${files.length} files, ${removed} old)`)
+			return {
+				key,
+				bytes: archive.length,
+				files: files.length,
+				removed,
+				reason,
+				...(cleanupError === '' ? {} : { cleanupError }),
+			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
 			await this.settings.updateStatus({ lastError: message }).catch(() => {})

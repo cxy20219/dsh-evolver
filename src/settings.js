@@ -10,7 +10,7 @@
  * secret back to the browser: the panel only learns whether one is stored.
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 /** How many searches may be stored remotely. */
@@ -143,10 +143,13 @@ export function normalizeBackup(value) {
 	const source = value !== null && typeof value === 'object' ? value : {}
 	const fallback = defaultBackup()
 	const prefix = String(source.prefix ?? '').trim()
+	const bucket = readString(source.bucket, fallback.bucket, 128)
 	return {
 		enabled: readBoolean(source.enabled, fallback.enabled),
 		endpoint: readString(source.endpoint, fallback.endpoint, 200).replace(/\/+$/, ''),
-		bucket: readString(source.bucket, fallback.bucket, 128),
+		// A bucket name becomes a host label or a path segment; separators and
+		// whitespace would silently produce a different URL than intended.
+		bucket: /^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$/.test(bucket) ? bucket : '',
 		accessKeyId: readString(source.accessKeyId, fallback.accessKeyId, 128),
 		accessKeySecret: readString(source.accessKeySecret, fallback.accessKeySecret, 256),
 		prefix: PREFIX_PATTERN.test(prefix) ? prefix : fallback.prefix,
@@ -186,6 +189,8 @@ export class SettingsStore {
 		this.path = path
 		this.logger = logger
 		this.data = defaultSettings()
+		/** Counts temp files so two saves in the same millisecond cannot collide. */
+		this.writeSequence = 0
 	}
 
 	/**
@@ -274,9 +279,15 @@ export class SettingsStore {
 	 */
 	async save() {
 		await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
-		const temp = `${this.path}.${process.pid}.${Date.now()}.tmp`
-		await writeFile(temp, `${JSON.stringify(this.data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
-		await rename(temp, this.path)
+		this.writeSequence += 1
+		const temp = `${this.path}.${process.pid}.${Date.now()}.${this.writeSequence}.tmp`
+		try {
+			await writeFile(temp, `${JSON.stringify(this.data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+			await rename(temp, this.path)
+		} catch (error) {
+			await rm(temp, { force: true }).catch(() => {})
+			throw error
+		}
 	}
 
 	/**
@@ -287,6 +298,8 @@ export class SettingsStore {
 	 */
 	publicView(rootInfo) {
 		const backup = this.data.backup
+		const archiveDir = dirname(rootInfo.root)
+		const archiveName = suggestedArchiveName()
 		return {
 			dataDir: rootInfo.root,
 			dataDirSource: rootInfo.source,
@@ -296,10 +309,11 @@ export class SettingsStore {
 			settingsPath: this.path,
 			// Next to the data folder, not inside it: a local export must not
 			// end up in the next export. The folder and the name are separate
-			// so the panel can offer a directory picker plus a name field.
-			suggestedArchive: join(dirname(rootInfo.root), suggestedArchiveName()),
-			suggestedArchiveDir: dirname(rootInfo.root),
-			suggestedArchiveName: suggestedArchiveName(),
+			// so the panel can offer a directory picker plus a name field; both
+			// come from one timestamp so the full path always agrees.
+			suggestedArchive: join(archiveDir, archiveName),
+			suggestedArchiveDir: archiveDir,
+			suggestedArchiveName: archiveName,
 			backup: {
 				enabled: backup.enabled,
 				endpoint: backup.endpoint,

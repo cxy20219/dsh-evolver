@@ -160,7 +160,7 @@ export class MemoryStore {
 			this.logger?.warn?.('dsh-evolver: 有批次失败，放弃本次重建，旧向量保持不变。')
 			return
 		}
-		for (const [id, vector] of staged) await this.db.setVector(id, vector)
+		for (const [id, vector] of staged) await this.db.setVector(id, vector, { adopt: true })
 		await this.db.flush()
 		this.vectorsAligned = true
 	}
@@ -182,8 +182,15 @@ export class MemoryStore {
 		return vectors
 	}
 
-	/** Write the store out and stop the debounce timer. */
+	/**
+	 * Write the store out and stop the debounce timer.
+	 *
+	 * A background rebuild may still be applying vectors; waiting for it keeps
+	 * a copy/tar taken right after this call from capturing half of one space
+	 * and half of another. A failed rebuild is already reported by `init`.
+	 */
 	async close() {
+		await this.ready?.catch(() => {})
 		await this.db.close()
 	}
 

@@ -43,6 +43,16 @@ test('tar 校验和坏了会报错，路径里带 .. 会被拒绝', () => {
 	assert.throws(() => readTar(evil))
 })
 
+test('GNU/pax 扩展头会被明确拒绝，而不是静默解析错路径', () => {
+	const archive = createTar([{ path: 'a.md', content: 'x' }])
+	archive[156] = 'L'.charCodeAt(0)
+	archive.fill(0x20, 148, 156)
+	let sum = 0
+	for (let index = 0; index < 512; index += 1) sum += archive[index]
+	Buffer.from(`${sum.toString(8).padStart(6, '0')}\0 `).copy(archive, 148)
+	assert.throws(() => readTar(archive), /GNU\/pax/)
+})
+
 test('OSS V1 待签字符串按规范拼装', () => {
 	const request = {
 		method: 'get',
@@ -205,6 +215,50 @@ test('备份上传一个 tar，并按保留份数删除最旧的', async () => {
 		assert.equal(status.lastBackupAt, '2026-11-10T12:00:00.000Z')
 		assert.equal(status.lastError, '')
 		assert.equal(status.lastFiles, 2)
+	} finally {
+		await rm(fixture.dir, { recursive: true, force: true })
+	}
+})
+
+test('设置写入失败不会让“备份进行中”卡死', async () => {
+	const fixture = await serviceFixture({ keep: 1 })
+	try {
+		const original = fixture.settings.updateStatus.bind(fixture.settings)
+		let failOnce = true
+		fixture.settings.updateStatus = async function (patch) {
+			if (failOnce) {
+				failOnce = false
+				throw new Error('disk full')
+			}
+			return original(patch)
+		}
+		await assert.rejects(() => fixture.service.runNow({ force: true }), /disk full/)
+		assert.equal(fixture.service.running, false)
+		// 第一次失败后仍可再次备份，而不是永远报“正在进行中”
+		const result = await fixture.service.runNow({ force: true })
+		assert.ok(result.key.endsWith('.tar'))
+		assert.equal(fixture.service.running, false)
+	} finally {
+		await rm(fixture.dir, { recursive: true, force: true })
+	}
+})
+
+test('清理旧备份失败不判本次备份失败，也不会立刻重复上传', async () => {
+	const fixture = await serviceFixture({ keep: 1 })
+	try {
+		fixture.objects.set('evolver/backup-20260101T000000Z.tar', Buffer.from('old'))
+		fixture.client.deleteObject = async () => { throw new Error('AccessDenied') }
+		const result = await fixture.service.runNow({ force: true })
+		assert.equal(result.removed, 0)
+		assert.match(result.cleanupError, /AccessDenied/)
+		const status = fixture.settings.get().status
+		assert.equal(status.lastBackupAt, '2026-11-10T12:00:00.000Z')
+		assert.match(status.lastError, /清理旧备份失败/)
+
+		fixture.clock.value = new Date('2026-11-10T12:10:00.000Z')
+		const puts = fixture.calls.filter((call) => call.type === 'put').length
+		await fixture.service.tick()
+		assert.equal(fixture.calls.filter((call) => call.type === 'put').length, puts)
 	} finally {
 		await rm(fixture.dir, { recursive: true, force: true })
 	}

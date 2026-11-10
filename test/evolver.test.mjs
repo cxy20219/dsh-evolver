@@ -219,6 +219,42 @@ test('灵魂与全局偏好有大小上限', async () => {
 	}
 })
 
+test('外部改写的大文件读取时会被截断，不整份进内存', async () => {
+	const { evolver, root, home } = await fixture()
+	try {
+		await evolver.ensure()
+		await writeFile(join(root, 'sight', 'soul.md'), 'a'.repeat(MAX_SOUL_BYTES * 4), 'utf8')
+		await writeFile(join(root, 'preferences', 'AGENTS.md'), 'b'.repeat(MAX_PREFERENCES_BYTES * 2), 'utf8')
+		const soul = await evolver.soulRead()
+		assert.equal(soul.truncated, true)
+		assert.equal(soul.fullBytes, MAX_SOUL_BYTES * 4)
+		assert.ok(soul.bytes <= MAX_SOUL_BYTES)
+		const preferences = await evolver.preferencesRead()
+		assert.equal(preferences.truncated, true)
+		assert.ok(preferences.bytes <= MAX_PREFERENCES_BYTES)
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
+})
+
+test('没有 verified 的条目只报结构问题，不再重复成“久未验证”', async () => {
+	const { evolver, root, home } = await fixture()
+	try {
+		await evolver.ensure()
+		await mkdir(join(root, 'practice', 'docs', 't'), { recursive: true })
+		await writeFile(join(root, 'practice', 'docs', 't', 'no-date.md'), '---\ntitle: 无日期\npurpose: p\nkind: doc\ntopic: T\n---\n\nbody\n', 'utf8')
+		await writeFile(join(root, 'practice', 'docs', 't', 'bad-date.md'), '---\ntitle: 坏日期\npurpose: p\nkind: doc\ntopic: T\nverified: not-a-date\n---\n\nbody\n', 'utf8')
+		const overview = await evolver.overview()
+		assert.equal(overview.suggestions.filter((item) => item.kind === 'stale' && item.path.includes('no-date')).length, 0)
+		assert.ok(overview.suggestions.some((item) => item.kind === 'problem' && item.path.includes('no-date')))
+		const badDate = overview.suggestions.filter((item) => item.kind === 'stale' && item.path.includes('bad-date'))
+		assert.equal(badDate.length, 1)
+		assert.match(badDate[0].message, /不是可识别的日期/)
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
+})
+
 test('practiceWrite 不跟随目录软链写到数据目录之外', async () => {
 	const { evolver, root, home } = await fixture()
 	const outside = await mkdtemp(join(tmpdir(), 'evr-outside-'))

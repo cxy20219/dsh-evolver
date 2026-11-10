@@ -19,7 +19,7 @@
  * The folder is the unit of migration and backup: copy it and everything moves.
  */
 
-import { cp, lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, open, readdir, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
@@ -260,6 +260,8 @@ export class Evolver {
 			? Math.trunc(indexBytes)
 			: DEFAULT_INDEX_BYTES
 		this.panelDir = join(this.dshHome, 'panel')
+		/** Counts temp files so two writes in one millisecond cannot collide. */
+		this.writeSequence = 0
 		/**
 		 * The injected text, cached.
 		 *
@@ -512,6 +514,28 @@ export class Evolver {
 	}
 
 	/**
+	 * Replace a document through a uniquely named temporary file.
+	 *
+	 * The panel and the agent can both be writing while the Host is killed;
+	 * an entry that was half written would then be parsed as a broken record.
+	 *
+	 * @param {string} path - Absolute target path.
+	 * @param {string} text - File content.
+	 * @returns {Promise<void>} Resolves once the rename is committed.
+	 */
+	async writeDocument(path, text) {
+		this.writeSequence += 1
+		const temp = `${path}.${process.pid}.${this.writeSequence}.tmp`
+		try {
+			await writeFile(temp, text, { encoding: 'utf8', mode: 0o600 })
+			await rename(temp, path)
+		} catch (error) {
+			await rm(temp, { force: true }).catch(() => {})
+			throw error
+		}
+	}
+
+	/**
 	 * Rebuild the index files and the injected projection.
 	 *
 	 * @returns {Promise<{entries: object[], problems: object[], projection: object}>} The result.
@@ -616,7 +640,7 @@ export class Evolver {
 			throw new Error(`目标不是普通文件：${relPath}`)
 		}
 		const content = `${frontmatter}${body}\n`
-		await writeFile(path, content, { encoding: 'utf8', mode: 0o600 })
+		await this.writeDocument(path, content)
 		const rebuilt = await this.regenerateIndex()
 		// The prompt sections read this cache, so a write has to refresh it:
 		// otherwise the agent cannot see what it just sank until the timer runs.
@@ -665,10 +689,18 @@ export class Evolver {
 	async soulRead() {
 		let content = ''
 		let updatedAt = null
+		let truncated = false
+		let fullBytes = 0
 		try {
-			content = await readFile(this.soulPath, 'utf8')
 			const info = await lstat(this.soulPath)
+			fullBytes = info.size
 			updatedAt = info.mtime.toISOString()
+			// The write path caps the file, but an edit made outside the panel
+			// must not turn one request into a 100 MB prompt section.
+			truncated = info.size > MAX_SOUL_BYTES
+			content = truncated
+				? await readHead(this.soulPath, MAX_SOUL_BYTES)
+				: await readFile(this.soulPath, 'utf8')
 		} catch {
 			content = ''
 		}
@@ -676,6 +708,8 @@ export class Evolver {
 			path: 'sight/soul.md',
 			content,
 			bytes: Buffer.byteLength(content, 'utf8'),
+			fullBytes,
+			truncated: truncated || undefined,
 			updatedAt,
 		}
 	}
@@ -692,7 +726,7 @@ export class Evolver {
 			throw new Error(`灵魂超过 ${MAX_SOUL_BYTES} 字节：它每次请求都会被注入，请精简或把细节写进实践。`)
 		}
 		await mkdir(dirname(this.soulPath), { recursive: true, mode: 0o700 })
-		await writeFile(this.soulPath, text, { encoding: 'utf8', mode: 0o600 })
+		await this.writeDocument(this.soulPath, text)
 		this.cache.soul = text
 		const info = await lstat(this.soulPath)
 		return { path: 'sight/soul.md', bytes: info.size, updatedAt: info.mtime.toISOString() }
@@ -705,8 +739,15 @@ export class Evolver {
 	 */
 	async preferencesRead() {
 		let content = ''
+		let truncated = false
+		let fullBytes = 0
 		try {
-			content = await readFile(this.preferencesPath, 'utf8')
+			const info = await lstat(this.preferencesPath)
+			fullBytes = info.size
+			truncated = info.size > MAX_PREFERENCES_BYTES
+			content = truncated
+				? await readHead(this.preferencesPath, MAX_PREFERENCES_BYTES)
+				: await readFile(this.preferencesPath, 'utf8')
 		} catch {
 			content = ''
 		}
@@ -715,6 +756,8 @@ export class Evolver {
 			globalPath: this.globalPath,
 			content,
 			bytes: Buffer.byteLength(content, 'utf8'),
+			fullBytes,
+			truncated: truncated || undefined,
 			link: await this.globalLinkState(),
 		}
 	}
@@ -731,7 +774,7 @@ export class Evolver {
 			throw new Error(`全局偏好超过 ${MAX_PREFERENCES_BYTES} 字节，DSH 的加载器会截断，请精简。`)
 		}
 		await mkdir(dirname(this.preferencesPath), { recursive: true, mode: 0o700 })
-		await writeFile(this.preferencesPath, text, { encoding: 'utf8', mode: 0o600 })
+		await this.writeDocument(this.preferencesPath, text)
 		return this.preferencesRead()
 	}
 
@@ -826,7 +869,8 @@ export class Evolver {
 			soul: {
 				text: soul.content,
 				bytes: soul.bytes,
-				budget: 1024,
+				budget: MAX_SOUL_BYTES,
+				truncated: soul.truncated === true ? true : undefined,
 			},
 			preferences: {
 				path: preferences.path,
@@ -834,6 +878,7 @@ export class Evolver {
 				text: preferences.content,
 				bytes: preferences.bytes,
 				link: preferences.link,
+				truncated: preferences.truncated === true ? true : undefined,
 				note: '全局偏好由 DSH 的 AGENTS.md 加载器注入，不占用演化器自己的预算。',
 			},
 			totalBytes: Buffer.byteLength(practice.projection.text, 'utf8') + soul.bytes + preferences.bytes,
@@ -897,18 +942,28 @@ export class Evolver {
 				message: problem.message,
 			})
 		}
-		const stale = practice.entries.filter((entry) => {
-			if (entry.verified === '') return true
-			const days = (Date.now() - Date.parse(entry.verified)) / 86_400_000
-			return Number.isFinite(days) && days > 180
-		})
-		for (const entry of stale) {
-			suggestions.push({
-				kind: 'stale',
-				level: 'warning',
-				path: entry.relPath,
-				message: `上次验证是 ${entry.verified}，超过半年没有复查。`,
-			})
+		for (const entry of practice.entries) {
+			// A missing `verified` is already reported as a structure problem;
+			// listing it twice (with an empty date) was pure noise.
+			if (entry.verified === '') continue
+			const parsed = Date.parse(entry.verified)
+			if (!Number.isFinite(parsed)) {
+				suggestions.push({
+					kind: 'stale',
+					level: 'warning',
+					path: entry.relPath,
+					message: `上次验证是 ${entry.verified}，不是可识别的日期，请改成 YYYY-MM-DD。`,
+				})
+				continue
+			}
+			if (Date.now() - parsed > 180 * 86_400_000) {
+				suggestions.push({
+					kind: 'stale',
+					level: 'warning',
+					path: entry.relPath,
+					message: `上次验证是 ${entry.verified}，超过半年没有复查。`,
+				})
+			}
 		}
 		return suggestions
 	}
@@ -939,6 +994,24 @@ export function slugify(value) {
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, '-')
 		.replace(/^-+|-+$/g, '')
+}
+
+/**
+ * Read at most `bytes` from the start of a file.
+ *
+ * @param {string} path - Absolute path.
+ * @param {number} bytes - The byte budget.
+ * @returns {Promise<string>} The decoded head.
+ */
+async function readHead(path, bytes) {
+	const handle = await open(path, 'r')
+	try {
+		const buffer = Buffer.alloc(bytes)
+		const { bytesRead } = await handle.read(buffer, 0, bytes, 0)
+		return buffer.subarray(0, bytesRead).toString('utf8')
+	} finally {
+		await handle.close()
+	}
 }
 
 /**

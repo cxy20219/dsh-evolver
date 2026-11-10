@@ -326,6 +326,27 @@ test('导出、导入与迁移数据目录', async () => {
 	})
 })
 
+test('两个数据操作不能同时进行', async () => {
+	await withHome(async (home) => {
+		const { ctx, routes, effects } = fakeContext()
+		const root = join(home, 'evolver')
+		await apply(ctx, { dataDir: root })
+		try {
+			const [first, second] = await Promise.all([
+				post(routes, 'data-export', { dir: home, name: 'one.tar.gz' }),
+				post(routes, 'data-export', { dir: home, name: 'two.tar.gz' }),
+			])
+			assert.deepEqual([first.status, second.status].sort(), [200, 400])
+			const rejected = first.status === 400 ? first : second
+			assert.match((await rejected.json()).error.message, /正在进行/)
+			const written = first.status === 200 ? 'one.tar.gz' : 'two.tar.gz'
+			assert.equal((await stat(join(home, written))).isFile(), true)
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
+})
+
 test('立即备份走完整链路：上传 tar、按保留份数清理、记录状态', async () => {
 	const oss = await fakeOss()
 	try {

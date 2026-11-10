@@ -32,7 +32,7 @@
  * must keep working when everything else moves.
  */
 
-import { lstat, mkdir, open, readFile, readdir, realpath, rename, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
 
 /** The kinds of practice, in the order the index lists them. */
@@ -109,6 +109,9 @@ let writeSequence = 0
 const KEY_LINE = /^([A-Za-z0-9_.-]+)[ \t]*:(.*)$/
 const LIST_ITEM = /^[ \t]*-[ \t]+(.*)$/
 
+/** The fields whose value may be an inline array. */
+const LIST_FIELDS = new Set(['links', 'tags'])
+
 /**
  * Parse the small YAML subset the frontmatter actually uses.
  *
@@ -142,7 +145,10 @@ export function parseFrontmatter(text) {
 			data[key] = []
 			continue
 		}
-		if (rest.startsWith('[') && rest.endsWith(']')) {
+		// Only the list fields are parsed as arrays: a title such as
+		// `[草稿] 结论` is a scalar, and turning it into an array used to make
+		// the title disappear after a write/read round trip.
+		if (LIST_FIELDS.has(key) && rest.startsWith('[') && rest.endsWith(']')) {
 			data[key] = rest
 				.slice(1, -1)
 				.split(',')
@@ -362,7 +368,7 @@ export async function scanPractice(practiceRoot) {
 			continue
 		}
 		for (const name of names.sort()) {
-			if (name.startsWith('.')) continue
+			if (name.startsWith('.') || name.endsWith('.tmp')) continue
 			const path = join(kindDir, name)
 			const info = await lstatOrUndefined(path)
 			if (info === undefined) continue
@@ -459,7 +465,9 @@ async function collectTopic(practiceRoot, kind, topicSlug, topicDir, problems) {
 		return entries
 	}
 	for (const name of names.sort()) {
-		if (name.startsWith('.')) continue
+		// `.tmp` is the atomic writer's suffix; a crash can leave one behind and
+		// it must not be parsed as an entry.
+		if (name.startsWith('.') || name.endsWith('.tmp')) continue
 		const path = join(topicDir, name)
 		const info = await lstatOrUndefined(path)
 		if (info === undefined) continue
@@ -777,8 +785,14 @@ export async function writeIndexes(practiceRoot, entries, dropped = []) {
 async function writeTextAtomic(path, text) {
 	writeSequence += 1
 	const temp = `${path}.${process.pid}.${writeSequence}.tmp`
-	await writeFile(temp, text, { encoding: 'utf8', mode: 0o600 })
-	await rename(temp, path)
+	try {
+		await writeFile(temp, text, { encoding: 'utf8', mode: 0o600 })
+		await rename(temp, path)
+	} catch (error) {
+		// A failed rename must not leave a stray `.tmp` next to the entries.
+		await rm(temp, { force: true }).catch(() => {})
+		throw error
+	}
 }
 
 /**

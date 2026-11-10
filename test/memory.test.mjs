@@ -160,6 +160,29 @@ test('重建向量时初始化不被阻塞，重建完成前检索只用关键�
 	}
 })
 
+test('写入过程中新保存的记忆不会被丢到下一次重启', async () => {
+	const { dir, db } = await fixture()
+	try {
+		await db.put({ id: 'a', text: '第一条', kind: 'fact', updatedAt: STAMP })
+		// 强制下一次写走整库重写，并在重写完成时插入一条新记忆。
+		db.logRewrite = true
+		const original = db.writeLines.bind(db)
+		db.writeLines = async function (name, records) {
+			await original(name, records)
+			await db.put({ id: 'b', text: '写入期间的新记忆', kind: 'fact', updatedAt: STAMP })
+		}
+		await db.flush()
+		await db.close()
+
+		const reopened = new MemoryDatabase({ dataDir: dir })
+		await reopened.init()
+		assert.equal(reopened.get('b')?.text, '写入期间的新记忆')
+		await reopened.close()
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
 test('记忆日志是追加的：新增、更新、删除都是写一行', async () => {
 	const { dir, db } = await fixture()
 	try {
@@ -246,6 +269,85 @@ test('重建向量时只要有一批失败就整体不落盘', async () => {
 		assert.equal(reopened.vectorBackend, 'old')
 		assert.ok(Math.abs(reopened.vector('m0')[0] - 1) < 1e-6)
 		await reopened.close()
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('未对齐时保存不会把整库向量标成新后端', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-mixed-'))
+	try {
+		const old = new MemoryDatabase({ dataDir: dir, embedder: { id: 'old', modelName: 'a' } })
+		await old.init()
+		await old.put({ id: 'a', text: '旧记忆', kind: 'fact', updatedAt: STAMP })
+		await old.setVector('a', new Float32Array([1, 0]))
+		await old.close()
+
+		const next = new MemoryDatabase({ dataDir: dir, embedder: { id: 'new', modelName: 'b' } })
+		await next.init()
+		await next.put({ id: 'b', text: '新记忆', kind: 'fact', updatedAt: STAMP })
+		await next.setVector('b', new Float32Array([0, 1]))
+		await next.close()
+
+		// 只保存一条新记忆不能把整库标成新后端；重启后仍会触发重建，
+		// 而不是把两个向量空间混在一起比较。
+		const reopened = new MemoryDatabase({ dataDir: dir })
+		await reopened.init()
+		assert.equal(reopened.vectorBackend, 'old')
+		assert.equal(reopened.vectorModel, 'a')
+		assert.equal(reopened.vectors.size, 2)
+		await reopened.close()
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('关闭记忆库会等后台重建落盘', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-close-'))
+	try {
+		const old = new MemoryDatabase({ dataDir: dir, embedder: { id: 'old' } })
+		await old.init()
+		await old.put({ id: 'a', text: '插件注册验证', kind: 'fact', updatedAt: STAMP })
+		await old.setVector('a', new Float32Array([1, 0]))
+		await old.close()
+
+		const store = new MemoryStore({
+			dataDir: dir,
+			embedding: {
+				id: 'new',
+				embedBatch: async (texts) => {
+					await new Promise((resolve) => setTimeout(resolve, 40))
+					return texts.map(() => new Float32Array([0, 1]))
+				},
+			},
+		})
+		await store.init()
+		// 直接关闭：必须等重建完成，否则导出的只是半套向量。
+		await store.close()
+
+		const reopened = new MemoryDatabase({ dataDir: dir })
+		await reopened.init()
+		assert.equal(reopened.vectorBackend, 'new')
+		await reopened.close()
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('记忆列表的 total 是过滤后的总数，不是当前页条数', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-list-'))
+	try {
+		const store = new MemoryStore({ dataDir: dir, embedding: { id: 'none' } })
+		await store.init()
+		await store.ready
+		const memory = createMemoryActions(store)
+		await memory.save({ content: '第一条记忆', kind: 'fact' })
+		await memory.save({ content: '第二条记忆', kind: 'fact' })
+		await memory.save({ content: '第三条记忆', kind: 'fact' })
+		const page = memory.list({ limit: 1 })
+		assert.equal(page.total, 3)
+		assert.equal(page.results.length, 1)
+		await store.close()
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}

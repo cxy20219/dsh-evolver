@@ -106,7 +106,7 @@ async function resolveRoot({ configured, stored, defaultRoot }) {
  */
 function requestPath(value) {
 	const text = String(value ?? '').trim()
-	if (text === '') throw new Error('请填写目录路径。')
+	if (text === '') throw new Error('请填写路径。')
 	if (text.includes('\u0000') || /[\r\n]/.test(text)) throw new Error('路径不合法。')
 	if (!isAbsolute(text)) throw new Error(`必须是绝对路径：${text}`)
 	const resolved = resolve(text)
@@ -324,13 +324,6 @@ export async function apply(ctx, config) {
 		},
 
 		/**
-		 * Copy a folder into the current data folder.
-		 *
-		 * @param {unknown} dir - The source.
-		 * @param {{force?: boolean}} [options] - Overwrite behaviour.
-		 * @returns {Promise<object>} What happened.
-		 */
-		/**
 		 * List the archives in one folder.
 		 *
 		 * The client has a folder picker but no file picker, so the flow is
@@ -393,6 +386,43 @@ export async function apply(ctx, config) {
 			await openMemory(evolver.root)
 			return restored
 		},
+	}
+
+	/**
+	 * The data operation currently holding the folder, if any.
+	 *
+	 * @type {string | undefined}
+	 */
+	let dataOperation
+
+	/**
+	 * Run one data-folder operation while no other one is in flight.
+	 *
+	 * @param {string} label - What the operation is, for the refusal message.
+	 * @param {() => Promise<unknown>} action - The operation.
+	 * @returns {Promise<unknown>} Its result.
+	 */
+	async function exclusive(label, action) {
+		if (dataOperation !== undefined) {
+			throw new Error(`${dataOperation}正在进行，请稍后再试。`)
+		}
+		dataOperation = label
+		try {
+			return await action()
+		} finally {
+			dataOperation = undefined
+		}
+	}
+
+	// Moving, exporting and importing all copy the folder and reopen the
+	// memory store. Two at once could leave the store pointing at a folder the
+	// evolver no longer uses, so they share one gate.
+	const exclusiveOperations = { migrate: '迁移', exportTo: '导出', importFrom: '导入' }
+	for (const [method, label] of Object.entries(exclusiveOperations)) {
+		const original = workspace[method]
+		workspace[method] = function (...args) {
+			return exclusive(label, () => original.apply(workspace, args))
+		}
 	}
 
 	/** Everything that has to be undone, in registration order. */

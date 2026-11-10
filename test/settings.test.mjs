@@ -35,6 +35,19 @@ test('设置文件不存在时给出默认值', async () => {
 	}
 })
 
+test('桶名里带路径分隔符会被拒绝，建议路径由同一个时间戳拼成', async () => {
+	const { store, dir } = await fixture()
+	try {
+		await store.update({ backup: { bucket: 'a/b c' } })
+		assert.equal(store.get().backup.bucket, '')
+		const view = store.publicView(ROOT_INFO)
+		assert.equal(view.suggestedArchive, join(view.suggestedArchiveDir, view.suggestedArchiveName))
+		assert.match(view.suggestedArchive, /\/data\/dsh-evolver-\d{8}-\d{6}\.tar\.gz$/)
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
 test('保存后能读回，文件权限是 0600', async () => {
 	const { store, path, dir } = await fixture()
 	try {
