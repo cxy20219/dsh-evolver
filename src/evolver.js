@@ -10,7 +10,6 @@
  *       docs/<topic>/…   文档：经验、流程、验证方法
  *       tools/<topic>/…  工具：脚本与 CLI
  *       resources/…      资源：模板、示例、静态资源
- *       agents/…         子智能体定义
  *     sight/             见闻：agent 自己的记忆
  *       soul.md          灵魂：注入的人格与边界
  *       memory/          记忆存储（JSONL + 向量）
@@ -125,7 +124,6 @@ verified: ${new Date().toISOString().slice(0, 10)}
 - \`doc\`：经验、流程、验证方法、外部规则与版本差异。
 - \`tool\`：能重复运行的脚本或 CLI。先按下面的脚本优先协议判断。
 - \`resource\`：模板、示例输入、静态资源。
-- \`agent\`：子智能体定义。
 
 ## 脚本优先协议
 
@@ -476,7 +474,7 @@ export class Evolver {
 			{ from: 'scripts', to: 'practice/tools/legacy-scripts' },
 			{ from: 'assets', to: 'practice/resources/legacy-assets' },
 			{ from: 'references', to: 'practice/resources/legacy-references' },
-			{ from: 'agents', to: 'practice/agents/legacy-agents' },
+			{ from: 'agents', to: 'practice/docs/legacy-agents' },
 		]
 		for (const item of legacy) {
 			const from = join(old, item.from)

@@ -16,7 +16,6 @@
  *     docs/<topic>/<slug>.md   documents: experience, workflows, verification
  *     tools/<topic>/<slug>     tools: scripts and CLIs
  *     resources/<topic>/<slug> resources: templates, examples, static files
- *     agents/<topic>/<slug>.md agent definitions
  *
  * Every entry starts with the same frontmatter:
  *
@@ -41,7 +40,6 @@ export const KINDS = [
 	{ id: 'doc', dir: 'docs', title: '文档' },
 	{ id: 'tool', dir: 'tools', title: '工具' },
 	{ id: 'resource', dir: 'resources', title: '资源' },
-	{ id: 'agent', dir: 'agents', title: 'Agents' },
 ]
 
 /** The frontmatter fields every entry must carry. */

@@ -446,6 +446,34 @@ test('点击导出后面板显示可见的成功提示', async () => {
 	}
 })
 
+test('实践只有文档、工具、资源三个子标签', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		const practiceTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.practice')
+		assert.equal(practiceTab.length, 1)
+		practiceTab[0].props.onClick()
+		tree = await runtime.settle(render)
+		const kindTabs = findAll(tree, (node) => String(textOf(node)).startsWith('kind.') && node.props?.onClick !== undefined)
+		assert.deepEqual(kindTabs.map((node) => textOf(node)), ['kind.doc', 'kind.tool', 'kind.resource'])
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
 test('导出目录为空时点击给出明确提示，而不是静默', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch

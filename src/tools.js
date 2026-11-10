@@ -54,7 +54,7 @@ export function createTools({ practice, memory }) {
 				type: 'object',
 				properties: {
 					query: { type: 'string', description: '检索关键词或问题' },
-					kind: { type: 'string', enum: KINDS.map((kind) => kind.id), description: '限定类型：doc 文档 / tool 工具 / resource 资源 / agent 子智能体' },
+					kind: { type: 'string', enum: KINDS.map((kind) => kind.id), description: '限定类型：doc 文档 / tool 工具 / resource 资源' },
 					limit: { type: 'integer', description: '返回条数，默认 8' },
 				},
 				required: ['query'],
@@ -90,7 +90,7 @@ export function createTools({ practice, memory }) {
 			parameters: {
 				type: 'object',
 				properties: {
-					kind: { type: 'string', enum: KINDS.map((kind) => kind.id), description: 'doc 文档 / tool 工具 / resource 资源 / agent 子智能体' },
+					kind: { type: 'string', enum: KINDS.map((kind) => kind.id), description: 'doc 文档 / tool 工具 / resource 资源' },
 					name: { type: 'string', description: '文件名，例如 my-check.md' },
 					title: { type: 'string', description: '标题，一句话说清是什么' },
 					purpose: { type: 'string', description: '一句话用途：什么时候该用它' },

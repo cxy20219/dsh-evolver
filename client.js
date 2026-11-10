@@ -108,7 +108,6 @@ window.__ModuleLoader__.load({
 			'kind.doc': '文档',
 			'kind.tool': '工具',
 			'kind.resource': '资源',
-			'kind.agent': 'Agents',
 			'settings.hint': '数据目录决定实践、见闻与偏好放在哪里；云端备份把整个目录打包上传。',
 			'settings.data': '数据目录',
 			'settings.data.current': '当前目录',
@@ -251,7 +250,6 @@ window.__ModuleLoader__.load({
 			'kind.doc': 'Documents',
 			'kind.tool': 'Tools',
 			'kind.resource': 'Resources',
-			'kind.agent': 'Agents',
 			'settings.hint': 'The data folder holds the practice, sight and preferences; a cloud backup uploads the whole folder.',
 			'settings.data': 'Data folder',
 			'settings.data.current': 'Current folder',
@@ -330,7 +328,6 @@ window.__ModuleLoader__.load({
 			{ id: 'doc', title: 'kind.doc' },
 			{ id: 'tool', title: 'kind.tool' },
 			{ id: 'resource', title: 'kind.resource' },
-			{ id: 'agent', title: 'kind.agent' },
 		];
 
 		//#endregion

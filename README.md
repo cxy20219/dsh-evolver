@@ -11,7 +11,6 @@
     docs/<topic>/<slug>.md      ← 文档：经验、流程、验证方法
     tools/<topic>/<slug>        ← 工具：能重复运行的脚本与 CLI
     resources/<topic>/<slug>    ← 资源：模板、示例、静态资源
-    agents/<topic>/<slug>.md    ← 子智能体定义
   sight/                        ← 见闻：Agent 自己的记忆
     soul.md                     ← 灵魂（注入）
     memory/                     ← 记忆存储（JSONL + 向量）
