@@ -53,11 +53,11 @@ export class MemoryStore {
 	/**
 	 * @param {{dataDir: string, embedding?: object, logger?: object}} deps - Store dependencies.
 	 */
-	constructor({ dataDir, embedding, logger }) {
+	constructor({ dataDir, embedding, logger, folder, logName }) {
 		this.dataDir = dataDir
 		this.logger = logger
 		this.embedder = embedding === undefined ? createEmbedder({ provider: 'local' }) : embedding
-		this.db = new MemoryDatabase({ dataDir, embedder: this.embedder, logger })
+		this.db = new MemoryDatabase({ dataDir, embedder: this.embedder, logger, folder, logName })
 		/**
 		 * Whether every stored vector belongs to the configured embedder.
 		 *

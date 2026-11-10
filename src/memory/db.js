@@ -110,8 +110,10 @@ export class MemoryDatabase {
 	/**
 	 * @param {{dataDir: string, embedder?: object, logger?: object}} deps - Store dependencies.
 	 */
-	constructor({ dataDir, embedder, logger }) {
+	constructor({ dataDir, embedder, logger, folder = 'memory', logName = MEMORIES_FILE }) {
 		this.dataDir = dataDir
+		this.folderName = folder
+		this.logName = logName
 		this.embedder = embedder
 		this.logger = logger
 		/** @type {Map<string, object>} */
@@ -159,7 +161,7 @@ export class MemoryDatabase {
 
 	/** The folder the store owns. */
 	get folder() {
-		return join(this.dataDir, 'memory')
+		return join(this.dataDir, this.folderName)
 	}
 
 	/**
@@ -231,7 +233,7 @@ export class MemoryDatabase {
 		const records = new Map()
 		let raw
 		try {
-			raw = await readFile(join(this.folder, MEMORIES_FILE), 'utf8')
+			raw = await readFile(join(this.folder, this.logName), 'utf8')
 		} catch {
 			return records
 		}
@@ -698,7 +700,7 @@ export class MemoryDatabase {
 		const compact = this.logRewrite || this.logLength + written > limit
 		try {
 			if (compact) {
-				await this.writeLines(MEMORIES_FILE, this.memories.values())
+				await this.writeLines(this.logName, this.memories.values())
 				this.logLength = this.memories.size
 				this.logRewrite = false
 				// The compaction carries every record currently in memory; any
@@ -707,7 +709,7 @@ export class MemoryDatabase {
 				this.pendingAppends = appends.slice(written)
 			} else if (written > 0) {
 				await appendFile(
-					join(this.folder, MEMORIES_FILE),
+					join(this.folder, this.logName),
 					`${appends.slice(0, written).map(record => JSON.stringify(record)).join('\n')}\n`,
 					{ encoding: 'utf8', mode: 0o600 },
 				)
