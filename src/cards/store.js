@@ -1,19 +1,14 @@
 /**
  * The unified card store.
  *
- * Cards live in one append-only log (`knowledge/cards/cards.jsonl`) and
- * reuse the memory layer's BM25/vector/lifecycle machinery: the card record
- * is a superset of a memory record, so search, recall and re-embedding keep
- * working while the record gains type/shape/status/tags/links/resources.
+ * A card is one append-only log record plus optional resource files. Its
+ * classification lives entirely in hierarchical tags:
  *
- * The two projections are derived from the same records:
- *   - `projection()` builds the small permanent-only routing table injected
- *     into the prompt;
- *   - `query()` searches every card (fleeting included) on demand.
+ *   #收集箱 / #临时 / #永久笔记 / #实践/经验 / #实践/工作流 / #归档
  *
- * No title is required: `label` is derived from the first line, and permanent
- * cards keep a one-line `summary` for routing. Long content lives in the
- * resource store, not in the card body.
+ * There is no separate type/shape/status/category field. The search engine
+ * (BM25 + vectors + lifecycle) and the tag tree are the retrieval surface;
+ * the prompt injects only the tag tree, never card bodies.
  */
 
 import { mkdir } from 'node:fs/promises'
@@ -21,31 +16,23 @@ import { join } from 'node:path'
 
 import { MemoryStore } from '../memory/store.js'
 import { hybridRetrieve } from '../memory/hybrid.js'
-import { CARD_CATEGORIES as CATEGORIES } from './vocabulary.js'
 import { cardId, isCardId } from './ids.js'
 import { ResourceStore, safeResourceName } from './resources.js'
-import { buildTagTree, isUnder, normalizeTag, normalizeTags } from './tags.js'
-
-/** The two card lives. */
-export const CARD_TYPES = ['fleeting', 'permanent']
-
-/** The content shapes. */
-export const CARD_SHAPES = ['memo', 'note', 'doc', 'tool', 'resource']
-
-/** The status axis. */
-export const CARD_STATUSES = ['inbox', 'verified', 'archived']
-
-/** The semantic categories inherited from memory. */
-export const CARD_CATEGORIES = CATEGORIES
+import {
+	archiveTags,
+	buildTagTree,
+	isArchived,
+	isPermanent,
+	isUnder,
+	lifecycleOf,
+	LIFECYCLE_TAGS,
+	normalizeLifecycleTags,
+	normalizeTags,
+	promoteTags,
+} from './tags.js'
 
 /** The default body budget, in Unicode code points. */
 export const DEFAULT_CARD_MAX_CHARS = 1000
-
-/** The injected routing table budget, in bytes. */
-export const DEFAULT_PROJECTION_BYTES = 2048
-
-/** The order permanent shapes appear in the routing table. */
-const SHAPE_ORDER = { note: 0, doc: 1, tool: 2, resource: 3, memo: 4 }
 
 /**
  * Derive a card label from its body.
@@ -74,7 +61,7 @@ export function charCount(value) {
 }
 
 /**
- * One line, safe for the injected routing table.
+ * One line, scrubbed for storage.
  *
  * @param {unknown} value - The text.
  * @param {number} max - Maximum code points.
@@ -82,6 +69,17 @@ export function charCount(value) {
  */
 function oneLine(value, max) {
 	return [...String(value ?? '').replace(/\s+/g, ' ').trim()].slice(0, max).join('')
+}
+
+/**
+ * The lifecycle tags of a card, used to preserve the state on partial updates.
+ *
+ * @param {string[]} tags - The tags.
+ * @returns {string[]} The tags under a lifecycle root.
+ */
+function lifecycleMarkerTags(tags) {
+	const roots = [LIFECYCLE_TAGS.inbox, LIFECYCLE_TAGS.fleeting, LIFECYCLE_TAGS.permanent, LIFECYCLE_TAGS.practice, LIFECYCLE_TAGS.archived]
+	return (Array.isArray(tags) ? tags : []).filter((tag) => roots.some((root) => isUnder(tag, root)))
 }
 
 /**
@@ -125,7 +123,7 @@ export class CardStore {
 	}
 
 	/**
-	 * Flush pending writes.
+	 * Flush the debounced log.
 	 *
 	 * @returns {Promise<void>} Resolves when flushed.
 	 */
@@ -134,25 +132,17 @@ export class CardStore {
 	}
 
 	/**
-	 * The store counters.
+	 * Lifecycle counters.
 	 *
-	 * @returns {object} Counters.
+	 * @returns {object} Counters and vector state.
 	 */
 	status() {
 		const cards = this.all()
-		const byType = {}
-		const byStatus = {}
-		const byShape = {}
-		for (const card of cards) {
-			byType[card.type] = (byType[card.type] ?? 0) + 1
-			byStatus[card.status] = (byStatus[card.status] ?? 0) + 1
-			byShape[card.shape] = (byShape[card.shape] ?? 0) + 1
-		}
+		const lifecycle = { inbox: 0, fleeting: 0, permanent: 0, archived: 0 }
+		for (const card of cards) lifecycle[lifecycleOf(card.tags)] += 1
 		return {
 			cards: cards.length,
-			byType,
-			byStatus,
-			byShape,
+			lifecycle,
 			embedder: this.cards.status().embedder,
 			vectorsReady: this.cards.vectorsReady(),
 		}
@@ -167,32 +157,21 @@ export class CardStore {
 	cardOf(record) {
 		return {
 			id: record.id,
-			type: record.type ?? 'fleeting',
-			shape: record.shape ?? 'memo',
-			category: record.category ?? record.kind ?? '',
-			status: record.status ?? 'inbox',
-			label: record.label ?? labelOf(record.body ?? record.text),
+			label: record.label ?? labelOf(record.body),
 			summary: record.summary ?? '',
-			body: record.body ?? record.text ?? '',
-			topic: record.topic ?? '',
+			body: record.body ?? '',
 			tags: record.tags ?? [],
 			links: record.links ?? [],
 			resources: record.resources ?? [],
-			scope: record.scope ?? 'global',
 			source: record.source ?? 'manual',
-			created: record.created ?? record.createdAt ?? '',
-			updated: record.updated ?? record.updatedAt ?? '',
+			created: record.created ?? '',
+			updated: record.updated ?? '',
 			verified: record.verified ?? '',
-			pinned: record.pinned === true,
-			importance: record.importance ?? 0.5,
-			tier: record.tier ?? 'working',
-			accessCount: record.accessCount ?? 0,
-			lastAccessedAt: record.lastAccessedAt ?? '',
 		}
 	}
 
 	/**
-	 * Every card, newest first.
+	 * Every card.
 	 *
 	 * @returns {object[]} The cards.
 	 */
@@ -223,30 +202,23 @@ export class CardStore {
 		if (!isCardId(id)) throw new Error('卡片 id 不合法。')
 		const existing = this.cards.getEntry(id)
 		const previous = existing === undefined ? undefined : this.cardOf(existing)
-		const type = input.type ?? previous?.type ?? 'fleeting'
-		if (!CARD_TYPES.includes(type)) throw new Error(`未知卡片类型：${String(type)}`)
-		const shape = input.shape ?? previous?.shape ?? (type === 'permanent' ? 'note' : 'memo')
-		if (!CARD_SHAPES.includes(shape)) throw new Error(`未知卡片形状：${String(shape)}`)
-		const status = input.status ?? previous?.status ?? (type === 'permanent' ? 'verified' : 'inbox')
-		if (!CARD_STATUSES.includes(status)) throw new Error(`未知卡片状态：${String(status)}`)
-		if (type === 'fleeting' && (shape !== 'memo' || (status !== 'inbox' && status !== 'archived'))) {
-			throw new Error('临时卡片只能是 memo，状态为 inbox 或 archived。')
-		}
-		if (type === 'permanent' && (shape === 'memo' || (status !== 'verified' && status !== 'archived'))) {
-			throw new Error('永久卡片只能是 note/doc/tool/resource，状态为 verified 或 archived。')
-		}
 		const body = String(input.body ?? previous?.body ?? '')
 		if (charCount(body) > this.cardMaxChars) {
 			throw new Error(`卡片正文超过 ${this.cardMaxChars} 字上限；请拆成多张卡，或把长内容放入资源附件。`)
 		}
-		const category = input.category ?? previous?.category ?? 'fact'
-		if (category !== '' && !CARD_CATEGORIES.includes(category)) throw new Error(`未知卡片分类：${String(category)}`)
+		const rawTags = input.tags === undefined ? (previous?.tags ?? []) : normalizeTags(input.tags)
+		const explicitMarker = (Array.isArray(input.tags) ? normalizeTags(input.tags) : [])
+			.some((tag) => lifecycleMarkerTags([tag]).length > 0)
+		const tags = normalizeLifecycleTags(
+			explicitMarker || previous === undefined ? rawTags : [...rawTags, ...lifecycleMarkerTags(previous.tags)],
+			{ defaultLifecycle: 'inbox' },
+		)
+		const permanent = isPermanent(tags)
 		const now = new Date().toISOString()
 		const derivedLabel = labelOf(body)
 		const label = oneLine(input.label ?? (derivedLabel !== '' ? derivedLabel : previous?.label ?? ''), 80)
-		const summary = oneLine(input.summary ?? previous?.summary ?? (type === 'permanent' ? label : ''), 200)
-		const topic = normalizeTag(input.topic ?? previous?.topic ?? '')
-		const tags = normalizeTags(input.tags ?? previous?.tags ?? [])
+		const summaryInput = oneLine(input.summary ?? '', 200)
+		const summary = permanent ? (summaryInput || previous?.summary || label) : ''
 		const links = Array.isArray(input.links) ? [...new Set(input.links.map(String))] : (previous?.links ?? [])
 		for (const link of links) {
 			if (!isCardId(link)) throw new Error(`链接目标不是卡片 id：${link}`)
@@ -267,39 +239,21 @@ export class CardStore {
 			if (index >= 0) resources[index] = metadata
 			else resources.push(metadata)
 		}
-		const verified = input.verified ?? previous?.verified ?? (type === 'permanent' && status === 'verified' ? now.slice(0, 10) : '')
+		const verified = permanent
+			? (input.verified ?? previous?.verified ?? now.slice(0, 10))
+			: ''
 		const record = {
 			id,
-			type,
-			shape,
-			category,
-			status,
 			label,
 			summary,
 			body,
-			topic,
 			tags,
 			links,
 			resources,
-			scope: input.scope ?? previous?.scope ?? 'global',
 			source: input.source ?? previous?.source ?? 'manual',
 			created: previous?.created ?? input.created ?? now,
 			updated: now,
 			verified,
-			pinned: input.pinned === undefined ? previous?.pinned === true : input.pinned === true,
-			importance: Number.isFinite(Number(input.importance)) ? Number(input.importance) : (previous?.importance ?? 0.5),
-			tier: input.tier ?? previous?.tier ?? 'working',
-			accessCount: previous?.accessCount ?? 0,
-			lastAccessedAt: previous?.lastAccessedAt ?? '',
-			// Memory-compatible fields: BM25, vectors and lifecycle reuse them.
-			kind: category === '' ? 'fact' : category,
-			text: body,
-			content: body,
-			l0Abstract: label,
-			l1Overview: summary,
-			createdAt: previous?.created ?? input.created ?? now,
-			updatedAt: now,
-			metadata: { source: 'cards' },
 		}
 		await this.cards.putMemory(record)
 		return this.cardOf(record)
@@ -346,42 +300,48 @@ export class CardStore {
 	/**
 	 * Filter cards without a text query.
 	 *
-	 * @param {{type?: string, status?: string, tags?: string[], limit?: number, includeArchived?: boolean}} [options] - Filters.
+	 * @param {{tags?: string[], anyTags?: string[], limit?: number, includeArchived?: boolean}} [options] - Filters.
 	 * @returns {object[]} The cards.
 	 */
-	list({ type, status, tags = [], limit = 50, includeArchived = false } = {}) {
+	list({ tags = [], anyTags = [], limit = 50, includeArchived = false } = {}) {
 		const filters = normalizeTags(tags)
+		const any = normalizeTags(anyTags)
+		const archivedFilter = filters.some((tag) => isUnder(tag, LIFECYCLE_TAGS.archived))
 		const cards = this.all().filter((card) => {
-			if (type !== undefined && card.type !== type) return false
-			if (status !== undefined && card.status !== status) return false
-			if (status === undefined && card.status === 'archived' && !includeArchived) return false
+			if (!includeArchived && !archivedFilter && isArchived(card.tags)) return false
 			if (filters.length > 0) {
 				const cardTags = card.tags ?? []
 				if (!filters.every((filter) => cardTags.some((tag) => isUnder(tag, filter)))) return false
 			}
+			if (any.length > 0) {
+				const cardTags = card.tags ?? []
+				if (!any.some((filter) => cardTags.some((tag) => isUnder(tag, filter)))) return false
+			}
 			return true
 		})
-		cards.sort((left, right) => (right.pinned ? 1 : 0) - (left.pinned ? 1 : 0) || String(right.updated).localeCompare(String(left.updated)))
+		cards.sort((left, right) => String(right.updated).localeCompare(String(left.updated)))
 		return cards.slice(0, Math.max(1, Math.min(200, Math.round(Number(limit) || 50))))
 	}
 
 	/**
 	 * Search cards with the memory layer's hybrid retrieval.
 	 *
-	 * @param {{text?: string, type?: string, status?: string, tags?: string[], limit?: number}} [request] - The query.
+	 * @param {{text?: string, tags?: string[], anyTags?: string[], limit?: number, includeArchived?: boolean}} [request] - The query.
 	 * @returns {Promise<object[]>} Matching cards.
 	 */
-	async query({ text = '', type, status, tags = [], limit = 8 } = {}) {
+	async query({ text = '', tags = [], anyTags = [], limit = 8, includeArchived = false } = {}) {
 		const filters = normalizeTags(tags)
+		const any = normalizeTags(anyTags)
+		const archivedFilter = filters.some((tag) => isUnder(tag, LIFECYCLE_TAGS.archived))
 		const keep = (card) => {
-			if (type !== undefined && card.type !== type) return false
-			if (status !== undefined && card.status !== status) return false
-			if (status === undefined && card.status === 'archived') return false
+			if (!includeArchived && !archivedFilter && isArchived(card.tags)) return false
 			if (filters.length > 0 && !filters.every((filter) => (card.tags ?? []).some((tag) => isUnder(tag, filter)))) return false
+			if (any.length > 0 && !any.some((filter) => (card.tags ?? []).some((tag) => isUnder(tag, filter)))) return false
 			return true
 		}
 		const queryText = String(text ?? '').trim()
-		if (queryText === '') return this.list({ type, status, tags, limit }).filter(keep)
+		const size = Math.max(1, Math.min(50, Math.round(Number(limit) || 8)))
+		if (queryText === '') return this.list({ tags, anyTags, limit: size, includeArchived })
 		let queryVector
 		if (this.cards.vectorsReady()) {
 			try {
@@ -395,68 +355,23 @@ export class CardStore {
 			db: this.cards.db,
 			query: queryText,
 			queryVector,
-			limit: Math.max(limit * 4, 20),
+			limit: Math.max(size * 4, 20),
 			floor: queryVector === undefined ? undefined : this.cards.embedder.relevanceFloor,
 		})
 		return results
 			.map((result) => this.cardOf(result.memory))
 			.filter(keep)
-			.slice(0, Math.max(1, Math.min(50, Math.round(Number(limit) || 8))))
+			.slice(0, size)
 	}
 
 	/**
-	 * The injected routing table: permanent, verified cards only.
+	 * The active tag forest with counts.
 	 *
-	 * @param {{budget?: number}} [options] - The byte budget.
-	 * @returns {string} The projection.
-	 */
-	projection({ budget = DEFAULT_PROJECTION_BYTES } = {}) {
-		const permanent = this.all()
-			.filter((card) => card.type === 'permanent' && card.status === 'verified')
-			.sort((left, right) => (right.pinned ? 1 : 0) - (left.pinned ? 1 : 0)
-				|| (SHAPE_ORDER[left.shape] ?? 9) - (SHAPE_ORDER[right.shape] ?? 9)
-				|| String(left.topic).localeCompare(String(right.topic))
-				|| String(right.verified).localeCompare(String(left.verified))
-				|| String(left.label).localeCompare(String(right.label)))
-		if (permanent.length === 0) return '[实践] 暂无永久卡片；用 card_write 或卡片面板写入。'
-		const groups = new Map()
-		for (const card of permanent) {
-			const group = card.topic || card.tags[0]?.split('/')[0] || '未分类'
-			if (!groups.has(group)) groups.set(group, [])
-			groups.get(group).push(card)
-		}
-		const lines = ['[实践] 永久卡片路由（按标签分组）：']
-		let bytes = Buffer.byteLength(lines[0], 'utf8') + 1
-		let included = 0
-		for (const [group, cards] of groups) {
-			const header = `#${group} (${cards.length})`
-			if (bytes + Buffer.byteLength(header, 'utf8') + 1 > budget) break
-			lines.push(header)
-			bytes += Buffer.byteLength(header, 'utf8') + 1
-			for (const card of cards) {
-				const line = `- ${oneLine(card.label || '(未命名)', 60)} — ${oneLine(card.summary || card.label, 80)} (${card.id})`
-				const size = Buffer.byteLength(line, 'utf8') + 1
-				if (bytes + size > budget) break
-				lines.push(line)
-				bytes += size
-				included += 1
-			}
-		}
-		const dropped = permanent.length - included
-		if (dropped > 0) {
-			const tail = `（另有 ${dropped} 条未展示，用 card_query 按标签或关键词查询）`
-			if (bytes + Buffer.byteLength(tail, 'utf8') + 1 <= budget) lines.push(tail)
-		}
-		return lines.join('\n')
-	}
-
-	/**
-	 * The tag forest with counts.
-	 *
+	 * @param {{includeArchived?: boolean}} [options] - Include archived cards.
 	 * @returns {Array<object>} Root nodes.
 	 */
-	tagTree() {
-		return buildTagTree(this.all().filter((card) => card.status !== 'archived'))
+	tagTree({ includeArchived = false } = {}) {
+		return buildTagTree(this.all().filter((card) => includeArchived || !isArchived(card.tags)))
 	}
 
 	/**
@@ -476,7 +391,7 @@ export class CardStore {
 	}
 
 	/**
-	 * Promote a fleeting card to a permanent note.
+	 * Promote a card: drop inbox/temporary tags, add a permanent marker.
 	 *
 	 * @param {string} id - Card id.
 	 * @param {{summary?: string, tags?: string[], verified?: string}} [options] - Promotion fields.
@@ -485,21 +400,17 @@ export class CardStore {
 	async promote(id, { summary, tags, verified } = {}) {
 		const card = this.get(id)
 		if (card === undefined) throw new Error(`找不到卡片：${id}`)
-		if (card.type === 'permanent') return card
 		return this.put({
 			...card,
 			id,
-			type: 'permanent',
-			shape: 'note',
-			status: 'verified',
-			summary: summary ?? card.label,
-			tags: tags ?? card.tags,
+			summary: summary ?? card.summary ?? card.label,
+			tags: promoteTags(tags ?? card.tags),
 			verified: verified ?? new Date().toISOString().slice(0, 10),
 		})
 	}
 
 	/**
-	 * Archive one card.
+	 * Archive one card by adding `归档`.
 	 *
 	 * @param {string} id - Card id.
 	 * @returns {Promise<object>} The archived card.
@@ -507,7 +418,7 @@ export class CardStore {
 	async archive(id) {
 		const card = this.get(id)
 		if (card === undefined) throw new Error(`找不到卡片：${id}`)
-		return this.put({ ...card, id, status: 'archived' })
+		return this.put({ ...card, id, tags: archiveTags(card.tags) })
 	}
 
 	/**

@@ -267,7 +267,7 @@ export class MemoryDatabase {
 	 * @returns {string} The searchable text.
 	 */
 	searchableText(memory) {
-		return [memory.l0Abstract, memory.text, memory.l1Overview, (memory.tags ?? []).join(' ')]
+		return [memory.label ?? memory.l0Abstract, memory.body ?? memory.text, memory.summary ?? memory.l1Overview, (memory.tags ?? []).join(' ')]
 			.filter(value => typeof value === 'string' && value !== '')
 			.join('\n')
 	}
@@ -296,7 +296,7 @@ export class MemoryDatabase {
 
 	/** Every memory, newest first. */
 	all() {
-		return [...this.memories.values()].sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))
+		return [...this.memories.values()].sort((left, right) => String(right.updated ?? right.updatedAt).localeCompare(String(left.updated ?? left.updatedAt)))
 	}
 
 	/**

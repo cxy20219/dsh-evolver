@@ -298,32 +298,19 @@ export async function apply(ctx, config) {
 		async overview() {
 			const store = cardStoreRef.current
 			const base = await evolver.overview()
-			const permanent = store.list({ type: 'permanent', limit: 500, includeArchived: true })
-			const active = permanent.filter((card) => card.status !== 'archived')
+			const status = store.status()
 			const text = cardPrompt(store)
-			const shapes = ['note', 'doc', 'tool', 'resource']
-			const byKind = shapes.map((shape) => ({
-				id: shape,
-				title: shape,
-				count: active.filter((card) => card.shape === shape).length,
-				bytes: active.filter((card) => card.shape === shape).reduce((sum, card) => sum + Buffer.byteLength(card.body, 'utf8'), 0),
-			}))
 			return {
 				...base,
 				projection: {
-					entries: active.length,
-					bytes: active.reduce((sum, card) => sum + Buffer.byteLength(card.body, 'utf8'), 0),
-					byKind,
-					injectedBytes: Buffer.byteLength(text, 'utf8'),
-					injectedBudget: 2048,
+					entries: status.cards,
+					bytes: Buffer.byteLength(text, 'utf8'),
+					budget: 2048,
 					dropped: 0,
 				},
 				cards: {
-					...store.status(),
-					total: store.all().length,
-					permanent: active.length,
-					archived: permanent.length - active.length,
-					fleeting: store.list({ type: 'fleeting', limit: 500, includeArchived: false }).length,
+					...status,
+					total: status.cards,
 					cardMaxChars: settings.get().cardMaxChars,
 				},
 				suggestions: [],
@@ -332,12 +319,12 @@ export async function apply(ctx, config) {
 		async injection() {
 			const store = cardStoreRef.current
 			const base = await evolver.injectionPreview()
-			const active = store.list({ type: 'permanent', limit: 500, includeArchived: false })
+			const status = store.status()
 			const text = cardPrompt(store)
 			return {
 				...base,
 				cards: {
-					entries: active.length,
+					entries: status.cards,
 					bytes: Buffer.byteLength(text, 'utf8'),
 					budget: 2048,
 					dropped: 0,
@@ -348,13 +335,13 @@ export async function apply(ctx, config) {
 		async list(payload = {}) {
 			const store = cardStoreRef.current
 			const limit = Number(payload.limit ?? 100)
-			const type = typeof payload.type === 'string' && payload.type !== '' ? payload.type : undefined
-			const status = typeof payload.status === 'string' && payload.status !== '' ? payload.status : undefined
-			const tag = typeof payload.tag === 'string' && payload.tag !== '' ? payload.tag : ''
+			const tags = Array.isArray(payload.tags) ? payload.tags : []
+			const anyTags = Array.isArray(payload.anyTags) ? payload.anyTags : []
+			const includeArchived = payload.includeArchived === true
 			const query = String(payload.query ?? '').trim()
 			const cards = query === ''
-				? store.list({ type, status, tags: tag === '' ? [] : [tag], limit, includeArchived: payload.includeArchived === true })
-				: await store.query({ text: query, type, status, tags: tag === '' ? [] : [tag], limit })
+				? store.list({ tags, anyTags, limit, includeArchived })
+				: await store.query({ text: query, tags, anyTags, limit, includeArchived })
 			return { cards, tree: store.tagTree(), status: store.status(), cardMaxChars: settings.get().cardMaxChars }
 		},
 		async read(payload = {}) {
@@ -364,8 +351,8 @@ export async function apply(ctx, config) {
 			const describe = (id) => {
 				const found = store.get(id)
 				return found === undefined
-					? { id, label: '(missing)', type: '', status: '' }
-					: { id, label: found.label, type: found.type, status: found.status }
+					? { id, label: '(missing)', tags: [] }
+					: { id, label: found.label, tags: found.tags }
 			}
 			const incoming = store.backlinks()[card.id] ?? []
 			return {

@@ -45,7 +45,7 @@ function tierOf(memory) {
  * @returns {number} The recency in [0, 1].
  */
 function recency(memory, now = new Date()) {
-	const updated = Date.parse(String(memory?.updatedAt ?? ''))
+	const updated = Date.parse(String(memory?.updated ?? memory?.updatedAt ?? ''))
 	if (!Number.isFinite(updated)) return 0
 	const days = Math.max(0, (now.getTime() - updated) / DAY_MS)
 	const tier = TIERS[tierOf(memory)]

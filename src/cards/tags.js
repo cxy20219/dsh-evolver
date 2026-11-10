@@ -149,3 +149,139 @@ export function buildTagTree(cards) {
 	sort(roots)
 	return roots
 }
+
+/** The reserved lifecycle tags. */
+export const LIFECYCLE_TAGS = {
+	inbox: '收集箱',
+	fleeting: '临时',
+	permanent: '永久笔记',
+	practice: '实践',
+	archived: '归档',
+}
+
+/**
+ * What each reserved branch means. Injected instead of card summaries, so the
+ * agent knows where to search without seeing the cards themselves.
+ */
+export const TAG_DESCRIPTIONS = {
+	收集箱: '刚收集、尚未整理的卡片；新卡默认入口',
+	临时: '临时笔记，尚未验证，可随时丢弃',
+	永久笔记: '长期保留的原子笔记；子标签表示领域/主题',
+	'永久笔记/web开发': 'Web 开发主题的永久笔记',
+	'永久笔记/web开发/react开发': 'React 开发主题的永久笔记',
+	实践: '经过验证、可复用的实践笔记；子标签表示实践类型',
+	'实践/经验': '踩坑经验、判断与边界',
+	'实践/工作流': '可重复执行的工作流/流程',
+	'实践/工具': '可复用的脚本、CLI 与工具用法',
+	'实践/资源': '模板、示例与静态资源',
+	归档: '不再活跃、保留追溯的卡片',
+	事实: '确认过的事实',
+	偏好: '长期稳定的个人/团队偏好',
+	约定: '项目约定与规范',
+	纠正: '对旧结论的纠正',
+	踩坑: '踩过的坑与失败教训',
+	工具怪癖: '外部工具的稳定怪癖',
+}
+
+/**
+ * Whether a tag is under one of the given roots.
+ *
+ * @param {string} tag - The tag.
+ * @param {string[]} roots - The roots.
+ * @returns {boolean} True when it matches one.
+ */
+function underAny(tag, roots) {
+	return roots.some((root) => isUnder(tag, root))
+}
+
+/**
+ * The lifecycle implied by a card's tags.
+ *
+ * `归档` wins over everything; `实践` and `永久笔记` mean permanent; `临时`
+ * means fleeting; anything else is the inbox.
+ *
+ * @param {string[]} tags - The card tags.
+ * @returns {'archived'|'permanent'|'fleeting'|'inbox'} The lifecycle.
+ */
+export function lifecycleOf(tags = []) {
+	if (tags.some((tag) => isUnder(tag, LIFECYCLE_TAGS.archived))) return 'archived'
+	if (tags.some((tag) => underAny(tag, [LIFECYCLE_TAGS.practice, LIFECYCLE_TAGS.permanent]))) return 'permanent'
+	if (tags.some((tag) => isUnder(tag, LIFECYCLE_TAGS.fleeting))) return 'fleeting'
+	return 'inbox'
+}
+
+/**
+ * Whether a card is archived.
+ *
+ * @param {string[]} tags - The card tags.
+ * @returns {boolean} True when it is archived.
+ */
+export function isArchived(tags = []) {
+	return tags.some((tag) => isUnder(tag, LIFECYCLE_TAGS.archived))
+}
+
+/**
+ * Whether a card is permanent (practice or permanent note).
+ *
+ * @param {string[]} tags - The card tags.
+ * @returns {boolean} True when it is permanent.
+ */
+export function isPermanent(tags = []) {
+	return tags.some((tag) => underAny(tag, [LIFECYCLE_TAGS.practice, LIFECYCLE_TAGS.permanent]))
+}
+
+/**
+ * The tag description, if the branch is documented.
+ *
+ * @param {string} tag - The tag path.
+ * @returns {string} The description, or an empty string.
+ */
+export function descriptionOf(tag) {
+	return TAG_DESCRIPTIONS[tag] ?? ''
+}
+
+/**
+ * Keep one lifecycle marker and normalise the reserved tags.
+ *
+ * A card tagged `实践/经验` or `永久笔记/...` is permanent even when it has
+ * no `永久笔记` root; `归档` stays as an independent state.
+ *
+ * @param {unknown} values - The tags.
+ * @param {{defaultLifecycle?: 'inbox'|'fleeting'}} [options] - Fallback marker.
+ * @returns {string[]} Normalised tags.
+ */
+export function normalizeLifecycleTags(values, { defaultLifecycle = 'inbox' } = {}) {
+	const tags = normalizeTags(values)
+	const permanent = tags.some((tag) => underAny(tag, [LIFECYCLE_TAGS.practice, LIFECYCLE_TAGS.permanent]))
+	const fleeting = tags.some((tag) => isUnder(tag, LIFECYCLE_TAGS.fleeting))
+	const inbox = tags.some((tag) => isUnder(tag, LIFECYCLE_TAGS.inbox))
+	const kept = tags.filter((tag) => !underAny(tag, [LIFECYCLE_TAGS.inbox, LIFECYCLE_TAGS.fleeting]))
+	if (permanent) return kept
+	if (fleeting) return [LIFECYCLE_TAGS.fleeting, ...kept].slice(0, MAX_TAGS)
+	if (inbox) return [LIFECYCLE_TAGS.inbox, ...kept].slice(0, MAX_TAGS)
+	return [LIFECYCLE_TAGS[defaultLifecycle], ...kept].slice(0, MAX_TAGS)
+}
+
+/**
+ * Turn a card permanent.
+ *
+ * @param {string[]} values - The current tags.
+ * @returns {string[]} The tags with an archive marker removed.
+ */
+export function promoteTags(values) {
+	const tags = normalizeTags(values).filter((tag) => !isUnder(tag, LIFECYCLE_TAGS.archived))
+	const permanent = tags.some((tag) => underAny(tag, [LIFECYCLE_TAGS.practice, LIFECYCLE_TAGS.permanent]))
+	return normalizeLifecycleTags(permanent ? tags : [LIFECYCLE_TAGS.permanent, ...tags])
+}
+
+/**
+ * Mark a card archived.
+ *
+ * @param {string[]} values - The current tags.
+ * @returns {string[]} The tags with `归档`.
+ */
+export function archiveTags(values) {
+	const tags = normalizeTags(values)
+	if (isArchived(tags)) return tags
+	return normalizeLifecycleTags([LIFECYCLE_TAGS.archived, ...tags])
+}

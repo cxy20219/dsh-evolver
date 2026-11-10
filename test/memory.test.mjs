@@ -337,8 +337,8 @@ test('卡片记忆可以按限制列出，总数仍在店里', async () => {
 		await agent.saveFleeting({ content: '第一条记忆', kind: 'fact' })
 		await agent.saveFleeting({ content: '第二条记忆', kind: 'fact' })
 		await agent.saveFleeting({ content: '第三条记忆', kind: 'fact' })
-		assert.equal(store.list({ type: 'fleeting', limit: 200 }).length, 3)
-		assert.equal(store.list({ type: 'fleeting', limit: 1 }).length, 1)
+		assert.equal(store.list({ tags: ['收集箱'], limit: 200 }).length, 3)
+		assert.equal(store.list({ tags: ['收集箱'], limit: 1 }).length, 1)
 		await store.close()
 	} finally {
 		await rm(dir, { recursive: true, force: true })
@@ -378,7 +378,7 @@ test('小卡片库的语义命中不会被统计门槛全部滤掉', async () =>
 		await agent.saveFleeting({ content: '甲：向量召回测试', kind: 'fact' })
 		await agent.saveFleeting({ content: '乙：另一条无关记忆', kind: 'fact' })
 		assert.equal(store.status().vectorsReady, true)
-		const results = await store.query({ text: '完全不同的说法', type: 'fleeting', limit: 5 })
+		const results = await store.query({ text: '完全不同的说法', tags: ['收集箱'], limit: 5 })
 		assert.ok(results.some((card) => card.body.includes('甲')), '小库的语义命中被过滤了')
 		await store.close()
 	} finally {
@@ -386,21 +386,22 @@ test('小卡片库的语义命中不会被统计门槛全部滤掉', async () =>
 	}
 })
 
-test('相同内容在不同作用域各自成卡，同作用域才合并', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'evr-scope-'))
+test('相同内容会合并到同一张临时卡，不同内容各自成卡', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-merge-'))
 	try {
 		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
 		await store.init()
 		const agent = createCardAgent(store)
 		const text = '插件改动是否生效要用槽查询确认'
-		const first = await agent.saveFleeting({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/a' })
-		const second = await agent.saveFleeting({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/b' })
+		const first = await agent.saveFleeting({ content: text, kind: 'failure' })
+		const second = await agent.saveFleeting({ content: text, kind: 'failure' })
 		assert.equal(first.success, true)
-		assert.equal(second.success, true)
-		assert.notEqual(first.id, second.id)
-		assert.equal(store.all().length, 2)
-		const again = await agent.saveFleeting({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/a' })
-		assert.equal(again.id, first.id)
+		assert.equal(second.id, first.id)
+		assert.equal(store.all().length, 1)
+		assert.ok(store.get(first.id).tags.includes('踩坑'))
+		const other = await agent.saveFleeting({ content: '另一条不同的判断', kind: 'preference' })
+		assert.notEqual(other.id, first.id)
+		assert.ok(store.get(other.id).tags.includes('偏好'))
 		assert.equal(store.all().length, 2)
 		await store.close()
 	} finally {

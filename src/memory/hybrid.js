@@ -273,7 +273,7 @@ export async function hybridRetrieve({ db, query, queryVector, limit = 8, minSco
 
 	scored = scored.map(item => {
 		const boosted = item.score * lifecycleBoost(item.memory, now)
-		const normalised = boosted * lengthFactor(item.memory.text)
+		const normalised = boosted * lengthFactor(item.memory.body ?? item.memory.text)
 		return { ...item, score: Number(normalised.toFixed(4)) }
 	}).filter(item => item.score >= minScore)
 

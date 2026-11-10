@@ -112,8 +112,8 @@ test('后台整理直接调模型提取，校验后保存并推进游标', async
 	const memory = fakeMemory()
 	const llm = fakeLlm({
 		memories: [
-			{ text: '部署走 SSH，不要用 HTTPS。', kind: 'fact', scope: 'project', projectKey: '/repo' },
-			{ text: '别把密钥写进记忆。', kind: 'convention', scope: 'global' },
+			{ text: '部署走 SSH，不要用 HTTPS。', kind: 'fact' },
+			{ text: '别把密钥写进记忆。', kind: 'convention' },
 		],
 	})
 	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
@@ -123,8 +123,8 @@ test('后台整理直接调模型提取，校验后保存并推进游标', async
 	assert.equal(result.sessions, 1)
 	assert.equal(result.saved, 2)
 	assert.equal(memory.saves.length, 2)
-	assert.equal(memory.saves[0].scope, 'project')
-	assert.equal(memory.saves[0].projectKey, '/repo')
+	assert.equal(memory.saves[0].kind, 'fact')
+	assert.equal(memory.saves[0].scope, undefined)
 	assert.equal(commits.length, 1)
 	assert.equal(commits[0].entries[0].id, 's1')
 	assert.equal(llm.calls[0].provider, 'test')
@@ -174,8 +174,8 @@ test('提取结果里的密钥和被丢弃，空数组也会推进游标', async
 	const memory = fakeMemory()
 	const llm = fakeLlm({
 		memories: [
-			{ text: 'API key 是 sk-abcdefghijklmnopqrstuvwx', kind: 'fact', scope: 'global' },
-			{ text: '提交前先跑 npm test。', kind: 'convention', scope: 'global' },
+			{ text: 'API key 是 sk-abcdefghijklmnopqrstuvwx', kind: 'fact' },
+			{ text: '提交前先跑 npm test。', kind: 'convention' },
 		],
 	})
 	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })

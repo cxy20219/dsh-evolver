@@ -1,12 +1,9 @@
 /**
  * The card tools the agent gets from the evolver.
  *
- * One record type, one id space: the same `card_query` / `card_write` path
- * serves permanent and fleeting cards. No practice/memory compatibility
- * names survive here.
+ * One record type, one id space, tag-only classification: lifecycle and
+ * topic live in hierarchical tags, not in separate fields.
  */
-
-import { CARD_CATEGORIES, CARD_SHAPES, CARD_STATUSES, CARD_TYPES } from './cards/store.js'
 
 /**
  * Render one tool result as text.
@@ -41,15 +38,14 @@ export function createTools({ cards, sessions }) {
 	return [
 		{
 			name: 'card_query',
-			description: '按关键词、类型、状态或层级标签检索卡片。永久卡是已验证、可复用的结论/流程/工具；临时卡是还没判断的见闻。动身前先查重，别凭印象。返回卡片 id、label、正文和标签；需要全文或附件时用 card_read。',
+			description: '按关键词和层级标签检索卡片。标签：收集箱/临时/永久笔记/实践/经验/工作流 等；父标签自动包含子标签。提示词里只有标签树，具体内容必须在这里取。',
 			parameters: {
 				type: 'object',
 				properties: {
-					query: { type: 'string', description: '检索关键词或问题；留空则按条件列出' },
-					type: { type: 'string', enum: CARD_TYPES, description: '限定临时卡或永久卡' },
-					status: { type: 'string', enum: CARD_STATUSES, description: '限定状态' },
-					tags: { type: 'array', items: { type: 'string' }, description: '层级标签前缀，例如 "验证/浏览器"' },
+					query: { type: 'string', description: '检索关键词或问题；留空则按标签列出' },
+					tags: { type: 'array', items: { type: 'string' }, description: '标签前缀，例如 ["永久笔记/web开发","实践/经验"]' },
 					limit: { type: 'integer', description: '返回条数，默认 8' },
+					includeArchived: { type: 'boolean', description: '是否包含 #归档 卡片，默认 false' },
 				},
 			},
 			output: OBJECT_OUTPUT,
@@ -57,22 +53,19 @@ export function createTools({ cards, sessions }) {
 				const input = args ?? {}
 				const results = await cards.query({
 					text: input.query,
-					type: input.type,
-					status: input.status,
 					tags: input.tags,
 					limit: input.limit,
+					includeArchived: input.includeArchived === true,
 				})
 				return sanitize({ total: results.length, results })
 			},
 		},
 		{
 			name: 'card_read',
-			description: '读一张卡片的完整记录，包括正文、一句话摘要、标签、双链和资源附件。id 必须是 card_ 开头的 ULID；旧路径/旧 slug 不再支持。',
+			description: '读一张卡片的完整记录：正文、摘要、层级标签、双链和资源附件。id 必须是 card_ 开头的 ULID。',
 			parameters: {
 				type: 'object',
-				properties: {
-					id: { type: 'string', description: '卡片 id' },
-				},
+				properties: { id: { type: 'string', description: '卡片 id' } },
 				required: ['id'],
 			},
 			output: OBJECT_OUTPUT,
@@ -82,22 +75,18 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_write',
-			description: '写入或更新一张卡。临时卡（fleeting）用一句话记录还没判断的结论；永久卡（permanent）用 label + summary 做路由，doc/tool/resource 的正文会自动进资源附件、卡片只留摘要。写前先 card_query 查重；不写流水账、一次性命令、猜测、密钥。links 只能是卡片 id。',
+			description: '写入或更新一张卡。分类只由 tags 表达：默认 #收集箱；未验证的笔记用 #临时；长期笔记用 #永久笔记/领域/主题；已验证的实践用 #实践/经验、#实践/工作流、#实践/工具。body 超过正文上限时用 resourceName 把全文放进附件，卡片只留 label/summary。写前先 card_query 查重；不写流水账、一次性命令、猜测、密钥。links 只能是卡片 id。',
 			parameters: {
 				type: 'object',
 				properties: {
 					id: { type: 'string', description: '更新已有卡片时传入 id；新卡留空' },
-					type: { type: 'string', enum: CARD_TYPES, description: '临时卡或永久卡，默认临时卡' },
-					shape: { type: 'string', enum: CARD_SHAPES, description: '永久卡形状：note/doc/tool/resource；临时卡固定 memo' },
-					body: { type: 'string', description: '正文；doc/tool/resource 会自动存成附件' },
+					body: { type: 'string', description: '正文；提供 resourceName 时存成附件' },
 					label: { type: 'string', description: '列表里的一行标题；留空从正文首行派生' },
-					summary: { type: 'string', description: '永久卡的一句话路由，会进 2 KB 投影' },
-					category: { type: 'string', enum: CARD_CATEGORIES, description: '卡片分类，默认 fact' },
-					tags: { type: 'array', items: { type: 'string' }, description: '层级标签，例如 "验证/浏览器"' },
-					topic: { type: 'string', description: '主题标签' },
+					summary: { type: 'string', description: '永久卡/实践卡的一句话摘要' },
+					tags: { type: 'array', items: { type: 'string' }, description: '层级标签，例如 ["永久笔记/web开发","实践/工作流"]' },
 					links: { type: 'array', items: { type: 'string' }, description: '关联卡片 id' },
 					verified: { type: 'string', description: '最后验证日期 YYYY-MM-DD' },
-					resourceName: { type: 'string', description: 'doc/tool/resource 附件文件名，留空自动生成' },
+					resourceName: { type: 'string', description: '附件文件名；提供时 body 写入附件' },
 				},
 				required: ['body'],
 			},
@@ -108,7 +97,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_index',
-			description: '拿到全部永久卡和 2 KB 注入投影的完整文本。想确认某类资源都有什么、或想知道投影里哪些卡没进索引时用它。',
+			description: '拿到注入用的标签树全文和每个已知标签的说明。卡片正文、label、id 都不会出现在这里；要找具体卡片用 card_query。',
 			parameters: { type: 'object', properties: {} },
 			output: OBJECT_OUTPUT,
 			async execute() {
@@ -117,13 +106,13 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_promote',
-			description: '把一张临时卡提升为永久卡，让它进入 2 KB 注入投影。提升前用 card_query 查重；summary 是投影里的一句话路由，留空用原 label。',
+			description: '把 #收集箱/#临时 卡片提升为永久卡：去掉临时标签，加入 #永久笔记；已有 #实践 分支的卡保持实践类型。可补 summary 和标签。',
 			parameters: {
 				type: 'object',
 				properties: {
-					id: { type: 'string', description: '临时卡 id' },
+					id: { type: 'string', description: '卡片 id' },
 					summary: { type: 'string', description: '一句话摘要（可选）' },
-					tags: { type: 'array', items: { type: 'string' }, description: '补充层级标签（可选）' },
+					tags: { type: 'array', items: { type: 'string' }, description: '补充/替换层级标签（可选）' },
 				},
 				required: ['id'],
 			},
@@ -135,7 +124,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_archive',
-			description: '归档一张卡片：从默认列表和注入投影里移出，但保留记录和资源。适合过时但仍需追溯的结论。',
+			description: '给卡片加 #归档 标签：从默认检索和标签树里移出，但保留记录和资源。',
 			parameters: {
 				type: 'object',
 				properties: { id: { type: 'string', description: '卡片 id' } },
@@ -148,7 +137,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_remove',
-			description: '永久删除一张卡片及其资源附件。不可恢复；只在确认这张卡是噪声、重复或错误时使用。',
+			description: '永久删除一张卡片及其资源附件。不可恢复；只在确认是噪声、重复或错误时使用。',
 			parameters: {
 				type: 'object',
 				properties: { id: { type: 'string', description: '卡片 id' } },
@@ -161,7 +150,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'evolve_review',
-			description: '盘点卡片库：永久卡/临时卡数量、最近临时卡、久未验证的永久卡和可执行的 hints。没有高信号时它会明确说不用为了主动而主动。',
+			description: '盘点卡片库：收集箱/临时/永久/归档数量、最近卡片、久未验证的永久卡和可执行 hints。',
 			parameters: { type: 'object', properties: {} },
 			output: OBJECT_OUTPUT,
 			async execute() {
@@ -170,7 +159,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'session_digest',
-			description: '读取还没整理过的会话：只抽用户与助手的文本（不含工具输出和系统提示），按会话给出摘录。想手动整理时用；commit:true 会把返回的会话标记为已处理，只在保存完卡片后调用。空闲时的自动整理不经过这个工具。',
+			description: '读取还没整理过的会话：只抽用户与助手的文本（不含工具输出和系统提示），按会话给出摘录。想手动整理时用；commit:true 会在保存后标记已处理。空闲时的自动整理不经过这个工具。',
 			parameters: {
 				type: 'object',
 				properties: {

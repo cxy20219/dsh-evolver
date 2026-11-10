@@ -388,14 +388,9 @@ function apiPayload(endpoint, payload) {
 			return {
 				cards: [{
 					id: 'card-01HF7YAT00S37S1ZGTH35DPPXW',
-					slug: 'demo',
 					label: '卡片标题',
 					body: '卡片正文',
-					type: 'permanent',
-					status: 'verified',
-					shape: 'note',
-					category: 'fact',
-					tags: ['验证/浏览器'],
+					tags: ['永久笔记', '验证/浏览器'],
 					links: [],
 					resources: [],
 					updated: '2026-11-10T00:00:00.000Z',
@@ -410,11 +405,7 @@ function apiPayload(endpoint, payload) {
 					id: payload.id,
 					label: '卡片标题',
 					body: '卡片正文',
-					type: 'permanent',
-					status: 'verified',
-					shape: 'note',
-					category: 'fact',
-					tags: ['验证/浏览器'],
+					tags: ['永久笔记', '验证/浏览器'],
 					links: [],
 					resources: [],
 				},
@@ -628,7 +619,7 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 	}
 })
 
-test('卡片筛选切到收件箱后保持选中，搜索和新建都在工具栏', async () => {
+test('卡片筛选切到收集箱后保持选中，搜索和新建都在工具栏', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
 	globalThis.fetch = async (url, options) => {

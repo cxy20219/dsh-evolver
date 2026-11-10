@@ -34,7 +34,8 @@ window.__ModuleLoader__.load({
 			'cards.search': '搜索卡片…',
 			'cards.searchAction': '搜索',
 			'cards.filter.all': '全部',
-			'cards.filter.inbox': '收件箱',
+			'cards.filter.inbox': '收集箱',
+			'cards.filter.fleeting': '临时',
 			'cards.filter.permanent': '永久',
 			'cards.filter.archived': '归档',
 			'cards.empty': '还没有卡片。',
@@ -42,16 +43,12 @@ window.__ModuleLoader__.load({
 			'cards.tagReset': '全部标签',
 			'cards.editor.new': '新建卡片',
 			'cards.editor.edit': '编辑卡片',
-			'cards.field.type': '类型',
-			'cards.field.shape': '形状',
-			'cards.field.category': '分类',
 			'cards.field.body': '正文',
 			'cards.field.tags': '标签（逗号分隔）',
-			'cards.field.topic': '主题',
 			'cards.field.summary': '一句话摘要',
 			'cards.field.links': '链接（卡片 id，逗号分隔）',
 			'cards.field.summaryHint': '留空自动使用正文首行',
-			'cards.field.tagsHint': '例如：验证/浏览器，项目/dsh-evolver',
+			'cards.field.tagsHint': '收集箱, 永久笔记/web开发, 实践/经验',
 			'cards.charCount': '字',
 			'cards.save': '保存',
 			'cards.cancel': '取消',
@@ -68,22 +65,6 @@ window.__ModuleLoader__.load({
 			'cards.saved': '已保存',
 			'cards.removed': '已删除',
 			'cards.attachFailed': '附件读取失败',
-			'cards.type.fleeting': '临时',
-			'cards.type.permanent': '永久',
-			'cards.status.inbox': '收件箱',
-			'cards.status.verified': '已验证',
-			'cards.status.archived': '已归档',
-			'cards.shape.memo': '备忘',
-			'cards.shape.note': '笔记',
-			'cards.shape.doc': '文档',
-			'cards.shape.tool': '工具',
-			'cards.shape.resource': '资源',
-			'cards.category.fact': '事实',
-			'cards.category.preference': '偏好',
-			'cards.category.convention': '约定',
-			'cards.category.correction': '纠正',
-			'cards.category.failure': '踩坑',
-			'cards.category.tool-quirk': '工具怪癖',
 			'settings.cardCap': '卡片正文上限',
 			'settings.cardCapHint': '200–4000 字；超长内容请放资源附件。',
 			'sight.ingest.auto': '闲时自动整理',
@@ -117,7 +98,7 @@ window.__ModuleLoader__.load({
 			'state.linked': '已建立全局链接',
 			'overview.injection': '注入的上下文',
 			'overview.injection.hint': 'Agent 每次请求都会拿到这三块，别的地方都不占它的上下文。',
-			'overview.cards': '永久卡',
+			'overview.cards': '标签树',
 			'overview.soul': '灵魂',
 			'overview.preferences': '偏好',
 			'overview.suggestions': '建议',
@@ -125,7 +106,7 @@ window.__ModuleLoader__.load({
 			'overview.version': '版本',
 			'overview.budget': '预算',
 			'overview.dropped': '未进索引',
-			'overview.projection': '注入的索引',
+			'overview.projection': '注入的标签树',
 			'soul.hint': '灵魂是 Agent 的人格与边界，每个会话都会被读到；一次性的经历属于见闻。',
 			'soul.content': '灵魂（Markdown）',
 			'prefs.hint': '这里是全局偏好。保存后由 DSH 的 AGENTS.md 加载器注入给每个会话。',
@@ -248,6 +229,7 @@ window.__ModuleLoader__.load({
 			'cards.searchAction': 'Search',
 			'cards.filter.all': 'All',
 			'cards.filter.inbox': 'Inbox',
+			'cards.filter.fleeting': 'Fleeting',
 			'cards.filter.permanent': 'Permanent',
 			'cards.filter.archived': 'Archived',
 			'cards.empty': 'No cards yet.',
@@ -255,16 +237,12 @@ window.__ModuleLoader__.load({
 			'cards.tagReset': 'All tags',
 			'cards.editor.new': 'New card',
 			'cards.editor.edit': 'Edit card',
-			'cards.field.type': 'Type',
-			'cards.field.shape': 'Shape',
-			'cards.field.category': 'Category',
 			'cards.field.body': 'Body',
 			'cards.field.tags': 'Tags (comma separated)',
-			'cards.field.topic': 'Topic',
 			'cards.field.summary': 'One-line summary',
 			'cards.field.links': 'Links (card ids, comma separated)',
 			'cards.field.summaryHint': 'Empty uses the first line',
-			'cards.field.tagsHint': 'e.g. verify/browser, project/dsh-evolver',
+			'cards.field.tagsHint': 'inbox, permanent/web/react, practice/experience',
 			'cards.charCount': 'chars',
 			'cards.save': 'Save',
 			'cards.cancel': 'Cancel',
@@ -281,22 +259,6 @@ window.__ModuleLoader__.load({
 			'cards.saved': 'Saved',
 			'cards.removed': 'Removed',
 			'cards.attachFailed': 'Could not read the attachment',
-			'cards.type.fleeting': 'Fleeting',
-			'cards.type.permanent': 'Permanent',
-			'cards.status.inbox': 'Inbox',
-			'cards.status.verified': 'Verified',
-			'cards.status.archived': 'Archived',
-			'cards.shape.memo': 'Memo',
-			'cards.shape.note': 'Note',
-			'cards.shape.doc': 'Document',
-			'cards.shape.tool': 'Tool',
-			'cards.shape.resource': 'Resource',
-			'cards.category.fact': 'Fact',
-			'cards.category.preference': 'Preference',
-			'cards.category.convention': 'Convention',
-			'cards.category.correction': 'Correction',
-			'cards.category.failure': 'Pitfall',
-			'cards.category.tool-quirk': 'Tool quirk',
 			'settings.cardCap': 'Card body limit',
 			'settings.cardCapHint': '200–4000 characters; long content should be an attachment.',
 			'sight.ingest.auto': 'Automatic on idle',
@@ -330,7 +292,7 @@ window.__ModuleLoader__.load({
 			'state.linked': 'The global link is in place',
 			'overview.injection': 'Injected context',
 			'overview.injection.hint': 'The agent gets exactly these three blocks in every request.',
-			'overview.cards': 'Permanent cards',
+			'overview.cards': 'Tag tree',
 			'overview.soul': 'Soul',
 			'overview.preferences': 'Preferences',
 			'overview.suggestions': 'Suggestions',
@@ -338,7 +300,7 @@ window.__ModuleLoader__.load({
 			'overview.version': 'Version',
 			'overview.budget': 'Budget',
 			'overview.dropped': 'Left out of the index',
-			'overview.projection': 'Injected index',
+			'overview.projection': 'Injected tag tree',
 			'soul.hint': 'The soul is the agent’s persona and boundaries; it is read in every session.',
 			'soul.content': 'Soul (Markdown)',
 			'prefs.hint': 'Global preferences. DSH injects this file through its AGENTS.md loader.',
@@ -823,7 +785,7 @@ window.__ModuleLoader__.load({
 							background: filter.tag === node.path ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
 							paddingLeft: (8 + depth * 12) + 'px',
 						},
-						onClick: function () { props.onFilter({ tag: node.path }); },
+						onClick: function () { props.onFilter({ tag: node.path, anyTags: [], archived: false }); },
 					},
 						h('div', { className: 'evrRowMain' },
 							h('div', { className: 'evrRowTitle' }, node.name),
@@ -846,6 +808,10 @@ window.__ModuleLoader__.load({
 				return h(Field, { label: label, hint: hint }, input);
 			}
 
+			function hasTag(card, root) {
+				return (card.tags ?? []).some(function (tag) { return tag === root || tag.indexOf(root + '/') === 0; });
+			}
+
 			function renderList() {
 				if (cards.length === 0) return h(Empty, null, t('cards.empty'));
 				return h('div', null, cards.map(function (card) {
@@ -861,10 +827,7 @@ window.__ModuleLoader__.load({
 								(card.tags ?? []).map(function (tag) {
 									return h('span', { key: tag, className: 'evrTag' }, "#" + tag);
 								}))),
-						h('div', { className: 'evrRowTime' },
-							h('span', { className: 'evrTag' }, t('cards.type.' + card.type)),
-							' ',
-							t('cards.status.' + card.status)));
+						h('div', { className: 'evrRowTime' }, String(card.updated ?? '').slice(0, 10)));
 				}));
 			}
 
@@ -872,21 +835,23 @@ window.__ModuleLoader__.load({
 				var detail = props.detail;
 				if (detail === null || detail === undefined || detail.card === null) return renderList();
 				var card = detail.card;
+				var permanent = hasTag(card, '永久笔记') || hasTag(card, '实践');
+				var archived = hasTag(card, '归档');
 				return h('div', null,
 					h('div', { className: 'evrCard' },
 						h('div', { className: 'evrCardHead' },
 							h('span', { className: 'evrCardTitle' }, card.label || '(未命名)'),
-							h('span', { className: 'evrCardCount' }, t('cards.type.' + card.type) + ' · ' + t('cards.status.' + card.status))),
-						h('div', { className: 'evrHint evrMono' }, card.id + ' · ' + t('cards.shape.' + card.shape) + (card.category ? ' · ' + t('cards.category.' + card.category) : '') + (card.verified ? ' · ' + card.verified : '')),
+							h('span', { className: 'evrCardCount' }, (card.tags ?? []).slice(0, 3).map(function (tag) { return '#' + tag; }).join(' · '))),
+						h('div', { className: 'evrHint evrMono' }, card.id + (card.verified ? ' · ' + card.verified : '')),
 						h('div', { className: 'evrPre', style: { whiteSpace: 'pre-wrap', marginTop: '8px' } }, card.body || ''),
 						h('div', { className: 'evrRowMeta', style: { marginTop: '8px' } },
 							(card.tags ?? []).map(function (tag) { return h('span', { key: tag, className: 'evrTag' }, "#" + tag); }))),
 					h('div', { className: 'evrToolbar' },
 						h('button', { type: 'button', className: 'evrBtn', onClick: props.onEdit }, t('cards.edit')),
-						card.type === 'fleeting'
+						!permanent && !archived
 							? h('button', { type: 'button', className: 'evrBtn evrBtnPrimary', onClick: function () { props.onPromote(card.id); } }, t('cards.promote'))
 							: null,
-						card.status !== 'archived'
+						!archived
 							? h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onArchive(card.id); } }, t('cards.archive'))
 							: null,
 						h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onDelete(card.id); } }, t('cards.delete'))),
@@ -894,7 +859,7 @@ window.__ModuleLoader__.load({
 						? h('div', { className: 'evrSection' }, t('cards.links'))
 						: null,
 					(detail.links ?? []).map(function (item) {
-						return h('div', { key: 'l-' + item.id, className: 'evrHint' }, '→ ' + item.label + (item.type ? ' (' + item.type + ')' : ''));
+						return h('div', { key: 'l-' + item.id, className: 'evrHint' }, '→ ' + item.label);
 					}),
 					(detail.backlinks ?? []).length > 0 ? h('div', { className: 'evrSection' }, t('cards.backlinks')) : null,
 					(detail.backlinks ?? []).map(function (item) {
@@ -933,38 +898,6 @@ window.__ModuleLoader__.load({
 				var bodyLength = [...String(fields.body ?? '')].length;
 				return h('div', null,
 					h('div', { className: 'evrSection' }, editor.mode === 'new' ? t('cards.editor.new') : t('cards.editor.edit')),
-					h('div', { className: 'evrFieldRow' },
-						field(t('cards.field.type'),
-							h('select', {
-								className: 'evrInput',
-								value: fields.type,
-								onChange: function (event) {
-									var next = event.target.value;
-									patch({
-										type: next,
-										status: next === 'permanent' ? 'verified' : 'inbox',
-										shape: next === 'permanent' ? (fields.shape === 'memo' ? 'note' : fields.shape) : 'memo',
-									});
-								},
-							}, ['fleeting', 'permanent'].map(function (type) {
-								return h('option', { key: type, value: type }, t('cards.type.' + type));
-							}))),
-						field(t('cards.field.shape'),
-							h('select', {
-								className: 'evrInput',
-								value: fields.shape,
-								onChange: function (event) { patch({ shape: event.target.value }); },
-							}, (fields.type === 'permanent' ? ['note', 'doc', 'tool', 'resource'] : ['memo']).map(function (shape) {
-								return h('option', { key: shape, value: shape }, t('cards.shape.' + shape));
-							}))),
-						field(t('cards.field.category'),
-							h('select', {
-								className: 'evrInput',
-								value: fields.category,
-								onChange: function (event) { patch({ category: event.target.value }); },
-							}, ['fact', 'preference', 'convention', 'correction', 'failure', 'tool-quirk'].map(function (category) {
-								return h('option', { key: category, value: category }, t('cards.category.' + category));
-							})))),
 					field(t('cards.field.body') + ' · ' + bodyLength + '/' + (state.cardMaxChars ?? 1000) + ' ' + t('cards.charCount'),
 						h('textarea', {
 							className: 'evrTextarea',
@@ -977,18 +910,12 @@ window.__ModuleLoader__.load({
 						placeholder: t('cards.field.tagsHint'),
 						onChange: function (event) { patch({ tags: event.target.value }); },
 					})),
-					h('div', { className: 'evrFieldRow' },
-						field(t('cards.field.topic'), h('input', {
-							className: 'evrInput',
-							value: fields.topic,
-							onChange: function (event) { patch({ topic: event.target.value }); },
-						})),
-						field(t('cards.field.summary'), h('input', {
-							className: 'evrInput',
-							value: fields.summary,
-							placeholder: t('cards.field.summaryHint'),
-							onChange: function (event) { patch({ summary: event.target.value }); },
-						}))),
+					field(t('cards.field.summary'), h('input', {
+						className: 'evrInput',
+						value: fields.summary,
+						placeholder: t('cards.field.summaryHint'),
+						onChange: function (event) { patch({ summary: event.target.value }); },
+					})),
 					field(t('cards.field.links'), h('input', {
 						className: 'evrInput',
 						value: fields.links,
@@ -1016,15 +943,16 @@ window.__ModuleLoader__.load({
 						type: 'button',
 						className: 'evrBtn',
 						style: { width: '100%', marginBottom: '6px' },
-						onClick: function () { props.onFilter({ tag: '' }); },
+						onClick: function () { props.onFilter({ tag: '', anyTags: [], archived: false }); },
 					}, t('cards.tagReset')),
 					tagRows(tree, 0)),
 				h('div', { style: { flex: 1, minWidth: 0 } },
 					h('div', { className: 'evrToolbar' },
-						filterButton(t('cards.filter.all'), { type: '', status: '' }, (filter.type ?? '') === '' && (filter.status ?? '') === ''),
-						filterButton(t('cards.filter.inbox'), { type: 'fleeting', status: 'inbox' }, filter.type === 'fleeting' && filter.status === 'inbox'),
-						filterButton(t('cards.filter.permanent'), { type: 'permanent', status: 'verified' }, filter.type === 'permanent' && filter.status === 'verified'),
-						filterButton(t('cards.filter.archived'), { type: '', status: 'archived' }, filter.status === 'archived')),
+						filterButton(t('cards.filter.all'), { tag: '', anyTags: [], archived: false }, filter.tag === '' && (filter.anyTags ?? []).length === 0 && filter.archived !== true),
+						filterButton(t('cards.filter.inbox'), { tag: '收集箱', anyTags: [], archived: false }, filter.tag === '收集箱'),
+						filterButton(t('cards.filter.fleeting'), { tag: '临时', anyTags: [], archived: false }, filter.tag === '临时'),
+						filterButton(t('cards.filter.permanent'), { tag: '', anyTags: ['永久笔记', '实践'], archived: false }, (filter.anyTags ?? []).indexOf('永久笔记') >= 0),
+						filterButton(t('cards.filter.archived'), { tag: '归档', anyTags: [], archived: true }, filter.tag === '归档' && filter.archived === true)),
 					h('div', { className: 'evrToolbar' },
 						h('input', {
 							className: 'evrInput',
@@ -1791,7 +1719,7 @@ window.__ModuleLoader__.load({
 			var [ingest, setIngest] = useState(null);
 			var [ingestDraft, setIngestDraft] = useState(null);
 			var [cards, setCards] = useState(null);
-			var [cardFilter, setCardFilter] = useState({ type: '', status: '', tag: '', query: '' });
+			var [cardFilter, setCardFilter] = useState({ tag: '', anyTags: [], archived: false, query: '' });
 			var [cardDetail, setCardDetail] = useState(null);
 			var [cardEditor, setCardEditor] = useState(null);
 			var [status, setStatus] = useState(null);
@@ -2082,7 +2010,13 @@ window.__ModuleLoader__.load({
 
 			var refreshCards = useCallback(function (nextFilter) {
 				var filter = nextFilter ?? cardFilter;
-				return call('card-list', filter).then(function (value) {
+				var payload = {
+					query: filter.query ?? '',
+					tags: filter.tag ? [filter.tag] : [],
+					anyTags: filter.anyTags ?? [],
+					includeArchived: filter.archived === true,
+				};
+				return call('card-list', payload).then(function (value) {
 					setCards(value);
 					return value;
 				}).catch(function (reason) {
@@ -2114,13 +2048,8 @@ window.__ModuleLoader__.load({
 					mode: 'new',
 					fields: {
 						id: '',
-						type: 'fleeting',
-						shape: 'memo',
-						status: 'inbox',
-						category: 'fact',
 						body: '',
-						tags: '',
-						topic: '',
+						tags: '收集箱',
 						summary: '',
 						links: '',
 					},
@@ -2134,13 +2063,8 @@ window.__ModuleLoader__.load({
 					mode: 'edit',
 					fields: {
 						id: card.id,
-						type: card.type,
-						shape: card.shape,
-						status: card.status,
-						category: card.category || 'fact',
 						body: card.body,
 						tags: (card.tags ?? []).join(', '),
-						topic: card.topic || '',
 						summary: card.summary || '',
 						links: (card.links ?? []).join(', '),
 					},
@@ -2161,13 +2085,8 @@ window.__ModuleLoader__.load({
 				};
 				var card = {
 					...(fields.id === '' ? {} : { id: fields.id }),
-					type: fields.type,
-					shape: fields.shape,
-					status: fields.status,
-					category: fields.category,
 					body: fields.body,
 					tags: split(fields.tags),
-					topic: fields.topic,
 					summary: fields.summary,
 					links: split(fields.links),
 				};

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import { cardId, isCardId } from '../src/cards/ids.js'
 import { normalizeTag, normalizeTags, buildTagTree } from '../src/cards/tags.js'
 import { safeResourceName } from '../src/cards/resources.js'
+import { cardPrompt } from '../src/cards/prompt.js'
 import { CardStore, labelOf } from '../src/cards/store.js'
 import { seedStarterCards } from '../src/cards/seed.js'
 import { createCardAgent } from '../src/cards/agent.js'
@@ -63,50 +64,63 @@ test('资源文件名被压成一个安全段，路径无法逃出卡片目录',
 	assert.equal(safeResourceName(''), '')
 })
 
-test('卡片写入：label 派生、标签、上限、提升、归档、双链和投影', async () => {
+test('卡片写入：标签生命周期、label、上限、提升、归档、双链和标签树', async () => {
 	const { dir, store } = await fixture()
 	try {
 		const memo = await store.put({
-			type: 'fleeting',
-			shape: 'memo',
 			body: '# 部署方式\n\n本机部署走 SSH，不要用 HTTPS。',
 			tags: ['验证/浏览器', '项目/dsh-evolver'],
 		})
 		assert.equal(memo.label, '部署方式')
-		assert.equal(memo.status, 'inbox')
-		assert.deepEqual(memo.tags, ['验证/浏览器', '项目/dsh-evolver'])
+		assert.ok(memo.tags.includes('收集箱'))
+		assert.ok(memo.tags.includes('验证/浏览器'))
+		assert.equal(memo.type, undefined)
+		assert.equal(memo.status, undefined)
 
-		const edited = await store.put({ id: memo.id, type: 'fleeting', shape: 'memo', body: '换了一行\n正文也变了' })
+		const edited = await store.put({ id: memo.id, body: '换了一行\n正文也变了' })
 		assert.equal(edited.label, '换了一行')
+		assert.ok(edited.tags.includes('收集箱'), '不带标签的更新保留原生命周期')
 
 		const promoted = await store.promote(memo.id, { summary: '部署方式' })
-		assert.equal(promoted.type, 'permanent')
-		assert.equal(promoted.status, 'verified')
-		assert.equal(promoted.shape, 'note')
+		assert.ok(promoted.tags.includes('永久笔记'))
+		assert.equal(promoted.tags.includes('收集箱'), false)
+		assert.equal(promoted.verified.length > 0, true)
+		assert.equal(promoted.summary, '部署方式')
 
-		const doc = await store.put({ type: 'permanent', shape: 'note', body: '第二条永久卡', tags: ['验证/索引'], summary: '索引说明' })
-		const linked = await store.put({ type: 'fleeting', shape: 'memo', body: '指向第一张卡', links: [memo.id] })
+		const practice = await store.put({
+			body: '第二条实践卡',
+			tags: ['实践', '实践/工作流', '验证/索引'],
+			summary: '索引说明',
+		})
+		assert.ok(practice.tags.includes('实践'))
+		assert.equal(practice.tags.includes('永久笔记'), false)
+		assert.equal(practice.summary, '索引说明')
+		const linked = await store.put({ body: '指向第一张卡', tags: ['临时'], links: [memo.id] })
 
 		const backlinks = store.backlinks()
 		assert.deepEqual(backlinks[memo.id], [linked.id])
 		const tree = store.tagTree()
 		assert.equal(tree.find((node) => node.path === '验证')?.count, 2)
 
-		const projection = store.projection()
-		assert.match(projection, /\[实践\]/)
-		assert.match(projection, /#验证/)
-		assert.match(projection, /部署方式/)
-		assert.match(projection, /第二条永久卡/)
-		assert.equal(projection.includes(linked.id), false)
+		const prompt = cardPrompt(store)
+		assert.match(prompt, /\[卡片\]/)
+		assert.match(prompt, /#永久笔记/)
+		assert.match(prompt, /#实践/)
+		assert.match(prompt, /#实践\/工作流/)
+		assert.match(prompt, /可重复执行的工作流/)
+		assert.equal(prompt.includes(memo.label), false, '注入不出现具体卡片')
+		assert.equal(prompt.includes(memo.id), false)
 
 		const archived = await store.archive(linked.id)
-		assert.equal(archived.status, 'archived')
-		assert.equal(store.list({ type: 'fleeting' }).some((card) => card.id === linked.id), false)
-		assert.equal(store.list({ type: 'fleeting', includeArchived: true }).some((card) => card.id === linked.id), true)
+		assert.ok(archived.tags.includes('归档'))
+		assert.equal(store.list().some((card) => card.id === linked.id), false)
+		assert.equal(store.list({ includeArchived: true }).some((card) => card.id === linked.id), true)
+		assert.equal(store.list({ tags: ['归档'], includeArchived: true }).some((card) => card.id === linked.id), true)
+		assert.equal(store.list({ anyTags: ['永久笔记', '实践'] }).length, 2)
 
 		const query = await store.query({ text: '部署' })
 		assert.equal(query[0]?.id, memo.id)
-		assert.equal(store.get(doc.id)?.summary, '索引说明')
+		assert.equal(store.get(practice.id)?.summary, '索引说明')
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
@@ -116,37 +130,38 @@ test('卡片写入：label 派生、标签、上限、提升、归档、双链�
 test('卡片上限拒绝超长正文', async () => {
 	const { dir, store } = await fixture({ cardMaxChars: 10 })
 	try {
-		await assert.rejects(() => store.put({ type: 'fleeting', body: '这是一段超过十个字的卡片正文' }), /上限/)
+		await assert.rejects(() => store.put({ body: '这是一段超过十个字的卡片正文' }), /上限/)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
 	}
 })
 
-test('卡片 agent：doc 正文进附件，查询/提升/归档/删除闭环', async () => {
+test('卡片 agent：资源正文、标签查询、提升/归档/删除闭环', async () => {
 	const { dir, store } = await fixture()
 	try {
 		const agent = createCardAgent(store)
 		const doc = await agent.write({
-			type: 'permanent',
-			shape: 'doc',
 			label: '部署文档',
 			summary: '部署步骤',
 			body: '## 步骤\n1. 先跑测试',
-			tags: ['部署'],
+			tags: ['实践/工作流'],
+			resourceName: 'deploy.md',
 		})
 		assert.equal(doc.body, '部署步骤')
+		assert.ok(doc.tags.includes('实践/工作流'))
 		const read = await agent.read(doc.id)
 		assert.match(read.resourceContents[0].text, /先跑测试/)
 
-		const memo = await agent.write({ body: '部署走 SSH。', tags: ['部署'] })
-		assert.equal(memo.type, 'fleeting')
-		const found = await agent.query({ text: '部署', type: 'fleeting' })
+		const memo = await agent.write({ body: '部署走 SSH。', tags: ['临时'] })
+		assert.ok(memo.tags.includes('临时'))
+		const found = await agent.query({ text: '部署', tags: ['临时'] })
 		assert.ok(found.some((card) => card.id === memo.id))
 		const promoted = await agent.promote(memo.id, { summary: '部署方式' })
-		assert.equal(promoted.type, 'permanent')
+		assert.ok(promoted.tags.includes('永久笔记'))
+		assert.equal(promoted.tags.includes('临时'), false)
 		const archived = await agent.archive(doc.id)
-		assert.equal(archived.status, 'archived')
+		assert.ok(archived.tags.includes('归档'))
 		const removed = await agent.remove(memo.id)
 		assert.equal(removed.removed, true)
 		assert.equal(store.get(memo.id), undefined)
@@ -164,7 +179,8 @@ test('新数据目录直接种下三张种子卡', async () => {
 		assert.equal(seeded, 3)
 		const cards = store.all()
 		assert.equal(cards.length, 3)
-		assert.equal(cards.every((card) => card.type === 'permanent' && card.status === 'verified'), true)
+		assert.equal(cards.every((card) => card.tags.includes('实践')), true)
+		assert.equal(store.status().lifecycle.permanent, 3)
 		const effective = cards.find((card) => card.label === '确认插件改动是否生效')
 		assert.ok(effective)
 		const read = await store.read(effective.id)
