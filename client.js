@@ -30,6 +30,67 @@ window.__ModuleLoader__.load({
 			'tab.overview': '概览',
 			'tab.practice': '实践',
 			'tab.sight': '见闻',
+			'tab.cards': '卡片',
+			'tab.soul': '灵魂',
+			'cards.new': '新建卡片',
+			'cards.search': '搜索卡片…',
+			'cards.searchAction': '搜索',
+			'cards.filter.all': '全部',
+			'cards.filter.inbox': '收件箱',
+			'cards.filter.permanent': '永久',
+			'cards.filter.archived': '归档',
+			'cards.empty': '还没有卡片。',
+			'cards.tags': '标签',
+			'cards.noTags': '暂无标签',
+			'cards.tagReset': '全部标签',
+			'cards.editor.new': '新建卡片',
+			'cards.editor.edit': '编辑卡片',
+			'cards.field.type': '类型',
+			'cards.field.shape': '形状',
+			'cards.field.category': '分类',
+			'cards.field.body': '正文',
+			'cards.field.tags': '标签（逗号分隔）',
+			'cards.field.topic': '主题',
+			'cards.field.summary': '一句话摘要',
+			'cards.field.links': '链接（卡片 id，逗号分隔）',
+			'cards.field.summaryHint': '留空自动使用正文首行',
+			'cards.field.tagsHint': '例如：验证/浏览器，项目/dsh-evolver',
+			'cards.charCount': '字',
+			'cards.save': '保存',
+			'cards.cancel': '取消',
+			'cards.edit': '编辑',
+			'cards.promote': '提升为永久',
+			'cards.archive': '归档',
+			'cards.delete': '删除',
+			'cards.deleteConfirm': '确定删除这张卡片？',
+			'cards.attach': '添加附件',
+			'cards.attachments': '附件',
+			'cards.noAttachments': '暂无附件',
+			'cards.links': '链接到',
+			'cards.backlinks': '被引用',
+			'cards.missing': '（已删除）',
+			'cards.updated': '更新',
+			'cards.saved': '已保存',
+			'cards.removed': '已删除',
+			'cards.attachFailed': '附件读取失败',
+			'cards.type.fleeting': '临时',
+			'cards.type.permanent': '永久',
+			'cards.status.inbox': '收件箱',
+			'cards.status.verified': '已验证',
+			'cards.status.archived': '已归档',
+			'cards.shape.memo': '备忘',
+			'cards.shape.note': '笔记',
+			'cards.shape.doc': '文档',
+			'cards.shape.tool': '工具',
+			'cards.shape.resource': '资源',
+			'cards.category.fact': '事实',
+			'cards.category.preference': '偏好',
+			'cards.category.convention': '约定',
+			'cards.category.correction': '纠正',
+			'cards.category.failure': '踩坑',
+			'cards.category.tool-quirk': '工具怪癖',
+			'settings.cardCap': '卡片正文上限',
+			'settings.cardCapHint': '200–4000 字；超长内容请放资源附件。',
 			'sight.section.soul': '灵魂',
 			'sight.section.memory': '记忆',
 			'sight.section.ingest': '整理',
@@ -233,6 +294,67 @@ window.__ModuleLoader__.load({
 			'tab.overview': 'Overview',
 			'tab.practice': 'Practice',
 			'tab.sight': 'Sight',
+			'tab.cards': 'Cards',
+			'tab.soul': 'Soul',
+			'cards.new': 'New card',
+			'cards.search': 'Search cards…',
+			'cards.searchAction': 'Search',
+			'cards.filter.all': 'All',
+			'cards.filter.inbox': 'Inbox',
+			'cards.filter.permanent': 'Permanent',
+			'cards.filter.archived': 'Archived',
+			'cards.empty': 'No cards yet.',
+			'cards.tags': 'Tags',
+			'cards.noTags': 'No tags',
+			'cards.tagReset': 'All tags',
+			'cards.editor.new': 'New card',
+			'cards.editor.edit': 'Edit card',
+			'cards.field.type': 'Type',
+			'cards.field.shape': 'Shape',
+			'cards.field.category': 'Category',
+			'cards.field.body': 'Body',
+			'cards.field.tags': 'Tags (comma separated)',
+			'cards.field.topic': 'Topic',
+			'cards.field.summary': 'One-line summary',
+			'cards.field.links': 'Links (card ids, comma separated)',
+			'cards.field.summaryHint': 'Empty uses the first line',
+			'cards.field.tagsHint': 'e.g. verify/browser, project/dsh-evolver',
+			'cards.charCount': 'chars',
+			'cards.save': 'Save',
+			'cards.cancel': 'Cancel',
+			'cards.edit': 'Edit',
+			'cards.promote': 'Promote to permanent',
+			'cards.archive': 'Archive',
+			'cards.delete': 'Delete',
+			'cards.deleteConfirm': 'Delete this card?',
+			'cards.attach': 'Add attachment',
+			'cards.attachments': 'Attachments',
+			'cards.noAttachments': 'No attachments',
+			'cards.links': 'Links to',
+			'cards.backlinks': 'Linked from',
+			'cards.missing': '(deleted)',
+			'cards.updated': 'Updated',
+			'cards.saved': 'Saved',
+			'cards.removed': 'Removed',
+			'cards.attachFailed': 'Could not read the attachment',
+			'cards.type.fleeting': 'Fleeting',
+			'cards.type.permanent': 'Permanent',
+			'cards.status.inbox': 'Inbox',
+			'cards.status.verified': 'Verified',
+			'cards.status.archived': 'Archived',
+			'cards.shape.memo': 'Memo',
+			'cards.shape.note': 'Note',
+			'cards.shape.doc': 'Document',
+			'cards.shape.tool': 'Tool',
+			'cards.shape.resource': 'Resource',
+			'cards.category.fact': 'Fact',
+			'cards.category.preference': 'Preference',
+			'cards.category.convention': 'Convention',
+			'cards.category.correction': 'Correction',
+			'cards.category.failure': 'Pitfall',
+			'cards.category.tool-quirk': 'Tool quirk',
+			'settings.cardCap': 'Card body limit',
+			'settings.cardCapHint': '200–4000 characters; long content should be an attachment.',
 			'sight.section.soul': 'Soul',
 			'sight.section.memory': 'Memories',
 			'sight.section.ingest': 'Ingest',
@@ -438,8 +560,8 @@ window.__ModuleLoader__.load({
 		/** The tabs in the order the panel shows them. */
 		var TABS = [
 			{ id: 'overview', label: 'tab.overview' },
-			{ id: 'practice', label: 'tab.practice' },
-			{ id: 'sight', label: 'tab.sight' },
+			{ id: 'cards', label: 'tab.cards' },
+			{ id: 'soul', label: 'tab.soul' },
 			{ id: 'preferences', label: 'tab.preferences' },
 			{ id: 'suggestions', label: 'tab.suggestions' },
 			{ id: 'settings', label: 'tab.settings' },
@@ -1025,6 +1147,328 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The soul document, on its own tab.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function SoulTab(props) {
+			var t = props.t;
+			return h('div', null,
+				h('div', { className: 'evrSection' }, t('soul.content')),
+				h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('soul.hint')),
+				h('textarea', {
+					className: 'evrTextarea',
+					value: props.soul?.content ?? '',
+					onChange: function (event) { props.onSoulChange(event.target.value); },
+				}),
+				h('div', { className: 'evrEditorFoot' },
+					h('button', {
+						type: 'button',
+						className: 'evrBtn evrBtnPrimary',
+						disabled: props.busy,
+						onClick: props.onSoulSave,
+					}, t('action.save')),
+					props.status === undefined || props.status === null
+						? null
+						: h('span', { className: 'evrStatus' + (props.status.error ? ' evrStatusError' : ' evrStatusOk') }, props.status.message)));
+		}
+
+		/**
+		 * The unified card view: tag tree, filters, list, detail and editor.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function CardsTab(props) {
+			var t = props.t;
+			var state = props.state;
+			var filter = props.filter ?? {};
+			var [search, setSearch] = useState(filter.query ?? '');
+			if (state === null || state === undefined) return h(Spinner, null, t('state.loading'));
+			var cards = Array.isArray(state.cards) ? state.cards : [];
+			var tree = Array.isArray(state.tree) ? state.tree : [];
+			var ingest = props.ingest;
+			var ingestDraft = props.ingestDraft;
+
+			function tagRows(nodes, depth) {
+				var rows = [];
+				(nodes ?? []).forEach(function (node) {
+					rows.push(h('button', {
+						key: node.path,
+						type: 'button',
+						className: 'evrRow',
+						style: {
+							cursor: 'pointer',
+							width: '100%',
+							textAlign: 'left',
+							border: 'none',
+							background: filter.tag === node.path ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
+							paddingLeft: (8 + depth * 12) + 'px',
+						},
+						onClick: function () { props.onFilter({ tag: node.path }); },
+					},
+						h('div', { className: 'evrRowMain' },
+							h('div', { className: 'evrRowTitle' }, node.name),
+							h('div', { className: 'evrRowMeta' }, String(node.count)))));
+					rows = rows.concat(tagRows(node.children ?? [], depth + 1));
+				});
+				return rows;
+			}
+
+			function filterButton(label, patch, active) {
+				return h('button', {
+					key: label,
+					type: 'button',
+					className: 'evrTab' + (active ? ' evrTabActive' : ''),
+					onClick: function () { props.onFilter(patch); },
+				}, label);
+			}
+
+			function field(label, input, hint) {
+				return h(Field, { label: label, hint: hint }, input);
+			}
+
+			function renderList() {
+				if (cards.length === 0) return h(Empty, null, t('cards.empty'));
+				return h('div', null, cards.map(function (card) {
+					return h('div', {
+						key: card.id,
+						className: 'evrRow',
+						onClick: function () { props.onOpen(card.id); },
+					},
+						h('div', { className: 'evrRowMain' },
+							h('div', { className: 'evrRowTitle' }, card.label || t('cards.empty')),
+							h('div', { className: 'evrRowMeta' }, String(card.body ?? '').slice(0, 180)),
+							h('div', { className: 'evrRowMeta' },
+								(card.tags ?? []).map(function (tag) {
+									return h('span', { key: tag, className: 'evrTag' }, "#" + tag);
+								}))),
+						h('div', { className: 'evrRowTime' },
+							h('span', { className: 'evrTag' }, t('cards.type.' + card.type)),
+							' ',
+							t('cards.status.' + card.status)));
+				}));
+			}
+
+			function renderDetail() {
+				var detail = props.detail;
+				if (detail === null || detail === undefined || detail.card === null) return renderList();
+				var card = detail.card;
+				return h('div', null,
+					h('div', { className: 'evrCard' },
+						h('div', { className: 'evrCardHead' },
+							h('span', { className: 'evrCardTitle' }, card.label || '(未命名)'),
+							h('span', { className: 'evrCardCount' }, t('cards.type.' + card.type) + ' · ' + t('cards.status.' + card.status))),
+						h('div', { className: 'evrHint evrMono' }, card.id + ' · ' + t('cards.shape.' + card.shape) + (card.category ? ' · ' + t('cards.category.' + card.category) : '') + (card.verified ? ' · ' + card.verified : '')),
+						h('div', { className: 'evrPre', style: { whiteSpace: 'pre-wrap', marginTop: '8px' } }, card.body || ''),
+						h('div', { className: 'evrRowMeta', style: { marginTop: '8px' } },
+							(card.tags ?? []).map(function (tag) { return h('span', { key: tag, className: 'evrTag' }, "#" + tag); }))),
+					h('div', { className: 'evrToolbar' },
+						h('button', { type: 'button', className: 'evrBtn', onClick: props.onEdit }, t('cards.edit')),
+						card.type === 'fleeting'
+							? h('button', { type: 'button', className: 'evrBtn evrBtnPrimary', onClick: function () { props.onPromote(card.id); } }, t('cards.promote'))
+							: null,
+						card.status !== 'archived'
+							? h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onArchive(card.id); } }, t('cards.archive'))
+							: null,
+						h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onDelete(card.id); } }, t('cards.delete'))),
+					(detail.links ?? []).length > 0
+						? h('div', { className: 'evrSection' }, t('cards.links'))
+						: null,
+					(detail.links ?? []).map(function (item) {
+						return h('div', { key: 'l-' + item.id, className: 'evrHint' }, '→ ' + item.label + (item.type ? ' (' + item.type + ')' : ''));
+					}),
+					(detail.backlinks ?? []).length > 0 ? h('div', { className: 'evrSection' }, t('cards.backlinks')) : null,
+					(detail.backlinks ?? []).map(function (item) {
+						return h('button', {
+							key: 'b-' + item.id,
+							type: 'button',
+							className: 'evrBtn',
+							style: { marginRight: '6px', marginBottom: '4px' },
+							onClick: function () { props.onOpen(item.id); },
+						}, item.label);
+					}),
+					h('div', { className: 'evrSection' }, t('cards.attachments')),
+					(card.resources ?? []).length === 0
+						? h('div', { className: 'evrHint' }, t('cards.noAttachments'))
+						: h('div', null, (card.resources ?? []).map(function (resource) {
+							return h('div', { key: resource.name, className: 'evrHint evrMono' }, resource.name + ' · ' + formatBytes(resource.bytes));
+						})),
+					h('label', { className: 'evrBtn', style: { display: 'inline-block', cursor: 'pointer', marginTop: '6px' } },
+						t('cards.attach'),
+						h('input', {
+							type: 'file',
+							style: { display: 'none' },
+							onChange: function (event) {
+								var file = event.target.files?.[0];
+								if (file) props.onAttach(card.id, file);
+								event.target.value = '';
+							},
+						})));
+			}
+
+			function renderEditor() {
+				var editor = props.editor;
+				if (editor === null || editor === undefined) return null;
+				var fields = editor.fields;
+				var patch = props.onDraft;
+				var bodyLength = [...String(fields.body ?? '')].length;
+				return h('div', null,
+					h('div', { className: 'evrSection' }, editor.mode === 'new' ? t('cards.editor.new') : t('cards.editor.edit')),
+					h('div', { className: 'evrFieldRow' },
+						field(t('cards.field.type'),
+							h('select', {
+								className: 'evrInput',
+								value: fields.type,
+								onChange: function (event) {
+									var next = event.target.value;
+									patch({
+										type: next,
+										status: next === 'permanent' ? 'verified' : 'inbox',
+										shape: next === 'permanent' ? (fields.shape === 'memo' ? 'note' : fields.shape) : 'memo',
+									});
+								},
+							}, ['fleeting', 'permanent'].map(function (type) {
+								return h('option', { key: type, value: type }, t('cards.type.' + type));
+							}))),
+						field(t('cards.field.shape'),
+							h('select', {
+								className: 'evrInput',
+								value: fields.shape,
+								onChange: function (event) { patch({ shape: event.target.value }); },
+							}, (fields.type === 'permanent' ? ['note', 'doc', 'tool', 'resource'] : ['memo']).map(function (shape) {
+								return h('option', { key: shape, value: shape }, t('cards.shape.' + shape));
+							}))),
+						field(t('cards.field.category'),
+							h('select', {
+								className: 'evrInput',
+								value: fields.category,
+								onChange: function (event) { patch({ category: event.target.value }); },
+							}, ['fact', 'preference', 'convention', 'correction', 'failure', 'tool-quirk'].map(function (category) {
+								return h('option', { key: category, value: category }, t('cards.category.' + category));
+							})))),
+					field(t('cards.field.body') + ' · ' + bodyLength + '/' + (state.cardMaxChars ?? 1000) + ' ' + t('cards.charCount'),
+						h('textarea', {
+							className: 'evrTextarea',
+							value: fields.body,
+							onChange: function (event) { patch({ body: event.target.value }); },
+						})),
+					field(t('cards.field.tags'), h('input', {
+						className: 'evrInput',
+						value: fields.tags,
+						placeholder: t('cards.field.tagsHint'),
+						onChange: function (event) { patch({ tags: event.target.value }); },
+					})),
+					h('div', { className: 'evrFieldRow' },
+						field(t('cards.field.topic'), h('input', {
+							className: 'evrInput',
+							value: fields.topic,
+							onChange: function (event) { patch({ topic: event.target.value }); },
+						})),
+						field(t('cards.field.summary'), h('input', {
+							className: 'evrInput',
+							value: fields.summary,
+							placeholder: t('cards.field.summaryHint'),
+							onChange: function (event) { patch({ summary: event.target.value }); },
+						}))),
+					field(t('cards.field.links'), h('input', {
+						className: 'evrInput',
+						value: fields.links,
+						onChange: function (event) { patch({ links: event.target.value }); },
+					})),
+					h('div', { className: 'evrEditorFoot' },
+						h('button', {
+							type: 'button',
+							className: 'evrBtn evrBtnPrimary',
+							disabled: props.busy,
+							onClick: props.onSave,
+						}, t('cards.save')),
+						h('button', {
+							type: 'button',
+							className: 'evrBtn',
+							disabled: props.busy,
+							onClick: props.onCancel,
+						}, t('cards.cancel'))));
+			}
+
+			return h('div', { style: { display: 'flex', gap: '18px', alignItems: 'flex-start' } },
+				h('div', { style: { width: '190px', flexShrink: 0 } },
+					h('div', { className: 'evrSection' }, t('cards.tags')),
+					h('button', {
+						type: 'button',
+						className: 'evrBtn',
+						style: { width: '100%', marginBottom: '6px' },
+						onClick: function () { props.onFilter({ tag: '' }); },
+					}, t('cards.tagReset')),
+					tagRows(tree, 0)),
+				h('div', { style: { flex: 1, minWidth: 0 } },
+					h('div', { className: 'evrToolbar' },
+						filterButton(t('cards.filter.all'), { type: '', status: '' }, (filter.type ?? '') === '' && (filter.status ?? '') === ''),
+						filterButton(t('cards.filter.inbox'), { type: 'fleeting', status: 'inbox' }, filter.type === 'fleeting' && filter.status === 'inbox'),
+						filterButton(t('cards.filter.permanent'), { type: 'permanent', status: 'verified' }, filter.type === 'permanent' && filter.status === 'verified'),
+						filterButton(t('cards.filter.archived'), { type: '', status: 'archived' }, filter.status === 'archived')),
+					h('div', { className: 'evrToolbar' },
+						h('input', {
+							className: 'evrInput',
+							type: 'search',
+							value: search,
+							placeholder: t('cards.search'),
+							onChange: function (event) { setSearch(event.target.value); },
+						}),
+						h('button', {
+							type: 'button',
+							className: 'evrBtn',
+							disabled: props.busy,
+							onClick: function () { props.onFilter({ query: search }); },
+						}, t('cards.searchAction')),
+						h('button', {
+							type: 'button',
+							className: 'evrBtn evrBtnPrimary',
+							disabled: props.busy,
+							onClick: props.onNew,
+						}, t('cards.new'))),
+					ingest !== null && ingest !== undefined && ingestDraft !== null && ingestDraft !== undefined
+						? h('div', { className: 'evrCard' },
+							h('div', { className: 'evrCardHead' },
+								h('span', { className: 'evrCardTitle' }, t('sight.ingest.auto')),
+								h('span', { className: 'evrCardCount' }, ingest.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
+							h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+								h('input', {
+									type: 'checkbox',
+									checked: ingestDraft.enabled,
+									onChange: function (event) { props.onIngestDraft({ enabled: event.target.checked }); },
+								}),
+								t('sight.ingest.enable')),
+							h('div', { className: 'evrToolbar' },
+								h('input', {
+									className: 'evrInput',
+									type: 'number',
+									min: 5,
+									max: 240,
+									value: ingestDraft.idleMinutes,
+									onChange: function (event) { props.onIngestDraft({ idleMinutes: Number(event.target.value) }); },
+								}),
+								h('span', { className: 'evrHint' }, t('sight.ingest.idleUnit')),
+								h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onIngestSave(ingestDraft); } }, t('action.save')),
+								h('button', {
+									type: 'button',
+									className: 'evrBtn',
+									disabled: props.busy || !ingest.available,
+									onClick: props.onIngestRun,
+								}, t('sight.ingest.run'))),
+							h('div', { className: 'evrHint' }, ingest.available
+								? t('sight.ingest.pending') + ': ' + (ingest.pending ?? 0) + ' · ' + t('sight.ingest.processed') + ': ' + (ingest.ledger?.processed ?? 0)
+								: t('sight.ingest.unavailable')))
+						: null,
+					props.editor !== null && props.editor !== undefined
+						? renderEditor()
+						: props.detail !== null && props.detail !== undefined
+							? renderDetail()
+							: renderList()));
+		}
+
+		/**
 		 * The global preferences.
 		 *
 		 * @param {object} props - Component props.
@@ -1165,6 +1609,7 @@ window.__ModuleLoader__.load({
 			var busy = props.busy === true;
 			var [form, setForm] = useState(function () { return backupForm(settings); });
 			var [dataDir, setDataDir] = useState('');
+			var [cardCap, setCardCap] = useState(settings?.cardMaxChars ?? 1000);
 			var [dataForce, setDataForce] = useState(false);
 			var [exportDir, setExportDir] = useState('');
 			var [exportName, setExportName] = useState('');
@@ -1175,6 +1620,10 @@ window.__ModuleLoader__.load({
 
 			useEffect(function () {
 				setForm(backupForm(settings));
+			}, [settings]);
+
+			useEffect(function () {
+				if (settings && settings.cardMaxChars !== undefined) setCardCap(settings.cardMaxChars);
 			}, [settings]);
 
 			useEffect(function () {
@@ -1533,6 +1982,23 @@ window.__ModuleLoader__.load({
 						h('span', { className: 'evrCardCount' }, t(sourceKey))),
 					h('div', { className: 'evrCardHint evrMono' }, settings.dataDir || '')),
 				h('div', { style: { marginTop: '10px' } },
+					h(Field, { label: t('settings.cardCap'), hint: t('settings.cardCapHint') },
+						h('div', { style: { display: 'flex', gap: '6px' } },
+							h('input', {
+								className: 'evrInput',
+								type: 'number',
+								min: 200,
+								max: 4000,
+								value: cardCap,
+								onChange: function (event) { setCardCap(Number(event.target.value)); },
+							}),
+							h('button', {
+								type: 'button',
+								className: 'evrBtn',
+								disabled: busy,
+								onClick: function () { props.onSaveCardCap(Number(cardCap)); },
+							}, t('action.save'))))),
+				h('div', { style: { marginTop: '10px' } },
 					h(Field, { label: t('settings.data.new'), hint: t('settings.data.moveHint') },
 						pathField(setDataDir, dataDir, '/Users/you/data/dsh-evolver'))),
 				targetIsCurrent
@@ -1723,6 +2189,10 @@ window.__ModuleLoader__.load({
 			var [embeddingDraft, setEmbeddingDraft] = useState(null);
 			var [ingest, setIngest] = useState(null);
 			var [ingestDraft, setIngestDraft] = useState(null);
+			var [cards, setCards] = useState(null);
+			var [cardFilter, setCardFilter] = useState({ type: '', status: '', tag: '', query: '' });
+			var [cardDetail, setCardDetail] = useState(null);
+			var [cardEditor, setCardEditor] = useState(null);
 			var [memories, setMemories] = useState([]);
 			var [kind, setKind] = useState('doc');
 			var [editor, setEditor] = useState(null);
@@ -1757,6 +2227,7 @@ window.__ModuleLoader__.load({
 					call('settings'),
 					call('embedding-status'),
 					call('ingest-status'),
+					call('card-list', {}),
 				]).then(function (results) {
 					setOverview(results[0]);
 					setInjection(results[1]);
@@ -1769,6 +2240,7 @@ window.__ModuleLoader__.load({
 					setEmbeddingDraft(function (current) { return current === null || current === undefined ? embeddingFormOf(results[7]) : current; });
 					setIngest(results[8]);
 					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(results[8]) : current; });
+					setCards(results[9]);
 					setError(null);
 				}).catch(function (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
@@ -1919,6 +2391,17 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, query, report]);
 
+
+			var saveCardCap = useCallback(function (value) {
+				setBusy(true);
+				return call('settings-save', { cardMaxChars: value }).then(function (next) {
+					setSettings(next);
+					notify(t('state.saved'), false);
+					return refreshCards();
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, refreshCards, t]);
 
 			var saveBackupSettings = useCallback(function (form) {
 				setBusy(true);
@@ -2098,6 +2581,158 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, notify, t]);
 
+			var refreshCards = useCallback(function (nextFilter) {
+				var filter = nextFilter ?? cardFilter;
+				return call('card-list', filter).then(function (value) {
+					setCards(value);
+					return value;
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+					return null;
+				});
+			}, [call, cardFilter, notify]);
+
+			var changeCardFilter = useCallback(function (patch) {
+				var next = { ...cardFilter, ...patch };
+				setCardFilter(next);
+				setCardDetail(null);
+				setCardEditor(null);
+				return refreshCards(next);
+			}, [cardFilter, refreshCards]);
+
+			var openCard = useCallback(function (id) {
+				return call('card-read', { id: id }).then(function (value) {
+					setCardDetail(value);
+					setCardEditor(null);
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				});
+			}, [call, notify]);
+
+			var newCard = useCallback(function () {
+				setCardDetail(null);
+				setCardEditor({
+					mode: 'new',
+					fields: {
+						id: '',
+						type: 'fleeting',
+						shape: 'memo',
+						status: 'inbox',
+						category: 'fact',
+						body: '',
+						tags: '',
+						topic: '',
+						summary: '',
+						links: '',
+					},
+				});
+			}, []);
+
+			var editCard = useCallback(function () {
+				if (cardDetail === null || cardDetail === undefined || cardDetail.card === null) return;
+				var card = cardDetail.card;
+				setCardEditor({
+					mode: 'edit',
+					fields: {
+						id: card.id,
+						type: card.type,
+						shape: card.shape,
+						status: card.status,
+						category: card.category || 'fact',
+						body: card.body,
+						tags: (card.tags ?? []).join(', '),
+						topic: card.topic || '',
+						summary: card.summary || '',
+						links: (card.links ?? []).join(', '),
+					},
+				});
+			}, [cardDetail]);
+
+			var patchCardDraft = useCallback(function (patch) {
+				setCardEditor(function (previous) {
+					return previous === null ? null : { ...previous, fields: { ...previous.fields, ...patch } };
+				});
+			}, []);
+
+			var saveCard = useCallback(function () {
+				if (cardEditor === null) return;
+				var fields = cardEditor.fields;
+				var split = function (value) {
+					return String(value ?? '').split(/[,，\n]/).map(function (item) { return item.trim(); }).filter(function (item) { return item !== ''; });
+				};
+				var card = {
+					...(fields.id === '' ? {} : { id: fields.id }),
+					type: fields.type,
+					shape: fields.shape,
+					status: fields.status,
+					category: fields.category,
+					body: fields.body,
+					tags: split(fields.tags),
+					topic: fields.topic,
+					summary: fields.summary,
+					links: split(fields.links),
+				};
+				setBusy(true);
+				return call('card-write', { card: card }).then(function (saved) {
+					setCardEditor(null);
+					return refreshCards().then(function () {
+						notify(t('cards.saved'), false);
+						return openCard(saved.id);
+					});
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, cardEditor, notify, openCard, refreshCards, t]);
+
+			var promoteCard = useCallback(function (id) {
+				setBusy(true);
+				return call('card-promote', { id: id, summary: cardDetail?.card?.summary || cardDetail?.card?.label || '' }).then(function () {
+					return refreshCards().then(function () { return openCard(id); });
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, cardDetail, notify, openCard, refreshCards]);
+
+			var archiveCard = useCallback(function (id) {
+				setBusy(true);
+				return call('card-archive', { id: id }).then(function () {
+					return refreshCards().then(function () { return openCard(id); });
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, openCard, refreshCards]);
+
+			var deleteCard = useCallback(function (id) {
+				if (typeof confirm === 'function' && confirm(t('cards.deleteConfirm')) !== true) return;
+				setBusy(true);
+				return call('card-remove', { id: id }).then(function () {
+					setCardDetail(null);
+					return refreshCards().then(function () { notify(t('cards.removed'), false); });
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, refreshCards, t]);
+
+			var attachCard = useCallback(function (id, file) {
+				if (file === undefined || file === null) return;
+				if (typeof FileReader === 'undefined') {
+					notify(t('cards.attachFailed'), true);
+					return;
+				}
+				var reader = new FileReader();
+				reader.onload = function () {
+					var encoded = String(reader.result ?? '').split(',')[1] ?? '';
+					setBusy(true);
+					call('card-attach', { id: id, name: file.name, data: encoded }, 120000).then(function () {
+						return refreshCards().then(function () { return openCard(id); });
+					}).catch(function (reason) {
+						notify(reason instanceof Error ? reason.message : String(reason), true);
+					}).finally(function () { setBusy(false); });
+				};
+				reader.onerror = function () { notify(t('cards.attachFailed'), true); };
+				reader.readAsDataURL(file);
+			}, [call, notify, openCard, refreshCards, t]);
+
 			var cleanupEmbedding = useCallback(function () {
 				setBusy(true);
 				return call('embedding-cleanup', {}, 120000).then(function (value) {
@@ -2126,47 +2761,39 @@ window.__ModuleLoader__.load({
 					h('div', { className: 'evrMono' }, error));
 			} else if (tab === 'overview') {
 				body = h(OverviewTab, { t: t, injection: injection, overview: overview });
-			} else if (tab === 'practice') {
-				body = h(PracticeTab, {
+			} else if (tab === 'cards') {
+				body = h(CardsTab, {
 					t: t,
-					state: practice,
-					kind: kind,
-					onKind: setKind,
-					onNew: newEntry,
-					onOpen: openEntry,
-					selectedPath: editor?.path,
-					editor: h(PracticeEditor, {
-						t: t,
-						draft: editor,
-						onChange: function (patch) {
-							setEditor(function (previous) {
-								return previous === null ? null : { ...previous, ...patch };
-							});
-						},
-						onSave: saveEntry,
-						onDelete: deleteEntry,
-						onClose: function () { setEditor(null); },
-						busy: busy,
-						status: status,
-					}),
+					state: cards,
+					filter: cardFilter,
+					detail: cardDetail,
+					editor: cardEditor,
+					busy: busy,
+					ingest: ingest,
+					ingestDraft: ingestDraft,
+					onFilter: changeCardFilter,
+					onOpen: openCard,
+					onNew: newCard,
+					onEdit: editCard,
+					onDraft: patchCardDraft,
+					onSave: saveCard,
+					onCancel: function () { setCardEditor(null); },
+					onPromote: promoteCard,
+					onArchive: archiveCard,
+					onDelete: deleteCard,
+					onAttach: attachCard,
+					onIngestDraft: patchIngestDraft,
+					onIngestSave: saveIngest,
+					onIngestRun: runIngest,
 				});
-			} else if (tab === 'sight') {
-				body = h(SightTab, {
+			} else if (tab === 'soul') {
+				body = h(SoulTab, {
 					t: t,
 					soul: soul,
 					onSoulChange: function (content) { setSoul(function (previous) { return { ...(previous ?? {}), content: content }; }); },
 					onSoulSave: saveSoul,
-					memories: memories,
-					query: query,
-					onQuery: setQuery,
-					onRecall: recall,
 					busy: busy,
 					status: status,
-					ingest: ingest,
-					ingestDraft: ingestDraft,
-					onIngestDraft: patchIngestDraft,
-					onIngestSave: saveIngest,
-					onIngestRun: runIngest,
 				});
 			} else if (tab === 'preferences') {
 				body = h(PreferencesTab, {
@@ -2187,6 +2814,7 @@ window.__ModuleLoader__.load({
 					busy: busy,
 					onNotify: notify,
 					onSaveBackup: saveBackupSettings,
+					onSaveCardCap: saveCardCap,
 					onClearSecret: clearBackupSecret,
 					onMigrate: migrateData,
 					onExport: exportData,

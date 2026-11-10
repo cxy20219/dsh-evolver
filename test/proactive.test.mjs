@@ -39,7 +39,7 @@ test('evolve_review 汇总实践、记忆与可执行的提示', async () => {
 		},
 	}
 	const tools = createTools({ practice, memory })
-	assert.equal(tools.length, 11)
+	assert.equal(tools.length, 12)
 	const review = tools.find((tool) => tool.name === 'evolve_review')
 	const result = await review.execute({})
 	assert.equal(result.practice.entries, 3)

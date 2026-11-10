@@ -109,9 +109,9 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 		const { ctx, routes, tools, sections, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
-			assert.equal(tools.length, 11)
+			assert.equal(tools.length, 12)
 			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:practice', 'dsh-evolver:soul', 'dsh-evolver:proactive'])
-			assert.equal(routes.size, 35)
+			assert.equal(routes.size, 44)
 			assert.match(sections[0].text(), /\[实践\]/)
 			assert.match(sections[2].text(), /\[主动性\]/)
 
@@ -140,6 +140,15 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 
 			const filtered = await (await post(routes, 'practice-query', { query: '来自接口', limit: -3 })).json()
 			assert.equal(filtered.total, 1)
+
+			const temporary = await (await post(routes, 'card-write', {
+				card: { type: 'fleeting', shape: 'memo', body: '待提升为永久卡' },
+			})).json()
+			const promoteTool = tools.find((tool) => tool.name === 'card_promote')
+			assert.equal(promoteTool !== undefined, true)
+			const promoted = await promoteTool.execute({ id: temporary.id, summary: '提升后的摘要' })
+			assert.equal(promoted.type, 'permanent')
+			assert.equal(promoted.summary, '提升后的摘要')
 		} finally {
 			await disposeEffects(effects)
 		}
@@ -342,6 +351,50 @@ test('两个数据操作不能同时进行', async () => {
 			assert.match((await rejected.json()).error.message, /正在进行/)
 			const written = first.status === 200 ? 'one.tar.gz' : 'two.tar.gz'
 			assert.equal((await stat(join(home, written))).isFile(), true)
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
+})
+
+test('卡片接口：迁移列表、写入、读取、提升、附件、标签、归档与删除', async () => {
+	await withHome(async (home) => {
+		const { ctx, routes, effects } = fakeContext()
+		await apply(ctx, { dataDir: join(home, 'evolver') })
+		try {
+			const list = await (await post(routes, 'card-list', {})).json()
+			assert.ok(list.cards.length >= 2)
+			assert.equal(typeof list.cardMaxChars, 'number')
+			assert.ok(Array.isArray(list.tree))
+
+			const created = await (await post(routes, 'card-write', {
+				card: { type: 'fleeting', shape: 'memo', body: '一条临时卡片', tags: ['测试/卡片'] },
+			})).json()
+			assert.equal(created.type, 'fleeting')
+			assert.equal(created.label, '一条临时卡片')
+			assert.deepEqual(created.tags, ['测试/卡片'])
+
+			const read = await (await post(routes, 'card-read', { id: created.id })).json()
+			assert.equal(read.card.id, created.id)
+			const promoted = await (await post(routes, 'card-promote', { id: created.id, summary: '测试摘要' })).json()
+			assert.equal(promoted.type, 'permanent')
+			assert.equal(promoted.summary, '测试摘要')
+
+			const attached = await (await post(routes, 'card-attach', {
+				id: created.id,
+				name: 'notes.md',
+				data: Buffer.from('hello resource').toString('base64'),
+			})).json()
+			assert.equal(attached.resources.length, 1)
+			const withResource = await (await post(routes, 'card-read', { id: created.id })).json()
+			assert.equal(withResource.card.resourceContents[0].text, 'hello resource')
+
+			const tags = await (await post(routes, 'card-tags', {})).json()
+			assert.ok(Array.isArray(tags))
+			const archived = await (await post(routes, 'card-archive', { id: created.id })).json()
+			assert.equal(archived.status, 'archived')
+			const removed = await (await post(routes, 'card-remove', { id: created.id })).json()
+			assert.equal(removed.removed, true)
 		} finally {
 			await disposeEffects(effects)
 		}

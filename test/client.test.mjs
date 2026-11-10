@@ -388,6 +388,43 @@ function apiPayload(endpoint, payload) {
 			return { file: `${payload.dir}/${payload.name}`, files: 4, bytes: 1234 }
 		case 'data-import':
 			return { root: '/data/evolver', files: 2, bytes: 99, skipped: 0 }
+		case 'card-list':
+			return {
+				cards: [{
+					id: 'card-01HF7YAT00S37S1ZGTH35DPPXW',
+					slug: 'demo',
+					label: '卡片标题',
+					body: '卡片正文',
+					type: 'permanent',
+					status: 'verified',
+					shape: 'note',
+					category: 'fact',
+					tags: ['验证/浏览器'],
+					links: [],
+					resources: [],
+					updated: '2026-11-10T00:00:00.000Z',
+				}],
+				tree: [{ path: '验证', name: '验证', count: 1, direct: 0, children: [] }],
+				status: { cards: 1 },
+				cardMaxChars: 1000,
+			}
+		case 'card-read':
+			return {
+				card: {
+					id: payload.id,
+					label: '卡片标题',
+					body: '卡片正文',
+					type: 'permanent',
+					status: 'verified',
+					shape: 'note',
+					category: 'fact',
+					tags: ['验证/浏览器'],
+					links: [],
+					resources: [],
+				},
+				links: [],
+				backlinks: [],
+			}
 		case 'ingest-status':
 			return {
 				enabled: true,
@@ -559,7 +596,7 @@ test('已下载的模型显示绿色不可点的“已下载”', async () => {
 	}
 })
 
-test('见闻拆成灵魂、记忆和整理三个子标签，一次只显示一个', async () => {
+test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入口', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
 	globalThis.fetch = async (url, options) => {
@@ -576,28 +613,26 @@ test('见闻拆成灵魂、记忆和整理三个子标签，一次只显示一�
 		const { Panel, ctx } = await loadPanel(runtime)
 		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
 		let tree = await runtime.settle(render)
-		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.sight')[0].props.onClick()
+		const tabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
+		assert.ok(tabs.includes('tab.cards'))
+		assert.ok(tabs.includes('tab.soul'))
+		assert.equal(tabs.includes('tab.sight'), false)
+
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
-		const subTabs = findAll(tree, (node) => node.props?.role === 'tab' && String(textOf(node)).startsWith('sight.section.'))
-		assert.deepEqual(subTabs.map((node) => textOf(node)), ['sight.section.soul', 'sight.section.memory', 'sight.section.ingest'])
+		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.new').length === 1)
+		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.inbox').length === 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === '卡片标题').length >= 1)
+
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.soul')[0].props.onClick()
+		tree = await runtime.settle(render)
 		assert.equal(findAll(tree, (node) => node.type === 'textarea').length, 1)
-
-		subTabs[1].props.onClick()
-		tree = await runtime.settle(render)
-		assert.equal(findAll(tree, (node) => node.type === 'textarea').length, 0)
-		assert.equal(findAll(tree, (node) => node.type === 'input' && node.props?.type === 'search').length, 1)
-
-		subTabs[2].props.onClick()
-		tree = await runtime.settle(render)
-		assert.equal(findAll(tree, (node) => node.type === 'input' && node.props?.type === 'checkbox').length, 1)
-		assert.equal(findAll(tree, (node) => node.type === 'input' && node.props?.type === 'number').length, 1)
-		assert.equal(findAll(tree, (node) => textOf(node) === 'sight.ingest.unavailable').length, 1)
 	} finally {
 		globalThis.fetch = previousFetch
 	}
 })
 
-test('实践只有文档、工具、资源三个子标签', async () => {
+test('卡片筛选切到收件箱后保持选中，搜索和新建都在工具栏', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
 	globalThis.fetch = async (url, options) => {
@@ -614,12 +649,14 @@ test('实践只有文档、工具、资源三个子标签', async () => {
 		const { Panel, ctx } = await loadPanel(runtime)
 		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
 		let tree = await runtime.settle(render)
-		const practiceTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.practice')
-		assert.equal(practiceTab.length, 1)
-		practiceTab[0].props.onClick()
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
-		const kindTabs = findAll(tree, (node) => String(textOf(node)).startsWith('kind.') && node.props?.onClick !== undefined)
-		assert.deepEqual(kindTabs.map((node) => textOf(node)), ['kind.doc', 'kind.tool', 'kind.resource'])
+		const inbox = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.inbox')[0]
+		inbox.props.onClick()
+		tree = await runtime.settle(render)
+		const selected = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.inbox')[0]
+		assert.match(String(selected.props.className), /evrTabActive/)
+		assert.equal(findAll(tree, (node) => node.type === 'input' && node.props?.type === 'search').length >= 1, true)
 	} finally {
 		globalThis.fetch = previousFetch
 	}

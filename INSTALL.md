@@ -10,7 +10,7 @@
 
 ```bash
 # 1. 解压到一个长期保留的位置（不要放 /tmp；本地安装是 link，删了源码插件就坏）
-unzip dsh-evolver-0.13.0.zip -d ~/.dsh/plugins
+unzip dsh-evolver-1.0.0.zip -d ~/.dsh/plugins
 
 # 2. 装进 profile：会写依赖，并把 bundle patch 注册进 profile
 dsh plugin --profile web add ~/.dsh/plugins/dsh-evolver

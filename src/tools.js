@@ -49,7 +49,7 @@ export function createTools({ practice, memory, sessions }) {
 	return [
 		{
 			name: 'practice_query',
-			description: '在「实践」里检索可复用的经验、流程、验证方法、脚本与资源。实践是已经验证过的高信号内容：动手前先查它，沉淀前也先用它查重。返回路径、标题、用途和命中片段；用 practice_read 读全文。',
+			description: '在永久卡片里检索可复用的经验、流程、验证方法、脚本与资源。永久卡是已经验证过的高信号内容：动手前先查它，沉淀前也先用它查重。返回卡片 id、label、用途和命中片段；用 practice_read 读全文。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -71,7 +71,7 @@ export function createTools({ practice, memory, sessions }) {
 		},
 		{
 			name: 'practice_read',
-			description: '读一条实践条目的全文。path 是相对 practice 根目录的路径，例如 docs/verify/plugin.md。',
+			description: '读一张永久卡的全文（含附件）。path 可以是卡片 id（推荐），也可以是旧 slug；返回 label、summary、正文或主附件文本、链接和附件列表。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -86,7 +86,7 @@ export function createTools({ practice, memory, sessions }) {
 		},
 		{
 			name: 'practice_write',
-			description: '沉淀一条可复用的实践：经验、稳定的流程、验证方法、脚本用法或容易误判的长期信息。写前先 practice_query 查重、practice_read 读相关条目，能更新已有条目就不要新建。title 和 purpose 必填（purpose 会出现在注入的索引里），kind 决定它落在哪一类，topic 决定它落在哪个主题目录；能脚本化的流程用 kind=tool 写可运行脚本，不要只写文档。只写能减少未来误判、重复劳动或验证成本的内容，不写流水账、一次性命令、猜测、废弃方案、密钥和日志。写完会自动重建索引并返回 problems，链接要闭环。',
+			description: '写入一张永久卡：经验、稳定的流程、验证方法、脚本用法或容易误判的长期信息。写前先 practice_query 查重、practice_read 读相关卡片，能更新已有卡片就不要新建。title 是卡片 label，purpose 是注入投影里的一句话摘要；kind 决定形状（doc/tool/resource），正文会自动存进资源附件，卡片只留摘要；topic 和附加参数 tags 组成层级标签。能脚本化的流程用 kind=tool 写可运行脚本。只写能减少未来误判、重复劳动或验证成本的内容，不写流水账、一次性命令、猜测、废弃方案、密钥和日志。links 用卡片 id 或 slug，写完返回 problems。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -118,7 +118,7 @@ export function createTools({ practice, memory, sessions }) {
 		},
 		{
 			name: 'practice_index',
-			description: '拿到完整的实践索引（注入里的是它的预算内投影，这里是全部条目）和校验问题。想确认某类资源都有什么、或想知道索引哪里不闭环时用它。',
+			description: '拿到全部永久卡和 2KB 注入投影的完整文本。想确认某类资源都有什么、或想知道投影里哪些卡没进索引时用它。',
 			parameters: { type: 'object', properties: {} },
 			output: OBJECT_OUTPUT,
 			async execute() {
@@ -139,8 +139,29 @@ export function createTools({ practice, memory, sessions }) {
 			},
 		},
 		{
+			name: 'card_promote',
+			description: '把一张临时卡提升为永久卡，让它进入 2KB 注入投影。提升前用 practice_query 查重；summary 是投影里的一句话路由，留空用原 label。',
+			parameters: {
+				type: 'object',
+				properties: {
+					id: { type: 'string', description: '临时卡 id' },
+					summary: { type: 'string', description: '一句话摘要（可选）' },
+					tags: { type: 'array', items: { type: 'string' }, description: '补充层级标签（可选）' },
+				},
+				required: ['id'],
+			},
+			output: OBJECT_OUTPUT,
+			async execute(args) {
+				const input = args ?? {}
+				return sanitize(await practice.promote(String(input.id ?? ''), {
+					summary: input.summary,
+					tags: input.tags,
+				}))
+			},
+		},
+		{
 			name: 'evolve_review',
-			description: '一次拿到演化器的状态与可执行的改进提示：实践的条目数/预算/结构问题、记忆数量与代表条目、建议动作。返回的 hints 是想让你主动做的事；没有高信号时也会说明。',
+			description: '一次拿到卡片库的状态与可执行的改进提示：永久卡条目数/注入预算、临时卡数量与代表条目、建议动作。返回的 hints 是想让你主动做的事；没有高信号时也会说明。',
 			parameters: { type: 'object', properties: {} },
 			output: OBJECT_OUTPUT,
 			async execute() {

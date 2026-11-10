@@ -378,6 +378,7 @@ export async function apply(ctx, config) {
 		practiceRead: (...args) => practiceCardRef.current.practiceRead(...args),
 		practiceWrite: (...args) => practiceCardRef.current.practiceWrite(...args),
 		practiceDelete: (...args) => practiceCardRef.current.practiceDelete(...args),
+		promote: (...args) => practiceCardRef.current.promote(...args),
 		overview: (...args) => practiceCardRef.current.overview(...args),
 	}
 	const memoryCards = {
@@ -386,6 +387,134 @@ export async function apply(ctx, config) {
 		forget: (...args) => memoryCardRef.current.forget(...args),
 		list: (...args) => memoryCardRef.current.list(...args),
 		stats: (...args) => memoryCardRef.current.stats(...args),
+	}
+
+	/**
+	 * The browser-facing card API.
+	 *
+	 * Reads enrich link ids with labels; writes go through the same CardStore
+	 * as the tools, so the panel and the agent cannot disagree.
+	 */
+	const cardsApi = {
+		async status() {
+			const store = cardStoreRef.current
+			return { ...store.status(), cardMaxChars: settings.get().cardMaxChars }
+		},
+		setCardMaxChars(value) {
+			const store = cardStoreRef.current
+			if (store !== undefined) store.cardMaxChars = value
+		},
+		async overview() {
+			const store = cardStoreRef.current
+			const base = await evolver.overview()
+			const permanent = store.list({ type: 'permanent', limit: 500, includeArchived: true })
+			const active = permanent.filter((card) => card.status !== 'archived')
+			const text = cardPrompt(store)
+			const shapes = ['note', 'doc', 'tool', 'resource']
+			const byKind = shapes.map((shape) => ({
+				id: shape,
+				title: shape,
+				count: active.filter((card) => card.shape === shape).length,
+				bytes: active.filter((card) => card.shape === shape).reduce((sum, card) => sum + Buffer.byteLength(card.body, 'utf8'), 0),
+			}))
+			return {
+				...base,
+				practice: {
+					entries: active.length,
+					bytes: active.reduce((sum, card) => sum + Buffer.byteLength(card.body, 'utf8'), 0),
+					byKind,
+					problems: [],
+					injectedBytes: Buffer.byteLength(text, 'utf8'),
+					injectedBudget: 2048,
+					dropped: 0,
+				},
+				cards: {
+					...store.status(),
+					total: store.all().length,
+					permanent: active.length,
+					archived: permanent.length - active.length,
+					fleeting: store.list({ type: 'fleeting', limit: 500, includeArchived: false }).length,
+					cardMaxChars: settings.get().cardMaxChars,
+				},
+				suggestions: [],
+			}
+		},
+		async injection() {
+			const store = cardStoreRef.current
+			const base = await evolver.injectionPreview()
+			const active = store.list({ type: 'permanent', limit: 500, includeArchived: false })
+			const text = cardPrompt(store)
+			return {
+				...base,
+				practice: {
+					entries: active.length,
+					bytes: Buffer.byteLength(text, 'utf8'),
+					budget: 2048,
+					dropped: 0,
+					text,
+				},
+			}
+		},
+		async list(payload = {}) {
+			const store = cardStoreRef.current
+			const limit = Number(payload.limit ?? 100)
+			const type = typeof payload.type === 'string' && payload.type !== '' ? payload.type : undefined
+			const status = typeof payload.status === 'string' && payload.status !== '' ? payload.status : undefined
+			const tag = typeof payload.tag === 'string' && payload.tag !== '' ? payload.tag : ''
+			const query = String(payload.query ?? '').trim()
+			const cards = query === ''
+				? store.list({ type, status, tags: tag === '' ? [] : [tag], limit, includeArchived: payload.includeArchived === true })
+				: await store.query({ text: query, type, status, tags: tag === '' ? [] : [tag], limit })
+			return { cards, tree: store.tagTree(), status: store.status(), cardMaxChars: settings.get().cardMaxChars }
+		},
+		async read(payload = {}) {
+			const store = cardStoreRef.current
+			const card = await store.read(String(payload.id ?? ''))
+			if (card === undefined) return { card: null, links: [], backlinks: [] }
+			const describe = (id) => {
+				const found = store.get(id)
+				return found === undefined
+					? { id, label: '(missing)', type: '', status: '' }
+					: { id, label: found.label, type: found.type, status: found.status }
+			}
+			const incoming = store.backlinks()[card.id] ?? []
+			return {
+				card,
+				links: (card.links ?? []).map(describe),
+				backlinks: incoming.map(describe),
+			}
+		},
+		async write(payload = {}) {
+			const store = cardStoreRef.current
+			return store.put(payload.card ?? {})
+		},
+		async promote(payload = {}) {
+			const store = cardStoreRef.current
+			return store.promote(String(payload.id ?? ''), payload)
+		},
+		async archive(payload = {}) {
+			const store = cardStoreRef.current
+			return store.archive(String(payload.id ?? ''))
+		},
+		async remove(payload = {}) {
+			const store = cardStoreRef.current
+			return { removed: await store.remove(String(payload.id ?? '')) }
+		},
+		async attach(payload = {}) {
+			const store = cardStoreRef.current
+			const id = String(payload.id ?? '')
+			const name = String(payload.name ?? '')
+			const encoded = String(payload.data ?? '')
+			if (encoded === '') throw new Error('附件内容为空。')
+			const data = Buffer.from(encoded, 'base64')
+			if (data.length === 0) throw new Error('附件内容为空。')
+			if (data.length > 10 * 1024 * 1024) throw new Error('附件超过 10 MB 上限。')
+			return store.attach(id, name, data)
+		},
+		tags() {
+			const store = cardStoreRef.current
+			return store.tagTree()
+		},
 	}
 
 	const memory = {
@@ -808,7 +937,7 @@ export async function apply(ctx, config) {
 		save: (patch) => ingest.save(patch),
 		run: () => ingest.run(),
 	}
-	const handler = createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding, ingest: ingestApi })
+	const handler = createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding, ingest: ingestApi, cards: cardsApi })
 	for (const endpoint of ENDPOINTS) {
 		disposers.push(connection.fetch.register({
 			path: `${API_PREFIX}/${endpoint}`,

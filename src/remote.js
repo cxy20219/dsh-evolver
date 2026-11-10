@@ -49,6 +49,15 @@ export const ENDPOINTS = [
 	'ingest-status',
 	'ingest-save',
 	'ingest-run',
+	'card-status',
+	'card-list',
+	'card-read',
+	'card-write',
+	'card-promote',
+	'card-archive',
+	'card-remove',
+	'card-attach',
+	'card-tags',
 ]
 
 /**
@@ -101,15 +110,15 @@ function count(payload, field, fallback, max) {
  * @param {{evolver: object, memory: object}} deps - The evolver and the memory actions.
  * @returns {(endpoint: string, payload: unknown) => Promise<object>} The handler.
  */
-export function createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding, ingest }) {
+export function createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding, ingest, cards }) {
 	return async function handleEvolver(endpoint, payload) {
 		try {
 			switch (endpoint) {
 				case 'overview': {
-					return { ok: true, value: await evolver.overview() }
+					return { ok: true, value: await cards.overview() }
 				}
 				case 'injection': {
-					return { ok: true, value: await evolver.injectionPreview() }
+					return { ok: true, value: await cards.injection() }
 				}
 				case 'practice': {
 					const state = await evolver.practice()
@@ -200,9 +209,13 @@ export function createEvolverHandler({ evolver, memory, settings, backup, worksp
 					return { ok: true, value: view() }
 				}
 				case 'settings-save': {
-					// Only the backup block is mutable here: the data folder has
-					// its own endpoint, because moving it has to copy and reopen.
-					await settings.update({ backup: payload?.backup ?? {} })
+					// The backup block and the card budget are mutable here: the
+					// data folder has its own endpoint, because moving it has to
+					// copy and reopen.
+					const patch = { backup: payload?.backup ?? {} }
+					if (payload?.cardMaxChars !== undefined) patch.cardMaxChars = payload.cardMaxChars
+					await settings.update(patch)
+					cards.setCardMaxChars?.(settings.get().cardMaxChars)
 					return { ok: true, value: view() }
 				}
 				case 'data-migrate': {
@@ -257,6 +270,33 @@ export function createEvolverHandler({ evolver, memory, settings, backup, worksp
 				}
 				case 'ingest-run': {
 					return { ok: true, value: await ingest.run() }
+				}
+				case 'card-status': {
+					return { ok: true, value: await cards.status() }
+				}
+				case 'card-list': {
+					return { ok: true, value: await cards.list(payload ?? {}) }
+				}
+				case 'card-read': {
+					return { ok: true, value: await cards.read(payload ?? {}) }
+				}
+				case 'card-write': {
+					return { ok: true, value: await cards.write(payload ?? {}) }
+				}
+				case 'card-promote': {
+					return { ok: true, value: await cards.promote(payload ?? {}) }
+				}
+				case 'card-archive': {
+					return { ok: true, value: await cards.archive(payload ?? {}) }
+				}
+				case 'card-remove': {
+					return { ok: true, value: await cards.remove(payload ?? {}) }
+				}
+				case 'card-attach': {
+					return { ok: true, value: await cards.attach(payload ?? {}) }
+				}
+				case 'card-tags': {
+					return { ok: true, value: cards.tags() }
 				}
 				case 'embedding-test': {
 					return { ok: true, value: await embedding.test() }

@@ -206,6 +206,22 @@ export function createPracticeAdapter(cards) {
 		},
 
 		/**
+		 * Promote one fleeting card to a permanent card.
+		 *
+		 * @param {string} id - The card id.
+		 * @param {{summary?: string, tags?: string[]}} [patch] - Optional summary and tags.
+		 * @returns {Promise<object>} The permanent card.
+		 */
+		async promote(id, { summary, tags } = {}) {
+			const card = cards.get(String(id))
+			if (card === undefined) throw new Error(`卡片不存在：${String(id)}`)
+			return cards.promote(card.id, {
+				...(typeof summary === 'string' && summary !== '' ? { summary } : {}),
+				...(Array.isArray(tags) ? { tags } : {}),
+			})
+		},
+
+		/**
 		 * Delete a permanent card.
 		 *
 		 * @param {string} ref - Id, slug or legacy path.
