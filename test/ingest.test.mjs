@@ -117,7 +117,7 @@ test('后台整理直接调模型提取，校验后保存并推进游标', async
 		],
 	})
 	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
-	const controller = createIngestController({ settings, query, ledger, memory, llm, modelSelection: fakeSelection(), now: () => NOW })
+	const controller = createIngestController({ settings, query, ledger, save: memory.save, llm, modelSelection: fakeSelection(), now: () => NOW })
 	const result = await controller.run()
 	assert.equal(result.success, true)
 	assert.equal(result.sessions, 1)
@@ -138,7 +138,7 @@ test('闲时触发一次，冷却期内不重复，关闭后不跑', async () =>
 	const memory = fakeMemory()
 	const llm = fakeLlm({ memories: [] })
 	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
-	const controller = createIngestController({ settings, query, ledger, memory, llm, modelSelection: fakeSelection(), now: () => clock })
+	const controller = createIngestController({ settings, query, ledger, save: memory.save, llm, modelSelection: fakeSelection(), now: () => clock })
 	clock += 5 * 60_000
 	assert.equal(await controller.check(), null)
 	clock += 11 * 60_000
@@ -164,7 +164,7 @@ test('模型返回坏 JSON 时不推进游标', async () => {
 		},
 	}
 	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
-	const controller = createIngestController({ settings, query, ledger, memory, llm, modelSelection: fakeSelection(), now: () => NOW })
+	const controller = createIngestController({ settings, query, ledger, save: memory.save, llm, modelSelection: fakeSelection(), now: () => NOW })
 	await assert.rejects(() => controller.run(), /JSON/)
 	assert.equal(commits.length, 0)
 })
@@ -179,7 +179,7 @@ test('提取结果里的密钥和被丢弃，空数组也会推进游标', async
 		],
 	})
 	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
-	const controller = createIngestController({ settings, query, ledger, memory, llm, modelSelection: fakeSelection(), now: () => NOW })
+	const controller = createIngestController({ settings, query, ledger, save: memory.save, llm, modelSelection: fakeSelection(), now: () => NOW })
 	const result = await controller.run()
 	assert.equal(result.saved, 1)
 	assert.equal(result.skipped, 1)
@@ -226,7 +226,7 @@ test('只有合成消息的会话不花钱调模型，直接标记已处理', as
 	const memory = fakeMemory()
 	const llm = fakeLlm({ memories: [] })
 	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
-	const controller = createIngestController({ settings, query, ledger, memory, llm, modelSelection: fakeSelection(), now: () => NOW })
+	const controller = createIngestController({ settings, query, ledger, save: memory.save, llm, modelSelection: fakeSelection(), now: () => NOW })
 	const result = await controller.run()
 	assert.equal(result.sessions, 0)
 	assert.equal(result.cleared, 1)

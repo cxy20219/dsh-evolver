@@ -15,16 +15,16 @@ import { lifecycleBoost } from './lifecycle.js'
  */
 
 /** The rank constant of reciprocal rank fusion. */
-export const RRF_K = 60
+const RRF_K = 60
 
 /** The weight of the vector side of the fusion. */
-export const VECTOR_WEIGHT = 0.7
+const VECTOR_WEIGHT = 0.7
 
 /** The weight of the keyword side of the fusion. */
-export const BM25_WEIGHT = 0.3
+const BM25_WEIGHT = 0.3
 
 /** The shortest result that is still worth showing. */
-export const HARD_MIN_SCORE = 0.12
+const HARD_MIN_SCORE = 0.12
 
 /**
  * How many standard deviations above the corpus baseline a vector match has
@@ -36,10 +36,10 @@ export const HARD_MIN_SCORE = 0.12
  * backend is judged *relative to the corpus*: the winner has to stand out
  * from the other memories for this query.
  */
-export const VECTOR_SIGMA = 2.5
+const VECTOR_SIGMA = 2.5
 
 /** The smallest spread the rule will divide by. */
-export const MIN_SIGMA = 0.01
+const MIN_SIGMA = 0.01
 
 /**
  * The smallest corpus the sigma rule can judge.
@@ -49,7 +49,7 @@ export const MIN_SIGMA = 0.01
  * semantic hit is filtered out. A small store therefore uses the backend's
  * absolute floor (or no floor at all) instead.
  */
-export const MIN_SIGMA_SAMPLE = 5
+const MIN_SIGMA_SAMPLE = 5
 
 /**
  * The share of the query's tokens a memory has to match.
@@ -58,13 +58,13 @@ export const MIN_SIGMA_SAMPLE = 5
  * A quarter of the query's tokens is the point where a match starts to mean
  * something.
  */
-export const KEYWORD_MIN_OVERLAP = 0.25
+const KEYWORD_MIN_OVERLAP = 0.25
 
 /** How much of the final selection favours relevance over variety. */
-export const MMR_LAMBDA = 0.7
+const MMR_LAMBDA = 0.7
 
 /** Two results this alike say the same thing; only the better one is kept. */
-export const DUPLICATE_THRESHOLD = 0.9
+const DUPLICATE_THRESHOLD = 0.9
 
 /**
  * Fuse several rankings with reciprocal rank fusion.
@@ -76,7 +76,7 @@ export const DUPLICATE_THRESHOLD = 0.9
  * @param {number[]} [weights] - One weight per ranking.
  * @returns {Map<string, number>} The fused score per id.
  */
-export function rrfFusion(rankings, weights = []) {
+function rrfFusion(rankings, weights = []) {
 	const fused = new Map()
 	for (let index = 0; index < rankings.length; index += 1) {
 		const ranking = rankings[index]
@@ -96,10 +96,6 @@ export function rrfFusion(rankings, weights = []) {
  * @param {number} [limit] - Maximum hits.
  * @returns {Array<{id: string, score: number}>} The hits, best first.
  */
-export function vectorRanking(db, queryVector, limit = 50) {
-	return allVectorScores(db, queryVector).slice(0, limit)
-}
-
 /**
  * The cosine of a query against every stored vector.
  *
@@ -110,7 +106,7 @@ export function vectorRanking(db, queryVector, limit = 50) {
  * @param {Float32Array | number[] | undefined} queryVector - The query vector.
  * @returns {Array<{id: string, score: number}>} The scores, best first.
  */
-export function allVectorScores(db, queryVector) {
+function allVectorScores(db, queryVector) {
 	if (!queryVector || queryVector.length === 0) return []
 	const hits = []
 	for (const [id, vector] of db.vectors) {
@@ -131,7 +127,7 @@ export function allVectorScores(db, queryVector) {
  * @param {string} text - The memory text.
  * @returns {number} The factor in (0, 1].
  */
-export function lengthFactor(text) {
+function lengthFactor(text) {
 	const size = String(text ?? '').length
 	if (size <= 500) return 1
 	return 1 / (1 + 0.5 * Math.log2(size / 500))
@@ -148,7 +144,7 @@ export function lengthFactor(text) {
  * @param {{lambda?: number, limit?: number}} [options] - Selection options.
  * @returns {Array<object>} The selected candidates.
  */
-export function mmrSelect(candidates, {
+function mmrSelect(candidates, {
 	lambda = MMR_LAMBDA,
 	limit = 8,
 	similarity = (left, right) => textOverlap(left.text, right.text),

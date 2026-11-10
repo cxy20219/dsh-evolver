@@ -1,12 +1,12 @@
 /**
- * Credential screening shared by practice, memory and session excerpts.
+ * Credential screening shared by card writes and session excerpts.
  *
  * The check is deliberately narrow: it recognizes common token shapes and
  * leaves ordinary prose alone. A false negative is possible; every caller
  * still says not to store secrets.
  */
 
-/** Patterns that must never reach a stored memory or practice entry. */
+/** Patterns that must never reach a stored card. */
 export const SECRET_PATTERNS = [
 	[/-----BEGIN [A-Z ]*PRIVATE KEY-----/, '私钥'],
 	[/\bgh[pousr]_[A-Za-z0-9]{20,}\b/, 'GitHub 令牌'],

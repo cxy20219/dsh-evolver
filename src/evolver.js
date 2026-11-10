@@ -3,19 +3,17 @@
  *
  * The live knowledge store is the card log (`src/cards/store.js`). This class
  * keeps the two documents that are not cards — the soul and the global
- * preferences — and the one-time layout migration for very old data folders.
+ * preferences.
  *
  *   <root>/
  *     knowledge/          cards and resources (CardStore)
  *     sight/soul.md       persona and boundaries (injected)
  *     preferences/AGENTS.md
- *     practice/           old practice tree, read only by the importer
- *     sight/memory/       old memory log, read only by the importer
  *
  * The folder is the unit of migration and backup: copy it and everything moves.
  */
 
-import { cp, lstat, mkdir, open, readdir, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
@@ -84,7 +82,6 @@ export class Evolver {
 		// The version is read from package.json by the caller; the evolver
 		// itself must not reach for its own package.
 		this.version = typeof version === 'string' ? version : ''
-		this.panelDir = join(this.dshHome, 'panel')
 		/** Counts temp files so two writes in one millisecond cannot collide. */
 		this.writeSequence = 0
 		/**
@@ -113,11 +110,6 @@ export class Evolver {
 	/** The soul document's path. */
 	get soulPath() {
 		return join(this.root, 'sight', 'soul.md')
-	}
-
-	/** The old memory store's folder (read by the card importer). */
-	get memoryDir() {
-		return join(this.root, 'sight', 'memory')
 	}
 
 	/** The global preferences file's path. */
@@ -202,21 +194,6 @@ export class Evolver {
 	}
 
 	/**
-	 * Remove a folder when it is empty.
-	 *
-	 * @param {string} path - The folder.
-	 * @returns {Promise<void>} Resolves after the attempt.
-	 */
-	async removeIfEmpty(path) {
-		try {
-			const names = await readdir(path)
-			if (names.length === 0) await rm(path, { recursive: false, force: true })
-		} catch {
-			// Missing or non-empty: nothing to do.
-		}
-	}
-
-	/**
 	 * Write a file only when it does not exist yet.
 	 *
 	 * @param {string} path - The target.
@@ -228,58 +205,6 @@ export class Evolver {
 		if (info !== undefined) return
 		await mkdir(dirname(path), { recursive: true, mode: 0o700 })
 		await writeFile(path, content, { encoding: 'utf8', mode: 0o600 })
-	}
-
-	/**
-	 * Move the pre-0.13 folder layout into the shape the importer expects.
-	 *
-	 * This never deletes user content: it copies into the old practice tree
-	 * and the card importer consumes it on the same startup.
-	 *
-	 * @returns {Promise<object[]>} What was moved.
-	 */
-	async migrate() {
-		const moved = []
-		const old = join(this.root)
-		const legacy = [
-			{ from: 'experience', to: 'practice/docs/legacy-experience' },
-			{ from: 'workflow', to: 'practice/docs/legacy-workflow' },
-			{ from: 'scripts', to: 'practice/tools/legacy-scripts' },
-			{ from: 'assets', to: 'practice/resources/legacy-assets' },
-			{ from: 'references', to: 'practice/resources/legacy-references' },
-			{ from: 'agents', to: 'practice/docs/legacy-agents' },
-		]
-		for (const item of legacy) {
-			const from = join(old, item.from)
-			const to = join(old, item.to)
-			if (!(await exists(from))) continue
-			if (await exists(to)) continue
-			await mkdir(dirname(to), { recursive: true })
-			await cp(from, to, { recursive: true })
-			moved.push({ from: item.from, to: item.to })
-			await this.removeIfEmpty(from)
-		}
-		const legacySoul = join(old, 'soul.md')
-		if ((await exists(legacySoul)) && !(await exists(this.soulPath))) {
-			await cp(legacySoul, this.soulPath)
-			moved.push({ from: 'soul.md', to: 'sight/soul.md' })
-		}
-		const panelMemory = join(this.panelDir, 'memory')
-		if ((await exists(panelMemory)) && !(await exists(this.memoryDir))) {
-			await mkdir(dirname(this.memoryDir), { recursive: true })
-			await cp(panelMemory, this.memoryDir, { recursive: true })
-			moved.push({ from: 'panel/memory', to: 'sight/memory' })
-		}
-		const panelPrefs = join(this.panelDir, 'agent.md')
-		if ((await exists(panelPrefs)) && !(await exists(this.preferencesPath))) {
-			await cp(panelPrefs, this.preferencesPath)
-			moved.push({ from: 'panel/agent.md', to: 'preferences/AGENTS.md' })
-		}
-		if (moved.length > 0) {
-			await this.writeIfMissing(join(this.root, 'migrated.json'), `${JSON.stringify({ at: new Date().toISOString(), moved }, null, 2)}\n`)
-			this.logger?.info?.(`dsh-evolver: migrated ${moved.length} item(s) into the new layout`)
-		}
-		return moved
 	}
 
 	/**
@@ -507,16 +432,6 @@ export class Evolver {
 			suggestions: [],
 		}
 	}
-}
-
-/**
- * Whether a path exists.
- *
- * @param {string} path - The path.
- * @returns {Promise<boolean>} True when it exists.
- */
-async function exists(path) {
-	return (await lstat(path).catch(() => undefined)) !== undefined
 }
 
 /**

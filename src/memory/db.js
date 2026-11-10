@@ -6,11 +6,8 @@ import { join } from 'node:path'
  *
  * Everything lives in the plugin's own folder as plain files:
  *
- *   memories.jsonl    one memory per line
- *   reflections.jsonl one reflection per line
- *   learnings.jsonl   one self-improvement entry per line
- *   edges.jsonl       one edge per line
- *   vectors.json      embedding vectors, keyed by memory id
+ *   memories.jsonl    one record per line (last line wins, deleted removes)
+ *   vectors.json      embedding vectors, keyed by record id
  *
  * Plain files were chosen over an embedded database on purpose: they are
  * readable, greppable, diffable, and they travel with the folder when it is
@@ -24,17 +21,11 @@ import { join } from 'node:path'
  */
 
 const MEMORIES_FILE = 'memories.jsonl'
-const REFLECTIONS_FILE = 'reflections.jsonl'
-const LEARNINGS_FILE = 'learnings.jsonl'
 const VECTORS_FILE = 'vectors.json'
-const EDGES_FILE = 'edges.jsonl'
 
 /** The symbolic names a dirty mark may use. */
 const MEMORIES = 'memories'
-const REFLECTIONS = 'reflections'
-const LEARNINGS = 'learnings'
 const VECTORS = 'vectors'
-const EDGES = 'edges'
 
 /** How long a change waits before it is written out. */
 const FLUSH_DELAY_MS = 400
@@ -82,25 +73,22 @@ export function tokenize(text) {
  * @param {Float32Array | number[]} vector - The vector.
  * @returns {string} The encoded vector.
  */
-export function encodeVector(vector) {
+function encodeVector(vector) {
 	const view = vector instanceof Float32Array ? vector : Float32Array.from(vector)
 	return Buffer.from(view.buffer, view.byteOffset, view.byteLength).toString('base64')
 }
 
 /**
- * Decode a stored vector, accepting both the current and the old format.
+ * Decode a stored base64 vector.
  *
  * @param {unknown} value - The stored value.
  * @returns {Float32Array | undefined} The vector.
  */
-export function decodeVector(value) {
-	if (typeof value === 'string') {
-		const buffer = Buffer.from(value, 'base64')
-		if (buffer.byteLength === 0 || buffer.byteLength % 4 !== 0) return undefined
-		return new Float32Array(Uint8Array.from(buffer).buffer)
-	}
-	if (Array.isArray(value)) return Float32Array.from(value)
-	return undefined
+function decodeVector(value) {
+	if (typeof value !== 'string') return undefined
+	const buffer = Buffer.from(value, 'base64')
+	if (buffer.byteLength === 0 || buffer.byteLength % 4 !== 0) return undefined
+	return new Float32Array(Uint8Array.from(buffer).buffer)
 }
 
 /**
@@ -118,14 +106,8 @@ export class MemoryDatabase {
 		this.logger = logger
 		/** @type {Map<string, object>} */
 		this.memories = new Map()
-		/** @type {Map<string, object>} */
-		this.reflections = new Map()
-		/** @type {Map<string, object>} */
-		this.learnings = new Map()
 		/** @type {Map<string, Float32Array>} */
 		this.vectors = new Map()
-		/** @type {Map<string, object>} */
-		this.edges = new Map()
 		/** @type {Map<string, Map<string, number>>} */
 		this.postings = new Map()
 		/** @type {Map<string, number>} */
@@ -175,9 +157,6 @@ export class MemoryDatabase {
 		this.pendingAppends = []
 		this.logRewrite = false
 		this.memories = await this.readMemories()
-		this.reflections = await this.readRecords(REFLECTIONS_FILE)
-		this.learnings = await this.readRecords(LEARNINGS_FILE)
-		this.edges = await this.readRecords(EDGES_FILE)
 		await this.readVectors()
 		this.rebuildIndex()
 		// Whatever was on disk is the current state; nothing to write back.
@@ -202,7 +181,7 @@ export class MemoryDatabase {
 		}
 		try {
 			const parsed = JSON.parse(raw)
-			const stored = parsed?.vectors ?? parsed
+			const stored = parsed?.vectors
 			for (const [id, value] of Object.entries(stored ?? {})) {
 				const vector = decodeVector(value)
 				if (vector !== undefined && vector.length > 0) this.vectors.set(id, vector)
@@ -248,33 +227,6 @@ export class MemoryDatabase {
 				else records.set(record.id, record)
 			} catch {
 				// A broken line is skipped; the rest of the log still loads.
-			}
-		}
-		return records
-	}
-
-	/**
-	 * Read a newline-delimited JSON file into a map.
-	 *
-	 * @param {string} name - File name.
-	 * @returns {Promise<Map<string, object>>} The records.
-	 */
-	async readRecords(name) {
-		const records = new Map()
-		let raw
-		try {
-			raw = await readFile(join(this.folder, name), 'utf8')
-		} catch {
-			return records
-		}
-		for (const line of raw.split('\n')) {
-			const trimmed = line.trim()
-			if (trimmed === '') continue
-			try {
-				const record = JSON.parse(trimmed)
-				if (record && typeof record.id === 'string') records.set(record.id, record)
-			} catch {
-				// A broken line is skipped; the rest of the file still loads.
 			}
 		}
 		return records
@@ -537,89 +489,6 @@ export class MemoryDatabase {
 
 	//#endregion
 
-	//#region edges
-
-	/**
-	 * Store an edge between two memories.
-	 *
-	 * @param {object} edge - The edge record.
-	 * @returns {Promise<object>} The stored edge.
-	 */
-	async putEdge(edge) {
-		this.edges.set(edge.id, edge)
-		this.markDirty(EDGES)
-		return edge
-	}
-
-	/** Every edge. */
-	allEdges() {
-		return [...this.edges.values()]
-	}
-
-	/**
-	 * Remove an edge.
-	 *
-	 * @param {string} id - Edge id.
-	 * @returns {Promise<boolean>} Whether an edge was removed.
-	 */
-	async removeEdge(id) {
-		const removed = this.edges.delete(id)
-		if (removed) this.markDirty(EDGES)
-		return removed
-	}
-
-	//#endregion
-
-	//#region reflections and learnings
-
-	/**
-	 * Store a reflection.
-	 *
-	 * @param {object} reflection - The reflection record.
-	 * @returns {Promise<object>} The stored reflection.
-	 */
-	async putReflection(reflection) {
-		this.reflections.set(reflection.id, reflection)
-		this.markDirty(REFLECTIONS)
-		return reflection
-	}
-
-	/** Every reflection, newest first. */
-	allReflections() {
-		return [...this.reflections.values()].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
-	}
-
-	/**
-	 * Remove a reflection.
-	 *
-	 * @param {string} id - Reflection id.
-	 * @returns {Promise<boolean>} Whether a reflection was removed.
-	 */
-	async removeReflection(id) {
-		const removed = this.reflections.delete(id)
-		if (removed) this.markDirty(REFLECTIONS)
-		return removed
-	}
-
-	/**
-	 * Store a self-improvement entry.
-	 *
-	 * @param {object} learning - The learning record.
-	 * @returns {Promise<object>} The stored learning.
-	 */
-	async putLearning(learning) {
-		this.learnings.set(learning.id, learning)
-		this.markDirty(LEARNINGS)
-		return learning
-	}
-
-	/** Every self-improvement entry, newest first. */
-	allLearnings() {
-		return [...this.learnings.values()].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
-	}
-
-	//#endregion
-
 	//#region persistence
 
 	/**
@@ -673,9 +542,6 @@ export class MemoryDatabase {
 		try {
 			await mkdir(this.folder, { recursive: true, mode: 0o700 })
 			if (pending.has(MEMORIES)) await this.writeMemories()
-			if (pending.has(REFLECTIONS)) await this.writeLines(REFLECTIONS_FILE, this.reflections.values())
-			if (pending.has(LEARNINGS)) await this.writeLines(LEARNINGS_FILE, this.learnings.values())
-			if (pending.has(EDGES)) await this.writeLines(EDGES_FILE, this.edges.values())
 			if (pending.has(VECTORS)) await this.writeFileAtomic(VECTORS_FILE, this.vectorsDocument())
 		} catch (error) {
 			// Nothing was committed as a whole; keep the marks so the next

@@ -109,14 +109,14 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 		const { ctx, routes, tools, sections, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
-			assert.equal(tools.length, 12)
-			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:practice', 'dsh-evolver:soul', 'dsh-evolver:proactive'])
-			assert.equal(routes.size, 34)
-			assert.match(sections[0].text(), /\[实践\]/)
+			assert.equal(tools.length, 9)
+			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:cards', 'dsh-evolver:soul', 'dsh-evolver:proactive'])
+			assert.equal(routes.size, 33)
+			assert.match(sections[0].text(), /\[卡片\]/)
 			assert.match(sections[2].text(), /\[主动性\]/)
 
 			const overview = await (await post(routes, 'overview', {})).json()
-			assert.ok(overview.practice.entries >= 2)
+			assert.ok(overview.projection.entries >= 2)
 			const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 			assert.equal(overview.version, pkg.version)
 
@@ -253,17 +253,6 @@ test('导出、导入与迁移数据目录', async () => {
 			assert.equal(restoredCard.card.label, '会被恢复')
 			assert.match(restoredCard.card.resourceContents[0].text, /会被恢复的附件/)
 
-			// 未压缩的 tar（云端备份格式）也能导入
-			const plain = join(home, 'snapshot.tar')
-			await writeFile(plain, createTar([{
-				path: 'practice/docs/plain.md',
-				content: '---\ntitle: 来自 tar\npurpose: p\nkind: doc\nverified: 2026-11-10\n---\n\nx\n',
-			}]))
-			const fromTar = await (await post(routes, 'data-import', { file: plain })).json()
-			assert.ok(fromTar.files >= 1)
-			const migrated = await (await post(routes, 'card-list', { query: '来自 tar' })).json()
-			assert.ok(migrated.cards.length >= 1)
-
 			// 浏览压缩包：只列支持的三种后缀，并带上路径与大小
 			await writeFile(join(home, 'notes.txt'), 'x', 'utf8')
 			const listing = await (await post(routes, 'data-archives', { dir: home })).json()
@@ -271,7 +260,6 @@ test('导出、导入与迁移数据目录', async () => {
 			const names = listing.files.map((item) => item.name)
 			assert.ok(names.includes('evolver-backup.tar.gz'))
 			assert.ok(names.includes('second.tar.gz'))
-			assert.ok(names.includes('snapshot.tar'))
 			assert.equal(names.includes('notes.txt'), false)
 			assert.ok(listing.files.every((item) => typeof item.path === 'string' && item.path.startsWith(home)))
 			assert.ok(listing.files.every((item) => item.size > 0))
@@ -365,7 +353,7 @@ test('两个数据操作不能同时进行', async () => {
 	})
 })
 
-test('卡片接口：迁移列表、写入、读取、提升、附件、标签、归档与删除', async () => {
+test('卡片接口：列表、写入、读取、提升、附件、标签、归档与删除', async () => {
 	await withHome(async (home) => {
 		const { ctx, routes, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
@@ -403,35 +391,6 @@ test('卡片接口：迁移列表、写入、读取、提升、附件、标签�
 			assert.equal(archived.status, 'archived')
 			const removed = await (await post(routes, 'card-remove', { id: created.id })).json()
 			assert.equal(removed.removed, true)
-		} finally {
-			await disposeEffects(effects)
-		}
-	})
-})
-
-test('启动时把旧权重迁入数据目录，清理接口只删旧目录', async () => {
-	await withHome(async (home) => {
-		const dataDir = join(home, 'evolver')
-		const legacy = join(home, 'evolver-models', 'multilingual-e5-small')
-		await mkdir(join(legacy, 'onnx'), { recursive: true })
-		await writeFile(join(legacy, 'config.json'), '{}')
-		await writeFile(join(legacy, 'onnx', 'model_quantized.onnx'), 'weights')
-		const { ctx, routes, effects } = fakeContext()
-		await apply(ctx, { dataDir })
-		try {
-			assert.equal(await readFile(join(dataDir, 'models', 'multilingual-e5-small', 'config.json'), 'utf8'), '{}')
-			const status = await (await post(routes, 'embedding-status', {})).json()
-			assert.equal(status.legacy.dirs.length, 0)
-
-			// A leftover folder (for example because the data folder already
-			// had that model) can be removed from the panel.
-			const leftover = join(home, 'evolver-models', 'bge-m3')
-			await mkdir(leftover, { recursive: true })
-			await writeFile(join(leftover, 'config.json'), '{}')
-			const cleaned = await (await post(routes, 'embedding-cleanup', {})).json()
-			assert.equal(cleaned.removed, 1)
-			assert.equal(cleaned.status.legacy.bytes, 0)
-			await assert.rejects(() => readFile(join(leftover, 'config.json'), 'utf8'))
 		} finally {
 			await disposeEffects(effects)
 		}

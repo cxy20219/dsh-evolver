@@ -33,7 +33,6 @@ export const ENDPOINTS = [
 	'embedding-download',
 	'embedding-cancel',
 	'embedding-test',
-	'embedding-cleanup',
 	'ingest-status',
 	'ingest-save',
 	'ingest-run',
@@ -179,9 +178,6 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 				}
 				case 'embedding-cancel': {
 					return { ok: true, value: await embedding.cancel() }
-				}
-				case 'embedding-cleanup': {
-					return { ok: true, value: await embedding.cleanup() }
 				}
 				case 'ingest-status': {
 					return { ok: true, value: await ingest.status() }

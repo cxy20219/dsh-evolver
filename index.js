@@ -7,8 +7,8 @@
  *      log and resources, the soul and the global preferences;
  *   2. **the injection** — the 2 KB permanent-card projection, the soul and
  *      the proactive protocol;
- *   3. **the tools** — card-backed `practice_*` / `memory_*` compatibility
- *      tools plus `card_promote`;
+ *   3. **the tools** — card-native query/read/write/index/promote/archive/
+ *      remove, plus `evolve_review` and `session_digest`;
  *   4. **the settings** — where the data folder lives, its card budget, and
  *      how its whole content is backed up to OSS.
  *
@@ -22,7 +22,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { MAX_IMPORT_BYTES, extractArchiveFile, writeArchiveFile } from './src/backup/archive.js'
 import { BackupService } from './src/backup/service.js'
-import { EMBEDDING_MODELS, ModelDownloader, embeddingConfig, embeddingLocations, legacyModelState, migrateLegacyModels, modelPresent, probeEmbedding, removeLegacyModels, runtimeState } from './src/embedding.js'
+import { EMBEDDING_MODELS, ModelDownloader, embeddingConfig, embeddingLocations, modelPresent, probeEmbedding, runtimeState } from './src/embedding.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
 import { createIngestController } from './src/ingest.js'
 import { SessionLedger, digestSessions } from './src/sessions.js'
@@ -31,8 +31,7 @@ import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { createTools } from './src/tools.js'
 import { PROACTIVE_PROTOCOL } from './src/proactive.js'
-import { createMemoryAdapter, createPracticeAdapter } from './src/cards/adapters.js'
-import { migrateToCards } from './src/cards/migrate.js'
+import { createCardAgent } from './src/cards/agent.js'
 import { seedStarterCards } from './src/cards/seed.js'
 import { cardPrompt } from './src/cards/prompt.js'
 import { CardStore } from './src/cards/store.js'
@@ -188,25 +187,11 @@ export async function apply(ctx, config) {
 		version: await readVersion(),
 	})
 	await evolver.ensure()
-	await evolver.migrate()
 	await evolver.linkGlobalIfNeeded()
-	// Weights used to live next to the harness home. Move them into the data
-	// folder before the panel asks what is downloaded, so an existing model is
-	// never offered for download again.
-	const migratedWeights = await migrateLegacyModels({ dataDir: evolver.root, dshHome, logger: ctx.logger })
-		.catch((error) => {
-			ctx.logger.warn(`dsh-evolver: could not move the old embedding weights: ${error instanceof Error ? error.message : String(error)}`)
-			return { migrated: [], blocked: [] }
-		})
-	if (migratedWeights.migrated.length > 0) {
-		ctx.logger.info(`dsh-evolver: ${migratedWeights.migrated.length} model folder(s) moved into the data folder`)
-	}
-
 	// The card store is replaced whenever the data folder changes, so the
 	// tools and the API talk to small proxies rather than to one instance.
 	const cardStoreRef = { current: undefined }
-	const practiceCardRef = { current: undefined }
-	const memoryCardRef = { current: undefined }
+	const cardAgentRef = { current: undefined }
 
 	/**
 	 * The embedding configuration the settings currently ask for.
@@ -236,9 +221,6 @@ export async function apply(ctx, config) {
 	/**
 	 * Build (and initialise) the card store of one data folder.
 	 *
-	 * The one-time migration from practice/memory runs here; a failure is
-	 * logged instead of failing activation, and the next start retries it.
-	 *
 	 * @param {string} root - The data folder.
 	 * @returns {Promise<object>} The opened store.
 	 */
@@ -251,14 +233,10 @@ export async function apply(ctx, config) {
 		})
 		await store.init()
 		try {
-			const migrated = await migrateToCards({ dataDir: root, store, logger: ctx.logger })
-			if (migrated.skipped !== true) {
-				ctx.logger.info(`dsh-evolver: card migration practice=${migrated.practice} memory=${migrated.memory}`)
-			}
 			const seeded = await seedStarterCards(store)
 			if (seeded > 0) ctx.logger.info(`dsh-evolver: seeded ${seeded} starter card(s)`)
 		} catch (error) {
-			ctx.logger.warn(`dsh-evolver: card migration failed: ${error instanceof Error ? error.message : String(error)}`)
+			ctx.logger.warn(`dsh-evolver: seeding cards failed: ${error instanceof Error ? error.message : String(error)}`)
 		}
 		return store
 	}
@@ -271,8 +249,7 @@ export async function apply(ctx, config) {
 	 */
 	function useCards(store) {
 		cardStoreRef.current = store
-		practiceCardRef.current = createPracticeAdapter(store)
-		memoryCardRef.current = createMemoryAdapter(store)
+		cardAgentRef.current = createCardAgent(store)
 	}
 
 	/**
@@ -289,22 +266,18 @@ export async function apply(ctx, config) {
 
 	await openCards(resolved.root)
 
-	// Tools and the ingest job talk to these proxies; a data-folder switch
-	// replaces the adapters behind them without changing tool identities.
-	const practiceCards = {
-		practice: (...args) => practiceCardRef.current.practice(...args),
-		practiceSearch: (...args) => practiceCardRef.current.practiceSearch(...args),
-		practiceRead: (...args) => practiceCardRef.current.practiceRead(...args),
-		practiceWrite: (...args) => practiceCardRef.current.practiceWrite(...args),
-		promote: (...args) => practiceCardRef.current.promote(...args),
-		overview: (...args) => practiceCardRef.current.overview(...args),
-	}
-	const memoryCards = {
-		recall: (...args) => memoryCardRef.current.recall(...args),
-		save: (...args) => memoryCardRef.current.save(...args),
-		forget: (...args) => memoryCardRef.current.forget(...args),
-		list: (...args) => memoryCardRef.current.list(...args),
-		stats: (...args) => memoryCardRef.current.stats(...args),
+	// Tools and the ingest job talk to this proxy; a data-folder switch
+	// replaces the agent behind it without changing tool identities.
+	const cardAgent = {
+		write: (...args) => cardAgentRef.current.write(...args),
+		saveFleeting: (...args) => cardAgentRef.current.saveFleeting(...args),
+		query: (...args) => cardAgentRef.current.query(...args),
+		read: (...args) => cardAgentRef.current.read(...args),
+		promote: (...args) => cardAgentRef.current.promote(...args),
+		archive: (...args) => cardAgentRef.current.archive(...args),
+		remove: (...args) => cardAgentRef.current.remove(...args),
+		index: (...args) => cardAgentRef.current.index(...args),
+		review: (...args) => cardAgentRef.current.review(...args),
 	}
 
 	/**
@@ -337,11 +310,10 @@ export async function apply(ctx, config) {
 			}))
 			return {
 				...base,
-				practice: {
+				projection: {
 					entries: active.length,
 					bytes: active.reduce((sum, card) => sum + Buffer.byteLength(card.body, 'utf8'), 0),
 					byKind,
-					problems: [],
 					injectedBytes: Buffer.byteLength(text, 'utf8'),
 					injectedBudget: 2048,
 					dropped: 0,
@@ -364,7 +336,7 @@ export async function apply(ctx, config) {
 			const text = cardPrompt(store)
 			return {
 				...base,
-				practice: {
+				cards: {
 					entries: active.length,
 					bytes: Buffer.byteLength(text, 'utf8'),
 					budget: 2048,
@@ -460,7 +432,7 @@ export async function apply(ctx, config) {
 		settings,
 		query: ctx.get('sessionQuery'),
 		ledger: ingestLedger,
-		memory: memoryCards,
+		save: (item) => cardAgent.saveFleeting(item),
 		llm: ctx.get('llm'),
 		modelSelection: ctx.get('agentDefaultModel'),
 		logger: ctx.logger,
@@ -728,7 +700,6 @@ export async function apply(ctx, config) {
 				note: model.note,
 			})),
 			present,
-			legacy: await legacyModelState(dshHome),
 			download: downloader.state(),
 			store: cardStoreRef.current.status(),
 		}
@@ -754,13 +725,6 @@ export async function apply(ctx, config) {
 		},
 		async test() {
 			return probeEmbedding(currentEmbeddingConfig())
-		},
-		async cleanup() {
-			const removed = await removeLegacyModels(dshHome)
-			if (removed.removed > 0) {
-				ctx.logger.info(`dsh-evolver: removed ${removed.removed} old model folder(s) (${removed.bytes} bytes)`)
-			}
-			return { ...removed, status: await embeddingStatus() }
 		},
 	}
 
@@ -796,7 +760,7 @@ export async function apply(ctx, config) {
 		return () => backup.stop()
 	}, 'dsh-evolver: backup scheduler')
 
-	for (const tool of createTools({ practice: practiceCards, memory: memoryCards, sessions })) {
+	for (const tool of createTools({ cards: cardAgent, sessions })) {
 		disposers.push(ctx.tools.register(tool))
 	}
 
@@ -804,7 +768,7 @@ export async function apply(ctx, config) {
 	// assembled prompt stays byte-stable between changes.
 	await evolver.refresh()
 	disposers.push(ctx.systemPrompt.section({
-		name: 'dsh-evolver:practice',
+		name: 'dsh-evolver:cards',
 		order: 900,
 		interpolate: false,
 		text: () => (cardStoreRef.current === undefined ? '' : cardPrompt(cardStoreRef.current)),

@@ -345,10 +345,10 @@ let embeddingPresent = false
 function apiPayload(endpoint, payload) {
 	switch (endpoint) {
 		case 'overview':
-			return { version: '9.9.9', root: '/data/evolver', practice: { entries: 3, injectedBytes: 100, injectedBudget: 2048 }, suggestions: [] }
+			return { version: '9.9.9', root: '/data/evolver', projection: { entries: 3, injectedBytes: 100, injectedBudget: 2048, byKind: [] }, cards: { total: 3 }, suggestions: [] }
 		case 'injection':
 			return {
-				practice: { text: '[实践]', bytes: 10, budget: 2048 },
+				cards: { text: '[卡片]', bytes: 10, budget: 2048, entries: 3, dropped: 0 },
 				soul: { text: 'soul', bytes: 4, budget: 1024 },
 				preferences: { text: 'prefs', bytes: 5, link: { kind: 'missing' } },
 				totalBytes: 19,

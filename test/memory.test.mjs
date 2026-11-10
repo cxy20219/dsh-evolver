@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { MemoryDatabase, tokenize } from '../src/memory/db.js'
-import { createMemoryAdapter } from '../src/cards/adapters.js'
+import { createCardAgent } from '../src/cards/agent.js'
 import { hybridRetrieve, textOverlap } from '../src/memory/hybrid.js'
 import { MemoryStore } from '../src/memory/store.js'
 import { CardStore } from '../src/cards/store.js'
@@ -39,7 +39,7 @@ test('并发 flush 不再撞同一个临时文件', async () => {
 	}
 })
 
-test('向量按 base64 落盘，旧数组格式仍能读回', async () => {
+test('向量按 base64 落盘并读回', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-vec-'))
 	try {
 		const db = new MemoryDatabase({ dataDir: dir, embedder: { id: 'local' } })
@@ -59,13 +59,6 @@ test('向量按 base64 落盘，旧数组格式仍能读回', async () => {
 		assert.ok(Math.abs(vector[0] - 0.6) < 1e-6)
 		assert.ok(Math.abs(vector[1] - 0.8) < 1e-6)
 		await reopened.close()
-
-		// A store written by the previous version keeps loading.
-		await writeFile(join(dir, 'memory', 'vectors.json'), JSON.stringify({ vectors: { m1: [0.1, 0.2] } }), 'utf8')
-		const legacy = new MemoryDatabase({ dataDir: dir })
-		await legacy.init()
-		assert.ok(Math.abs(legacy.vector('m1')[0] - 0.1) < 1e-6)
-		await legacy.close()
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}
@@ -149,7 +142,7 @@ test('重建向量时初始化不被阻塞，重建完成前检索只用关键�
 		await store.init()
 		// init 已经返回，但重建还卡在 gate 上：仍然可以读，只是不走向量。
 		assert.equal(store.vectorsReady(), false)
-		const early = await store.retrieve({ query: '插件 注册', limit: 5 })
+		const early = await hybridRetrieve({ db: store.db, query: '插件 注册', limit: 5 })
 		assert.ok(early.length >= 1)
 
 		release()
@@ -335,18 +328,17 @@ test('关闭记忆库会等后台重建落盘', async () => {
 	}
 })
 
-test('卡片记忆列表的 total 是过滤后的总数，不是当前页条数', async () => {
+test('卡片记忆可以按限制列出，总数仍在店里', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-list-'))
 	try {
 		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
 		await store.init()
-		const memory = createMemoryAdapter(store)
-		await memory.save({ content: '第一条记忆', kind: 'fact' })
-		await memory.save({ content: '第二条记忆', kind: 'fact' })
-		await memory.save({ content: '第三条记忆', kind: 'fact' })
-		const page = memory.list({ limit: 1 })
-		assert.equal(page.total, 3)
-		assert.equal(page.results.length, 1)
+		const agent = createCardAgent(store)
+		await agent.saveFleeting({ content: '第一条记忆', kind: 'fact' })
+		await agent.saveFleeting({ content: '第二条记忆', kind: 'fact' })
+		await agent.saveFleeting({ content: '第三条记忆', kind: 'fact' })
+		assert.equal(store.list({ type: 'fleeting', limit: 200 }).length, 3)
+		assert.equal(store.list({ type: 'fleeting', limit: 1 }).length, 1)
 		await store.close()
 	} finally {
 		await rm(dir, { recursive: true, force: true })
@@ -358,8 +350,8 @@ test('卡片记忆不保存密钥', async () => {
 	try {
 		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
 		await store.init()
-		const memory = createMemoryAdapter(store)
-		const result = await memory.save({ content: 'API key 是 sk-abcdefghijklmnopqrstuvwx', kind: 'fact' })
+		const agent = createCardAgent(store)
+		const result = await agent.saveFleeting({ content: 'API key 是 sk-abcdefghijklmnopqrstuvwx', kind: 'fact' })
 		assert.equal(result.success, false)
 		assert.match(result.message, /密钥/)
 		assert.equal(store.all().length, 0)
@@ -382,9 +374,9 @@ test('小卡片库的语义命中不会被统计门槛全部滤掉', async () =>
 			},
 		})
 		await store.init()
-		const memory = createMemoryAdapter(store)
-		await memory.save({ content: '甲：向量召回测试', kind: 'fact' })
-		await memory.save({ content: '乙：另一条无关记忆', kind: 'fact' })
+		const agent = createCardAgent(store)
+		await agent.saveFleeting({ content: '甲：向量召回测试', kind: 'fact' })
+		await agent.saveFleeting({ content: '乙：另一条无关记忆', kind: 'fact' })
 		assert.equal(store.status().vectorsReady, true)
 		const results = await store.query({ text: '完全不同的说法', type: 'fleeting', limit: 5 })
 		assert.ok(results.some((card) => card.body.includes('甲')), '小库的语义命中被过滤了')
@@ -399,15 +391,15 @@ test('相同内容在不同作用域各自成卡，同作用域才合并', async
 	try {
 		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
 		await store.init()
-		const memory = createMemoryAdapter(store)
+		const agent = createCardAgent(store)
 		const text = '插件改动是否生效要用槽查询确认'
-		const first = await memory.save({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/a' })
-		const second = await memory.save({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/b' })
+		const first = await agent.saveFleeting({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/a' })
+		const second = await agent.saveFleeting({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/b' })
 		assert.equal(first.success, true)
 		assert.equal(second.success, true)
 		assert.notEqual(first.id, second.id)
 		assert.equal(store.all().length, 2)
-		const again = await memory.save({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/a' })
+		const again = await agent.saveFleeting({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/a' })
 		assert.equal(again.id, first.id)
 		assert.equal(store.all().length, 2)
 		await store.close()

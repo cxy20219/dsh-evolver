@@ -1,22 +1,12 @@
 /**
- * The tools the agent gets from the evolver.
+ * The card tools the agent gets from the evolver.
  *
- * Two families:
- *
- *   - `practice_*` reach the curated, verified layer. The injected index is a
- *     routing table; these tools are how the agent goes deeper on its own.
- *   - `memory_*` reach the sight layer: what the agent remembers, recalled on
- *     demand rather than pushed into every prompt.
- *
- * The definitions are plain JSON Schema on purpose: the plugin registers
- * itself without borrowing a Harness package, so it keeps working when the
- * installation moves.
+ * One record type, one id space: the same `card_query` / `card_write` path
+ * serves permanent and fleeting cards. No practice/memory compatibility
+ * names survive here.
  */
 
-import { ENTRY_KINDS, SCOPES } from './memory/kinds.js'
-
-/** The three legacy practice shapes the write tool accepts. */
-const PRACTICE_KINDS = ['doc', 'tool', 'resource']
+import { CARD_CATEGORIES, CARD_SHAPES, CARD_STATUSES, CARD_TYPES } from './cards/store.js'
 
 /**
  * Render one tool result as text.
@@ -44,105 +34,90 @@ function sanitize(value) {
 /**
  * The evolver's tool set.
  *
- * @param {{practice: object, memory: object}} deps - The evolver and the memory actions.
+ * @param {{cards: object, sessions?: object}} deps - The card operations and sessions.
  * @returns {object[]} The tool definitions.
  */
-export function createTools({ practice, memory, sessions }) {
+export function createTools({ cards, sessions }) {
 	return [
 		{
-			name: 'practice_query',
-			description: '在永久卡片里检索可复用的经验、流程、验证方法、脚本与资源。永久卡是已经验证过的高信号内容：动手前先查它，沉淀前也先用它查重。返回卡片 id、label、用途和命中片段；用 practice_read 读全文。',
+			name: 'card_query',
+			description: '按关键词、类型、状态或层级标签检索卡片。永久卡是已验证、可复用的结论/流程/工具；临时卡是还没判断的见闻。动身前先查重，别凭印象。返回卡片 id、label、正文和标签；需要全文或附件时用 card_read。',
 			parameters: {
 				type: 'object',
 				properties: {
-					query: { type: 'string', description: '检索关键词或问题' },
-					kind: { type: 'string', enum: PRACTICE_KINDS, description: '限定类型：doc 文档 / tool 工具 / resource 资源' },
+					query: { type: 'string', description: '检索关键词或问题；留空则按条件列出' },
+					type: { type: 'string', enum: CARD_TYPES, description: '限定临时卡或永久卡' },
+					status: { type: 'string', enum: CARD_STATUSES, description: '限定状态' },
+					tags: { type: 'array', items: { type: 'string' }, description: '层级标签前缀，例如 "验证/浏览器"' },
 					limit: { type: 'integer', description: '返回条数，默认 8' },
 				},
-				required: ['query'],
 			},
 			output: OBJECT_OUTPUT,
 			async execute(args) {
 				const input = args ?? {}
-				const results = await practice.practiceSearch(String(input.query ?? ''), {
-					kind: typeof input.kind === 'string' ? input.kind : '',
-					limit: Number(input.limit ?? 8),
+				const results = await cards.query({
+					text: input.query,
+					type: input.type,
+					status: input.status,
+					tags: input.tags,
+					limit: input.limit,
 				})
 				return sanitize({ total: results.length, results })
 			},
 		},
 		{
-			name: 'practice_read',
-			description: '读一张永久卡的全文（含附件）。path 可以是卡片 id（推荐），也可以是旧 slug；返回 label、summary、正文或主附件文本、链接和附件列表。',
+			name: 'card_read',
+			description: '读一张卡片的完整记录，包括正文、一句话摘要、标签、双链和资源附件。id 必须是 card_ 开头的 ULID；旧路径/旧 slug 不再支持。',
 			parameters: {
 				type: 'object',
 				properties: {
-					path: { type: 'string', description: '条目路径，相对 practice 根目录' },
+					id: { type: 'string', description: '卡片 id' },
 				},
-				required: ['path'],
+				required: ['id'],
 			},
 			output: OBJECT_OUTPUT,
 			async execute(args) {
-				return sanitize(await practice.practiceRead(String(args?.path ?? '')))
+				return sanitize(await cards.read(String(args?.id ?? '')))
 			},
 		},
 		{
-			name: 'practice_write',
-			description: '写入一张永久卡：经验、稳定的流程、验证方法、脚本用法或容易误判的长期信息。写前先 practice_query 查重、practice_read 读相关卡片，能更新已有卡片就不要新建。title 是卡片 label，purpose 是注入投影里的一句话摘要；kind 决定形状（doc/tool/resource），正文会自动存进资源附件，卡片只留摘要；topic 和附加参数 tags 组成层级标签。能脚本化的流程用 kind=tool 写可运行脚本。只写能减少未来误判、重复劳动或验证成本的内容，不写流水账、一次性命令、猜测、废弃方案、密钥和日志。links 用卡片 id 或 slug，写完返回 problems。',
+			name: 'card_write',
+			description: '写入或更新一张卡。临时卡（fleeting）用一句话记录还没判断的结论；永久卡（permanent）用 label + summary 做路由，doc/tool/resource 的正文会自动进资源附件、卡片只留摘要。写前先 card_query 查重；不写流水账、一次性命令、猜测、密钥。links 只能是卡片 id。',
 			parameters: {
 				type: 'object',
 				properties: {
-					kind: { type: 'string', enum: PRACTICE_KINDS, description: 'doc 文档 / tool 工具 / resource 资源' },
-					name: { type: 'string', description: '文件名，例如 my-check.md' },
-					title: { type: 'string', description: '标题，一句话说清是什么' },
-					purpose: { type: 'string', description: '一句话用途：什么时候该用它' },
-					topic: { type: 'string', description: '主题（会作为主题目录名与索引分组）' },
-					body: { type: 'string', description: '正文，Markdown' },
-					verified: { type: 'string', description: '最后验证日期，YYYY-MM-DD' },
-					links: { type: 'array', items: { type: 'string' }, description: '关联条目的 slug' },
+					id: { type: 'string', description: '更新已有卡片时传入 id；新卡留空' },
+					type: { type: 'string', enum: CARD_TYPES, description: '临时卡或永久卡，默认临时卡' },
+					shape: { type: 'string', enum: CARD_SHAPES, description: '永久卡形状：note/doc/tool/resource；临时卡固定 memo' },
+					body: { type: 'string', description: '正文；doc/tool/resource 会自动存成附件' },
+					label: { type: 'string', description: '列表里的一行标题；留空从正文首行派生' },
+					summary: { type: 'string', description: '永久卡的一句话路由，会进 2 KB 投影' },
+					category: { type: 'string', enum: CARD_CATEGORIES, description: '卡片分类，默认 fact' },
+					tags: { type: 'array', items: { type: 'string' }, description: '层级标签，例如 "验证/浏览器"' },
+					topic: { type: 'string', description: '主题标签' },
+					links: { type: 'array', items: { type: 'string' }, description: '关联卡片 id' },
+					verified: { type: 'string', description: '最后验证日期 YYYY-MM-DD' },
+					resourceName: { type: 'string', description: 'doc/tool/resource 附件文件名，留空自动生成' },
 				},
-				required: ['kind', 'name', 'title', 'purpose'],
+				required: ['body'],
 			},
 			output: OBJECT_OUTPUT,
 			async execute(args) {
-				const input = args ?? {}
-				return sanitize(await practice.practiceWrite({
-					kind: input.kind,
-					name: input.name,
-					title: input.title,
-					purpose: input.purpose,
-					topic: input.topic,
-					body: input.body,
-					verified: input.verified,
-					links: input.links,
-				}))
+				return sanitize(await cards.write(args ?? {}))
 			},
 		},
 		{
-			name: 'practice_index',
-			description: '拿到全部永久卡和 2KB 注入投影的完整文本。想确认某类资源都有什么、或想知道投影里哪些卡没进索引时用它。',
+			name: 'card_index',
+			description: '拿到全部永久卡和 2 KB 注入投影的完整文本。想确认某类资源都有什么、或想知道投影里哪些卡没进索引时用它。',
 			parameters: { type: 'object', properties: {} },
 			output: OBJECT_OUTPUT,
 			async execute() {
-				const state = await practice.practice()
-				return sanitize({
-					total: state.entries.length,
-					injected: state.projection.text,
-					entries: state.entries.map((entry) => ({
-						kind: entry.kind,
-						topic: entry.topic,
-						title: entry.title,
-						purpose: entry.purpose,
-						path: entry.relPath,
-						verified: entry.verified,
-					})),
-					problems: state.problems,
-				})
+				return sanitize(await cards.index())
 			},
 		},
 		{
 			name: 'card_promote',
-			description: '把一张临时卡提升为永久卡，让它进入 2KB 注入投影。提升前用 practice_query 查重；summary 是投影里的一句话路由，留空用原 label。',
+			description: '把一张临时卡提升为永久卡，让它进入 2 KB 注入投影。提升前用 card_query 查重；summary 是投影里的一句话路由，留空用原 label。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -155,60 +130,47 @@ export function createTools({ practice, memory, sessions }) {
 			output: OBJECT_OUTPUT,
 			async execute(args) {
 				const input = args ?? {}
-				return sanitize(await practice.promote(String(input.id ?? ''), {
-					summary: input.summary,
-					tags: input.tags,
-				}))
+				return sanitize(await cards.promote(String(input.id ?? ''), { summary: input.summary, tags: input.tags }))
+			},
+		},
+		{
+			name: 'card_archive',
+			description: '归档一张卡片：从默认列表和注入投影里移出，但保留记录和资源。适合过时但仍需追溯的结论。',
+			parameters: {
+				type: 'object',
+				properties: { id: { type: 'string', description: '卡片 id' } },
+				required: ['id'],
+			},
+			output: OBJECT_OUTPUT,
+			async execute(args) {
+				return sanitize(await cards.archive(String(args?.id ?? '')))
+			},
+		},
+		{
+			name: 'card_remove',
+			description: '永久删除一张卡片及其资源附件。不可恢复；只在确认这张卡是噪声、重复或错误时使用。',
+			parameters: {
+				type: 'object',
+				properties: { id: { type: 'string', description: '卡片 id' } },
+				required: ['id'],
+			},
+			output: OBJECT_OUTPUT,
+			async execute(args) {
+				return sanitize(await cards.remove(String(args?.id ?? '')))
 			},
 		},
 		{
 			name: 'evolve_review',
-			description: '一次拿到卡片库的状态与可执行的改进提示：永久卡条目数/注入预算、临时卡数量与代表条目、建议动作。返回的 hints 是想让你主动做的事；没有高信号时也会说明。',
+			description: '盘点卡片库：永久卡/临时卡数量、最近临时卡、久未验证的永久卡和可执行的 hints。没有高信号时它会明确说不用为了主动而主动。',
 			parameters: { type: 'object', properties: {} },
 			output: OBJECT_OUTPUT,
 			async execute() {
-				const overview = await practice.overview()
-				const stats = memory.stats()
-				const listed = memory.list({ limit: 5 })
-				const problems = overview.practice?.problems ?? []
-				const suggestions = overview.suggestions ?? []
-				const hints = []
-				if (problems.length > 0) {
-					hints.push(`实践有 ${problems.length} 个结构问题；先用 practice_index 看路径，再修正。`)
-				}
-				const stale = suggestions.filter((item) => item.kind === 'stale').length
-				if (stale > 0) hints.push(`${stale} 条实践超过半年未验证；优先复查最近用到的。`)
-				if ((stats.entries ?? 0) === 0) {
-					hints.push('记忆库为空；本次任务结束写一条确认过的判断或用户偏好。')
-				} else if (hints.length === 0) {
-					hints.push('没有结构问题；按需召回即可，不用为了主动而主动。')
-				}
-				return sanitize({
-					practice: {
-						entries: overview.practice?.entries ?? 0,
-						injectedBytes: overview.practice?.injectedBytes ?? 0,
-						injectedBudget: overview.practice?.injectedBudget ?? 0,
-						dropped: overview.practice?.dropped ?? 0,
-						problems: problems.slice(0, 8),
-					},
-					memory: {
-						entries: stats.entries ?? 0,
-						byKind: stats.entriesByKind ?? {},
-						top: (listed.results ?? []).map((entry) => ({
-							id: entry.id,
-							kind: entry.kind,
-							scope: entry.scope,
-							text: String(entry.text ?? '').slice(0, 160),
-						})),
-					},
-					suggestions: suggestions.slice(0, 8),
-					hints,
-				})
+				return sanitize(await cards.review())
 			},
 		},
 		{
 			name: 'session_digest',
-			description: '读取还没整理过的会话：只抽用户与助手的文本（不含工具输出和系统提示），按会话给出摘录。想手动整理时用；commit:true 会把返回的会话标记为已处理，只在保存完记忆后调用。空闲时的自动整理不经过这个工具。',
+			description: '读取还没整理过的会话：只抽用户与助手的文本（不含工具输出和系统提示），按会话给出摘录。想手动整理时用；commit:true 会把返回的会话标记为已处理，只在保存完卡片后调用。空闲时的自动整理不经过这个工具。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -232,83 +194,6 @@ export function createTools({ practice, memory, sessions }) {
 					...result,
 					empty: Array.isArray(result.empty) ? result.empty.length : 0,
 				})
-			},
-		},
-		{
-			name: 'memory_recall',
-			description: '召回「见闻」里与问题相关的记忆：过往经历、踩过的坑、确认过的判断。记忆不会被自动塞进上下文，需要你自己来取；召回为空时说明没有相关记忆，不要编造。',
-			parameters: {
-				type: 'object',
-				properties: {
-					query: { type: 'string', description: '检索关键词或问题' },
-					kinds: { type: 'array', items: { type: 'string' }, description: '限定类型，如 ["failure","convention"]' },
-					scopes: { type: 'array', items: { type: 'string' }, description: '限定作用域' },
-					projectKey: { type: 'string', description: '限定项目目录' },
-					limit: { type: 'integer', description: '返回条数，默认 8' },
-				},
-			},
-			output: OBJECT_OUTPUT,
-			async execute(args) {
-				return sanitize(await memory.recall(args ?? {}))
-			},
-		},
-		{
-			name: 'memory_save',
-			description: '记下一条值得留住的记忆：这次任务里确认过的判断、踩到的坑、外部工具的稳定行为。内容几乎相同会更新那一条而不是重复保存。值得长期复用的结论请另外用 practice_write 沉淀到「实践」。',
-			parameters: {
-				type: 'object',
-				properties: {
-					content: { type: 'string', description: '记忆正文，一句话，越具体越好' },
-					kind: { type: 'string', enum: ENTRY_KINDS, description: '记忆类型' },
-					scope: { type: 'string', enum: SCOPES, description: '作用域，默认 global' },
-					tags: { type: 'array', items: { type: 'string' }, description: '可选标签，用于召回匹配' },
-					projectKey: { type: 'string', description: 'project 作用域使用的目录路径' },
-				},
-				required: ['content'],
-			},
-			output: OBJECT_OUTPUT,
-			async execute(args) {
-				return sanitize(await memory.save(args ?? {}))
-			},
-		},
-		{
-			name: 'memory_list',
-			description: '列出已保存的记忆（按类型或作用域过滤）。',
-			parameters: {
-				type: 'object',
-				properties: {
-					kind: { type: 'string', enum: ENTRY_KINDS, description: '按类型过滤' },
-					scope: { type: 'string', enum: SCOPES, description: '按作用域过滤' },
-					limit: { type: 'integer', description: '返回条数，默认 20' },
-				},
-			},
-			output: OBJECT_OUTPUT,
-			async execute(args) {
-				return sanitize(memory.list(args ?? {}))
-			},
-		},
-		{
-			name: 'memory_forget',
-			description: '删除一条记忆（过时了、记错了、不再需要）。',
-			parameters: {
-				type: 'object',
-				properties: {
-					id: { type: 'string', description: '要删除的记忆 id' },
-				},
-				required: ['id'],
-			},
-			output: OBJECT_OUTPUT,
-			async execute(args) {
-				return sanitize(await memory.forget(args ?? {}))
-			},
-		},
-		{
-			name: 'memory_stats',
-			description: '记忆库统计：条目数、类型分布、作用域分布。',
-			parameters: { type: 'object', properties: {} },
-			output: OBJECT_OUTPUT,
-			async execute() {
-				return sanitize(memory.stats())
 			},
 		},
 	]

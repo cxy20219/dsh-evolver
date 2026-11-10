@@ -3,17 +3,17 @@
  *
  * The extraction runs as a direct, tool-free model call from the Host: the
  * plugin reads a bounded session digest, asks the default model for a small
- * JSON list of memories, validates it, saves through the normal memory layer
+ * JSON list of memories, validates it, and saves each as a fleeting card
  * and only then marks the sessions processed. No agent session, no tools and
  * no scheduled task are involved, so the job cannot wander off into editing
- * files or practices.
+ * transcripts or cards.
  *
  * The model is only an extractor here: it sees the excerpts and returns JSON.
  * The prompt states that excerpts are data, not instructions, and every item
  * is checked again (size, kind, scope, secrets) before it is stored.
  */
 
-import { ENTRY_KINDS, SCOPES } from './memory/kinds.js'
+import { CARD_CATEGORIES, SCOPES } from './cards/vocabulary.js'
 import { findSecret } from './secrets.js'
 import { digestSessions, probeSessions } from './sessions.js'
 
@@ -136,7 +136,7 @@ export function parseMemories(text, digest) {
 	}
 	const items = Array.isArray(parsed?.memories) ? parsed.memories : []
 	const cwds = new Set(digest.sessions.map((session) => session.cwd).filter((cwd) => cwd !== ''))
-	const kinds = new Set(ENTRY_KINDS)
+	const kinds = new Set(CARD_CATEGORIES)
 	const scopes = new Set(SCOPES)
 	const seen = new Set()
 	const memories = []
@@ -179,14 +179,14 @@ export function parseMemories(text, digest) {
  * @param {object} options.settings - The settings store.
  * @param {object | undefined} options.query - The Host `sessionQuery` service.
  * @param {object} options.ledger - The session ledger facade.
- * @param {object} options.memory - The memory actions.
+ * @param {Function} options.save - Saves one extracted item as a fleeting card.
  * @param {object | undefined} options.llm - The Host `llm` service.
  * @param {object | undefined} options.modelSelection - The Host `agentDefaultModel` service.
  * @param {object} [options.logger] - The logger.
  * @param {() => number} [options.now] - Clock.
  * @returns {object} The controller.
  */
-export function createIngestController({ settings, query, ledger, memory, llm, modelSelection, logger, now = () => Date.now() }) {
+export function createIngestController({ settings, query, ledger, save: saveCard, llm, modelSelection, logger, now = () => Date.now() }) {
 	const state = {
 		lastActivityAt: now(),
 		lastAutoAt: 0,
@@ -243,7 +243,7 @@ export function createIngestController({ settings, query, ledger, memory, llm, m
 		}
 		let saved = 0
 		for (const item of parsed.memories) {
-			const result = await memory.save({
+			const result = await saveCard({
 				kind: item.kind,
 				content: item.text,
 				scope: item.scope,
@@ -260,7 +260,7 @@ export function createIngestController({ settings, query, ledger, memory, llm, m
 		state.lastRunAt = now()
 		state.lastSaved = saved
 		state.lastError = ''
-		logger?.info?.(`dsh-evolver: session ingest read ${digest.sessions.length} session(s), saved ${saved} memory(ies)`)
+		logger?.info?.(`dsh-evolver: session ingest read ${digest.sessions.length} session(s), saved ${saved} card(s)`)
 		return { success: true, sessions: digest.sessions.length, saved, skipped: parsed.skipped, cleared: digest.empty.length }
 	}
 

@@ -17,17 +17,17 @@ const MODEL_BYTES = Buffer.alloc(3 * 1024 * 1024, 7)
  */
 async function dataFolder() {
 	const root = await mkdtemp(join(tmpdir(), 'evr-archive-'))
-	await mkdir(join(root, 'practice', 'docs'), { recursive: true })
-	await mkdir(join(root, 'practice', 'tools'), { recursive: true })
+	await mkdir(join(root, 'knowledge', 'cards'), { recursive: true })
+	await mkdir(join(root, 'knowledge', 'resources'), { recursive: true })
 	await mkdir(join(root, 'sight'), { recursive: true })
 	await mkdir(join(root, 'preferences'), { recursive: true })
 	await mkdir(join(root, 'models', 'test-model'), { recursive: true })
-	await writeFile(join(root, 'practice', 'docs', 'entry.md'), '---\ntitle: 条目\n---\n\n正文\n', 'utf8')
-	await writeFile(join(root, 'practice', 'tools', 'run.sh'), '#!/bin/sh\n', 'utf8')
+	await writeFile(join(root, 'knowledge', 'cards', 'cards.jsonl'), '{"id":"card-1"}\n', 'utf8')
+	await writeFile(join(root, 'knowledge', 'resources', 'run.sh'), '#!/bin/sh\n', 'utf8')
 	await writeFile(join(root, 'sight', 'soul.md'), '# 灵魂\n', 'utf8')
 	await writeFile(join(root, 'preferences', 'AGENTS.md'), '# 偏好\n', 'utf8')
 	await writeFile(join(root, 'models', 'test-model', 'model.onnx'), MODEL_BYTES)
-	await chmod(join(root, 'practice', 'tools', 'run.sh'), 0o755)
+	await chmod(join(root, 'knowledge', 'resources', 'run.sh'), 0o755)
 	return root
 }
 
@@ -44,8 +44,8 @@ test('流式导出 .tar.gz 再解压：内容、权限和 models 目录都在', 
 		const restored = await extractArchiveFile(archive, target)
 		assert.equal(restored.files, 5)
 		assert.equal(restored.skipped, 0)
-		assert.equal(await readFile(join(target, 'practice', 'docs', 'entry.md'), 'utf8').then((text) => text.includes('条目')), true)
-		assert.equal((await stat(join(target, 'practice', 'tools', 'run.sh'))).mode & 0o777, 0o755)
+		assert.equal(await readFile(join(target, 'knowledge', 'cards', 'cards.jsonl'), 'utf8').then((text) => text.includes('card-1')), true)
+		assert.equal((await stat(join(target, 'knowledge', 'resources', 'run.sh'))).mode & 0o777, 0o755)
 		assert.deepEqual(await readFile(join(target, 'models', 'test-model', 'model.onnx')), MODEL_BYTES)
 	} finally {
 		await rm(source, { recursive: true, force: true })
@@ -65,9 +65,9 @@ test('流式 tar（云端备份格式）也能解压，且不需要整包进内�
 		assert.equal(packed.bytes > 3 * 1024 * 1024, true)
 		const entries = readTar(await readFile(tar))
 		assert.deepEqual(entries.map((entry) => entry.path).sort(), [
+			'knowledge/cards/cards.jsonl',
+			'knowledge/resources/run.sh',
 			'models/test-model/model.onnx',
-			'practice/docs/entry.md',
-			'practice/tools/run.sh',
 			'preferences/AGENTS.md',
 			'sight/soul.md',
 		])
@@ -86,24 +86,24 @@ test('导入只写白名单目录，默认不覆盖，force 才覆盖', async ()
 	try {
 		const archive = join(dir, 'mixed.tar')
 		await writeFile(archive, createTar([
-			{ path: 'practice/a.md', content: 'new' },
+			{ path: 'knowledge/a.md', content: 'new' },
 			{ path: 'other/b.md', content: 'outside the whitelist' },
 		]))
 		const first = await extractArchiveFile(archive, target)
 		assert.equal(first.files, 1)
 		assert.equal(first.skipped, 1)
-		assert.equal(await readFile(join(target, 'practice', 'a.md'), 'utf8'), 'new')
+		assert.equal(await readFile(join(target, 'knowledge', 'a.md'), 'utf8'), 'new')
 		await assert.rejects(() => readFile(join(target, 'other', 'b.md'), 'utf8'))
 
-		await writeFile(join(target, 'practice', 'a.md'), 'old', 'utf8')
+		await writeFile(join(target, 'knowledge', 'a.md'), 'old', 'utf8')
 		const skipped = await extractArchiveFile(archive, target)
 		assert.equal(skipped.files, 0)
 		assert.equal(skipped.skipped, 2)
-		assert.equal(await readFile(join(target, 'practice', 'a.md'), 'utf8'), 'old')
+		assert.equal(await readFile(join(target, 'knowledge', 'a.md'), 'utf8'), 'old')
 
 		const forced = await extractArchiveFile(archive, target, { force: true })
 		assert.equal(forced.files, 1)
-		assert.equal(await readFile(join(target, 'practice', 'a.md'), 'utf8'), 'new')
+		assert.equal(await readFile(join(target, 'knowledge', 'a.md'), 'utf8'), 'new')
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 		await rm(target, { recursive: true, force: true })

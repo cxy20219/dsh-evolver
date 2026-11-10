@@ -1,4 +1,4 @@
-import { access, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -33,27 +33,6 @@ test('ensure 只建文档骨架，不再生成旧实践树', async () => {
 		assert.match(prefs, /个人偏好/)
 		await assert.rejects(() => access(join(root, 'practice')), { code: 'ENOENT' })
 		assert.equal(evolver.globalPath, join(home, 'AGENTS.md'))
-	} finally {
-		await rm(home, { recursive: true, force: true })
-	}
-})
-
-test('migrate 把旧布局与面板的数据搬进来，且保留源文件', async () => {
-	const { evolver, root, home } = await fixture()
-	try {
-		await mkdir(join(root, 'experience'), { recursive: true })
-		await writeFile(join(root, 'experience/old.md'), '---\ntitle: 旧经验\npurpose: x\n---\n', 'utf8')
-		await mkdir(join(home, 'panel/memory'), { recursive: true })
-		await writeFile(join(home, 'panel/memory/memories.jsonl'), '', 'utf8')
-		await writeFile(join(home, 'panel/agent.md'), '# 旧偏好\n', 'utf8')
-
-		const moved = await evolver.migrate()
-		assert.equal(moved.length, 3)
-		assert.match(await readFile(join(root, 'practice/docs/legacy-experience/old.md'), 'utf8'), /旧经验/)
-		assert.equal(await readFile(join(root, 'sight/memory/memories.jsonl'), 'utf8'), '')
-		assert.match(await readFile(join(root, 'preferences/AGENTS.md'), 'utf8'), /旧偏好/)
-		await readFile(join(root, 'experience/old.md'), 'utf8')
-		await readFile(join(home, 'panel/agent.md'), 'utf8')
 	} finally {
 		await rm(home, { recursive: true, force: true })
 	}

@@ -15,14 +15,14 @@
  */
 
 /** The three tiers and their parameters. */
-export const TIERS = {
+const TIERS = {
 	core: { beta: 0.8, floor: 0.9, halfLifeDays: 90 },
 	working: { beta: 1.0, floor: 0.7, halfLifeDays: 30 },
 	peripheral: { beta: 1.3, floor: 0.5, halfLifeDays: 10 },
 }
 
 /** The weights of the composite score. */
-export const COMPOSITE_WEIGHTS = { recency: 0.4, frequency: 0.3, intrinsic: 0.3 }
+const COMPOSITE_WEIGHTS = { recency: 0.4, frequency: 0.3, intrinsic: 0.3 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -32,7 +32,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
  * @param {object} memory - The memory record.
  * @returns {string} The tier name.
  */
-export function tierOf(memory) {
+function tierOf(memory) {
 	const tier = typeof memory?.tier === 'string' ? memory.tier : undefined
 	return tier !== undefined && TIERS[tier] !== undefined ? tier : 'working'
 }
@@ -44,7 +44,7 @@ export function tierOf(memory) {
  * @param {Date} [now] - Clock.
  * @returns {number} The recency in [0, 1].
  */
-export function recency(memory, now = new Date()) {
+function recency(memory, now = new Date()) {
 	const updated = Date.parse(String(memory?.updatedAt ?? ''))
 	if (!Number.isFinite(updated)) return 0
 	const days = Math.max(0, (now.getTime() - updated) / DAY_MS)
@@ -55,25 +55,6 @@ export function recency(memory, now = new Date()) {
 }
 
 /**
- * The effective half-life of a memory.
- *
- * An important memory lasts longer, and so does one the model keeps reaching
- * for: the access count extends the half-life logarithmically, capped so a
- * popular memory never becomes permanent.
- *
- * @param {object} memory - The memory record.
- * @returns {number} The half-life in days.
- */
-export function effectiveHalfLifeDays(memory) {
-	const tier = TIERS[tierOf(memory)]
-	const importance = Number(memory?.importance)
-	const importanceFactor = Number.isFinite(importance) ? Math.exp(0.6 * importance) : 1
-	const count = Number(memory?.accessCount ?? 0)
-	const reinforcement = Number.isFinite(count) && count > 0 ? Math.min(3, 1 + Math.log2(1 + count)) : 1
-	return tier.halfLifeDays * importanceFactor * reinforcement
-}
-
-/**
  * The frequency term: how often the memory has been recalled.
  *
  * Logarithmic, so the tenth recall is worth much less than the first.
@@ -81,7 +62,7 @@ export function effectiveHalfLifeDays(memory) {
  * @param {object} memory - The memory record.
  * @returns {number} The frequency in [0, 1].
  */
-export function frequency(memory) {
+function frequency(memory) {
 	const count = Number(memory?.accessCount ?? 0)
 	if (!Number.isFinite(count) || count <= 0) return 0
 	return Math.min(1, Math.log2(1 + count) / 6)
@@ -93,7 +74,7 @@ export function frequency(memory) {
  * @param {object} memory - The memory record.
  * @returns {number} The intrinsic score in [0, 1].
  */
-export function intrinsic(memory) {
+function intrinsic(memory) {
 	const importance = Number(memory?.importance)
 	const confidence = Number(memory?.confidence ?? 0.7)
 	if (!Number.isFinite(importance)) return 0
@@ -110,42 +91,11 @@ export function intrinsic(memory) {
  * @param {Date} [now] - Clock.
  * @returns {number} The composite score in [0, 1].
  */
-export function compositeScore(memory, now = new Date()) {
+function compositeScore(memory, now = new Date()) {
 	const score = COMPOSITE_WEIGHTS.recency * recency(memory, now)
 		+ COMPOSITE_WEIGHTS.frequency * frequency(memory)
 		+ COMPOSITE_WEIGHTS.intrinsic * intrinsic(memory)
 	return Math.min(1, Math.max(0, score))
-}
-
-/**
- * The tier a memory should be in, given how it has been used.
- *
- * Promotion needs sustained use, not a single recall: a memory is promoted
- * when it is both used and important, and demoted when it has been neither
- * touched nor important for a long time.
- *
- * @param {object} memory - The memory record.
- * @param {Date} [now] - Clock.
- * @returns {string} The tier the memory should have.
- */
-export function suggestedTier(memory, now = new Date()) {
-	const current = tierOf(memory)
-	const score = compositeScore(memory, now)
-	const count = Number(memory?.accessCount ?? 0)
-	const importance = Number(memory?.importance ?? 0)
-	const updated = Date.parse(String(memory?.updatedAt ?? ''))
-	const days = Number.isFinite(updated) ? (now.getTime() - updated) / DAY_MS : Infinity
-	if (current === 'peripheral') {
-		if (count >= 3 && score >= 0.55) return 'working'
-		return 'peripheral'
-	}
-	if (current === 'working') {
-		if (count >= 5 && score >= 0.7 && importance >= 0.7) return 'core'
-		if (count === 0 && days > 60 && score < 0.35) return 'peripheral'
-		return 'working'
-	}
-	if (count === 0 && days > 180 && score < 0.3) return 'working'
-	return 'core'
 }
 
 /**

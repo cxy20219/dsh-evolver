@@ -21,7 +21,7 @@ import { join } from 'node:path'
 
 import { MemoryStore } from '../memory/store.js'
 import { hybridRetrieve } from '../memory/hybrid.js'
-import { ENTRY_KINDS } from '../memory/kinds.js'
+import { CARD_CATEGORIES as CATEGORIES } from './vocabulary.js'
 import { cardId, isCardId } from './ids.js'
 import { ResourceStore, safeResourceName } from './resources.js'
 import { buildTagTree, isUnder, normalizeTag, normalizeTags } from './tags.js'
@@ -36,7 +36,7 @@ export const CARD_SHAPES = ['memo', 'note', 'doc', 'tool', 'resource']
 export const CARD_STATUSES = ['inbox', 'verified', 'archived']
 
 /** The semantic categories inherited from memory. */
-export const CARD_CATEGORIES = ENTRY_KINDS
+export const CARD_CATEGORIES = CATEGORIES
 
 /** The default body budget, in Unicode code points. */
 export const DEFAULT_CARD_MAX_CHARS = 1000
@@ -167,7 +167,6 @@ export class CardStore {
 	cardOf(record) {
 		return {
 			id: record.id,
-			slug: record.slug ?? '',
 			type: record.type ?? 'fleeting',
 			shape: record.shape ?? 'memo',
 			category: record.category ?? record.kind ?? '',
@@ -181,7 +180,6 @@ export class CardStore {
 			resources: record.resources ?? [],
 			scope: record.scope ?? 'global',
 			source: record.source ?? 'manual',
-			sourceId: record.sourceId ?? '',
 			created: record.created ?? record.createdAt ?? '',
 			updated: record.updated ?? record.updatedAt ?? '',
 			verified: record.verified ?? '',
@@ -190,7 +188,6 @@ export class CardStore {
 			tier: record.tier ?? 'working',
 			accessCount: record.accessCount ?? 0,
 			lastAccessedAt: record.lastAccessedAt ?? '',
-			overCap: record.overCap === true,
 		}
 	}
 
@@ -212,23 +209,6 @@ export class CardStore {
 	get(id) {
 		const record = this.cards.getEntry(id)
 		return record === undefined ? undefined : this.cardOf(record)
-	}
-
-	/**
-	 * Resolve a card reference: id, slug, legacy sourceId or a path suffix.
-	 *
-	 * @param {unknown} ref - The reference.
-	 * @returns {object | undefined} The card.
-	 */
-	resolve(ref) {
-		const value = String(ref ?? '').trim().replace(/^\.\//, '')
-		if (value === '') return undefined
-		if (isCardId(value)) return this.get(value)
-		const cards = this.all()
-		return cards.find((card) => card.slug === value)
-			?? cards.find((card) => card.sourceId === value)
-			?? cards.find((card) => card.sourceId.endsWith(`/${value}`))
-			?? cards.find((card) => card.sourceId.endsWith(`:${value}`))
 	}
 
 	/**
@@ -256,8 +236,7 @@ export class CardStore {
 			throw new Error('永久卡片只能是 note/doc/tool/resource，状态为 verified 或 archived。')
 		}
 		const body = String(input.body ?? previous?.body ?? '')
-		const overCap = input.overCap === true || previous?.overCap === true
-		if (!overCap && charCount(body) > this.cardMaxChars) {
+		if (charCount(body) > this.cardMaxChars) {
 			throw new Error(`卡片正文超过 ${this.cardMaxChars} 字上限；请拆成多张卡，或把长内容放入资源附件。`)
 		}
 		const category = input.category ?? previous?.category ?? 'fact'
@@ -291,7 +270,6 @@ export class CardStore {
 		const verified = input.verified ?? previous?.verified ?? (type === 'permanent' && status === 'verified' ? now.slice(0, 10) : '')
 		const record = {
 			id,
-			slug: input.slug ?? previous?.slug ?? '',
 			type,
 			shape,
 			category,
@@ -305,12 +283,10 @@ export class CardStore {
 			resources,
 			scope: input.scope ?? previous?.scope ?? 'global',
 			source: input.source ?? previous?.source ?? 'manual',
-			sourceId: input.sourceId ?? previous?.sourceId ?? '',
 			created: previous?.created ?? input.created ?? now,
 			updated: now,
 			verified,
 			pinned: input.pinned === undefined ? previous?.pinned === true : input.pinned === true,
-			overCap,
 			importance: Number.isFinite(Number(input.importance)) ? Number(input.importance) : (previous?.importance ?? 0.5),
 			tier: input.tier ?? previous?.tier ?? 'working',
 			accessCount: previous?.accessCount ?? 0,

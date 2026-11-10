@@ -12,7 +12,7 @@
  */
 
 import { createRequire } from 'node:module'
-import { cp, lstat, mkdir, open, readdir, rename, rm, rmdir, stat } from 'node:fs/promises'
+import { mkdir, open, rename, rm, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 
 import { createEmbedder } from './memory/embed.js'
@@ -98,138 +98,6 @@ export function requiredModelFiles(model) {
 	return model.files.filter((file) => file.path === 'config.json'
 		|| file.path === 'tokenizer.json'
 		|| file.path === 'onnx/model_quantized.onnx')
-}
-
-/**
- * Check whether a path exists.
- *
- * @param {string} path - Absolute path.
- * @returns {Promise<boolean>} True when it exists.
- */
-async function exists(path) {
-	return lstat(path).then(() => true, () => false)
-}
-
-/**
- * Sum the regular files under one folder, without following links.
- *
- * @param {string} root - The folder.
- * @returns {Promise<number>} The total size in bytes.
- */
-async function folderBytes(root) {
-	let total = 0
-	/**
-	 * Walk one folder.
-	 *
-	 * @param {string} folder - The folder.
-	 * @returns {Promise<void>} Resolves when walked.
-	 */
-	async function walk(folder) {
-		for (const name of await readdir(folder).catch(() => [])) {
-			const path = join(folder, name)
-			const info = await lstat(path).catch(() => undefined)
-			if (info === undefined || info.isSymbolicLink()) continue
-			if (info.isDirectory()) {
-				await walk(path)
-				continue
-			}
-			if (info.isFile()) total += info.size
-		}
-	}
-	await walk(root)
-	return total
-}
-
-/** A folder name that came from the model catalogue. */
-const MODEL_FOLDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
-
-/**
- * Describe the pre-`models/` weights folder, if it still exists.
- *
- * Older versions kept weights in `<dshHome>/evolver-models`, outside the data
- * folder. They are moved into `<dataDir>/models` on startup; whatever remains
- * (usually because the new folder already has that model) is reported so the
- * panel can offer to remove it.
- *
- * @param {string} dshHome - The harness home.
- * @returns {Promise<{root: string, dirs: Array<{name: string, path: string, bytes: number}>, bytes: number}>} The legacy state.
- */
-export async function legacyModelState(dshHome) {
-	const root = join(dshHome, 'evolver-models')
-	const info = await lstat(root).catch(() => undefined)
-	if (info === undefined || !info.isDirectory() || info.isSymbolicLink()) {
-		return { root, dirs: [], bytes: 0 }
-	}
-	const dirs = []
-	let bytes = 0
-	for (const name of (await readdir(root).catch(() => [])).sort()) {
-		if (!MODEL_FOLDER_PATTERN.test(name)) continue
-		const path = join(root, name)
-		const child = await lstat(path).catch(() => undefined)
-		if (child === undefined || !child.isDirectory() || child.isSymbolicLink()) continue
-		const size = await folderBytes(path)
-		dirs.push({ name, path, bytes: size })
-		bytes += size
-	}
-	return { root, dirs, bytes }
-}
-
-/**
- * Move weights from the legacy folder into the data folder.
- *
- * A model already present in `<dataDir>/models` is left alone; moving it would
- * overwrite a newer download. The move is a rename when both folders share a
- * filesystem, and a copy plus delete otherwise.
- *
- * @param {{dataDir: string, dshHome: string, logger?: object}} options - The folders.
- * @returns {Promise<{migrated: string[], blocked: string[], legacy: object}>} What happened.
- */
-export async function migrateLegacyModels({ dataDir, dshHome, logger }) {
-	const legacy = await legacyModelState(dshHome)
-	const modelsDir = join(dataDir, 'models')
-	const migrated = []
-	const blocked = []
-	for (const dir of legacy.dirs) {
-		const target = join(modelsDir, dir.name)
-		if (await exists(target)) {
-			blocked.push(dir.name)
-			continue
-		}
-		await mkdir(modelsDir, { recursive: true, mode: 0o700 })
-		try {
-			await rename(dir.path, target)
-		} catch (error) {
-			if (error?.code !== 'EXDEV') throw error
-			await cp(dir.path, target, { recursive: true, force: false, errorOnExist: true })
-			await rm(dir.path, { recursive: true, force: true })
-		}
-		migrated.push(dir.name)
-		logger?.info?.(`dsh-evolver: moved legacy embedding weights ${dir.name} into the data folder`)
-	}
-	return { migrated, blocked, legacy }
-}
-
-/**
- * Delete the legacy weights folder after the user confirms.
- *
- * Only catalogue-shaped model directories are removed; any other file the
- * user kept there is left alone, and the root is removed only when empty.
- *
- * @param {string} dshHome - The harness home.
- * @returns {Promise<{removed: number, bytes: number}>} What was removed.
- */
-export async function removeLegacyModels(dshHome) {
-	const legacy = await legacyModelState(dshHome)
-	let removed = 0
-	let bytes = 0
-	for (const dir of legacy.dirs) {
-		await rm(dir.path, { recursive: true, force: true })
-		removed += 1
-		bytes += dir.bytes
-	}
-	const left = await readdir(legacy.root).catch(() => null)
-	if (left !== null && left.length === 0) await rmdir(legacy.root).catch(() => {})
-	return { removed, bytes }
 }
 
 /**

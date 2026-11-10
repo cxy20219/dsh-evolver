@@ -8,14 +8,11 @@
   knowledge/
     cards/cards.jsonl            ← 卡片日志：追加写，最后一条同 id 记录生效
     resources/<card-id>/         ← 卡片附件：长文、脚本、模板
-    migration.json               ← 一次性迁移标记
   sight/
     soul.md                      ← 灵魂（注入）
     sessions.json                ← 闲时整理的会话游标
   preferences/AGENTS.md          ← 全局偏好（链到 ~/.dsh/AGENTS.md）
   models/<模型>/                 ← 本地 embedding 权重（随备份/导出）
-  practice/                      ← 旧实践目录（只读迁移源，不再写入）
-  sight/memory/                  ← 旧记忆目录（只读迁移源，不再写入）
 ```
 
 ## 卡片模型
@@ -38,9 +35,9 @@
 | 消费者 | 内容 |
 | --- | --- |
 | 每次请求的 system prompt | 2 KB 预算：沉淀纪律 + 按标签分组的永久卡 `label — summary (id)` 路由表；超出预算的卡不注入 |
-| Agent 的 `practice_query` / `memory_recall` | 全部卡片（BM25 + 向量 + 生命周期）；临时卡只在这里出现 |
+| Agent 的 `card_query` / `card_read` | 全部卡片（BM25 + 向量 + 生命周期）；临时卡只在这里出现 |
 
-写卡片的顺序建议：先用 `memory_save` 收成临时卡 → 查重、验证 → `card_promote` 提升为永久卡。
+写卡片的顺序建议：先用 `card_write type=fleeting` 收成临时卡 → 查重、验证 → `card_promote` 提升为永久卡。
 面板里的「提升为永久」走同一条路径。
 
 ## 注入的三个来源
@@ -52,46 +49,46 @@
 | 主动性 | 何时召回、何时沉淀、收尾给下一步 | `systemPrompt.section`（order 920） | 744 B |
 | 偏好 | `preferences/AGENTS.md` | DSH 的 `dsh-agent-instructions` | 用户自控 |
 
-临时卡**不自动注入**：需要时由 `memory_recall` 或面板按需取。写入超限不会悄悄变大：
-灵魂 16 KB、偏好 64 KB、单条记忆 4000 字、卡片正文按设置上限。
+临时卡**不自动注入**：需要时由 `card_query` 或面板按需取。写入超限不会悄悄变大：
+灵魂 16 KB、偏好 64 KB、单条临时卡 4000 字、卡片正文按设置上限。
 
 ## 工具
 
 | 工具 | 作用 |
 | --- | --- |
-| `practice_query` | 在永久卡里检索（Host 侧执行，不受会话权限预设影响） |
-| `practice_read` | 读一张永久卡，含正文/主附件、链接和附件列表 |
-| `practice_write` | 写入永久卡；doc/tool/resource 的正文自动进资源附件 |
-| `practice_index` | 全部永久卡 + 完整注入投影 |
+| `card_query` | 按关键词/类型/状态/层级标签检索全部卡片（Host 侧执行，不受会话权限预设影响） |
+| `card_read` | 读一张卡，含正文、摘要、链接和资源附件 |
+| `card_write` | 写入/更新临时卡或永久卡；doc/tool/resource 的正文自动进资源附件 |
+| `card_index` | 全部永久卡 + 完整注入投影 |
 | `card_promote` | 把临时卡提升为永久卡（可补 summary / tags） |
-| `evolve_review` | 一次拿到卡片库状态、临时卡代表条目与可执行提示 |
+| `card_archive` | 归档卡片，保留记录和资源 |
+| `card_remove` | 永久删除卡片及资源 |
+| `evolve_review` | 一次拿到卡片库盘点与可执行 hints |
 | `session_digest` | 读取没整理过的会话摘录（手动整理用） |
-| `memory_recall` / `memory_save` / `memory_list` / `memory_forget` / `memory_stats` | 临时卡的按需记忆 |
 
-`practice_*` / `memory_*` 是工具名兼容层，底层已经是同一套卡片；旧 slug 仍可作为
-`practice_read` 的引用，迁移不会打断已有链接。旧的 HTTP 接口（`practice-*`、`memory-*`）
-已在 1.1 移除，面板和 Agent 都只走卡片接口。
+没有 `practice_*` / `memory_*` 兼容别名，也没有旧 slug 解析：工具、面板和导入导出
+只认 `card_` 开头的 ULID。
 
 ## 沉淀纪律（已内化）
 
 - **触发**：完成多步工具调用（≥3 步）后，出现了已验证且可复用的判断、流程、验证方法或工具。
 - **边界**：只写能减少未来误判、重复劳动或验证成本的内容；不写流水账、一次性命令、猜测、
   废弃方案、密钥、令牌、完整日志和对话转录。密钥在写入前会被识别并拒绝。
-- **查重**：写前 `practice_query` + `practice_read`，能更新已有卡片就不新建。
-- **脚本优先**：稳定流程、重复转换、结构化输出解析、需要可重复验证时，用 `practice_write`
-  的 `kind=tool` 写成可运行脚本，而不是只写文档。
-- **闭环**：写完读返回的 `problems`（必填字段、链接闭环、verified 过期），未清零不宣称完成。
+- **查重**：写前 `card_query`，能更新已有卡片就不新建。
+- **脚本优先**：稳定流程、重复转换、结构化输出解析、需要可重复验证时，用 `card_write`
+  的 `shape=tool` 写成可运行脚本，而不是只写文档。
+- **闭环**：链接只能是卡片 id；写永久卡时确认 `verified` 日期，过期的结论不要留在投影里。
 
-纪律文本自己也算在 2 KB 预算里（约 430 字节），细节留在种子卡里，需要时 `practice_read`。
+纪律文本自己也算在 2 KB 预算里（约 430 字节），细节留在种子卡里，需要时 `card_read`。
 
 ## 主动性
 
 注入的 `[主动性]` 段落规定触发点，不靠临场发挥：
 
-- 任务前有明确相关词，先 `practice_query` / `memory_recall`；
-- 任务后可复用的写 `practice_write`（先查重），偏好/纠正写 `memory_save`；
+- 任务前有明确相关词，先 `card_query`；
+- 任务后可复用的写 `card_write`（先查重），临时结论也写 `card_write type=fleeting`；
 - 收尾给一条具体、可执行的下一步（命令 / 文件 / 验证方式）；
-- 同一流程第二次出现，提议沉淀或脚本化；
+- 同一流程第二次出现，提议沉淀为永久卡或脚本化；
 - 盘点用 `evolve_review`，有结构问题或久未验证时用一句话提醒；
 - 不确定时先做可逆部分，只问那个会改变结果的决策。
 
@@ -107,7 +104,7 @@
 - **只读用户与助手的文本**：工具输出、系统提示、推理内容都不进摘录；单条/单会话/整批都有
   长度上限。摘录里的常见密钥会被抹掉，保存前还会再查一次。
 - **游标**：`sight/sessions.json` 记录每个会话处理到的 seq；只读新增部分，最多一次处理
-  10 个会话、保存 6 条记忆。全部保存成功后才推进游标，失败 6 小时后重试。
+  10 个会话、保存 6 张临时卡。全部保存成功后才推进游标，失败 6 小时后重试。
 - **成本**：每次闲时触发一次模型调用，输出上限 2500 token；没有待整理会话时不会调用。
 - 面板「卡片」页显示待整理/已处理数量、上次完成时间；「立即整理」立刻跑一次。
 - 只在 App 运行期间触发；模型未选择或宿主不提供会话读取时显示不可用。
@@ -132,8 +129,8 @@
   可回滚；目标目录非空时必须显式勾选覆盖。
 - 设置里记录的目录如果不存在（例如外置盘没挂载），本次启动退回默认目录并在设置页给出警告。
 - 导入 / 导出用 `.tar.gz`：导出目录 + 文件名（默认 `dsh-evolver-<时间戳>.tar.gz`）；
-  导入可直接选 `.tar.gz` / `.tgz` / `.tar`。包内只允许写入 `knowledge/`、`practice/`、
-  `sight/`、`preferences/`、`models/`，路径穿越条目会被拒绝。
+  导入可直接选 `.tar.gz` / `.tgz` / `.tar`。包内只允许写入 `knowledge/`、`sight/`、
+  `preferences/`、`models/`，路径穿越条目会被拒绝。
 
 ### 云端备份（阿里云 OSS）
 
@@ -159,9 +156,7 @@
 | `bge-small-zh-v1.5` | 中文为主 | 512 | ~25 MB | 体积最小，中文优先 |
 | `bge-m3` | 中英 + 多语 | 1024 | ~587 MB | 质量最高，加载慢 |
 
-- 权重在数据目录的 `models/<模型>/`，随备份、导入、导出一起走；旧版
-  `~/.dsh/evolver-models` 会在启动时自动迁入，新目录已有同名模型时旧目录保留并可在
-  设置页一键清理。
+- 权重在数据目录的 `models/<模型>/`，随备份、导入、导出一起走。
 - 下载源默认 `https://hf-mirror.com`，可改成 `https://huggingface.co`。
 - 本地模型需要运行时（transformers.js + ONNX runtime），插件不打包它：
   `npm install --prefix "$HOME/.dsh/embedding-runtime" @huggingface/transformers`
@@ -176,24 +171,16 @@
 `~/.dsh/evolver.config.json`（0600）保存数据目录、卡片正文上限、备份配置、向量配置、
 密钥和上次备份状态。它不在数据目录里：移动数据目录不会丢设置，云备份也不会带上密钥。
 
-## 迁移与兼容
+## 无旧版兼容
 
-首次启动、以及导入旧数据包后，插件会把 `practice/` 和 `sight/memory/` 里的条目导入
-卡片库：
-
-- 实践条目 → `permanent + verified` 卡片；长文/脚本进资源附件，卡片保留 title/purpose；
-- 旧记忆 → `fleeting` 临时卡；
-- 旧 slug 链接会在第二遍映射到新卡片 id；无法解析的链接只留在问题里，不阻塞迁移；
-- `sourceId`（`practice:<path>` / `memory:<id>`）+ `knowledge/migration.json` 保证幂等：
-  中途失败可重试，重复启动不会产生重复卡片。
-
-旧目录只作为迁移源保留，便于人工回滚或重新导入；插件不再写入旧目录，也不再提供旧 HTTP 接口。
+2.0 的迁移/兼容层已全部移除：没有 `practice/` / `sight/memory/` 导入，没有旧 HTTP 接口，
+没有旧 slug、旧向量格式或旧权重目录迁移。唯一的输入是 `knowledge/` 卡片日志；新数据
+目录只写卡片和资源。旧版本的数据请先由旧版本导出或自行保存，再升级。
 
 ## 文件与链接的边界
 
 - 卡片附件写在 `knowledge/resources/<card-id>/`，文件名压成单段，拒绝符号链接；
   单文件 10 MB 上限，读取超过 512 KB 的文本只返回截断内容。
-- 旧实践目录里的符号链接不会被迁移读取；迁移也不会写到数据目录之外。
 - `~/.dsh/AGENTS.md` 只在「不存在」或「是普通文件」时自动接管（原文件先备份为
   `preferences/AGENTS.md.imported`）；已被别的工具链接时不抢，面板里点「接管」才替换。
 - `dataDir` 必须是绝对路径。
@@ -219,5 +206,5 @@ dsh plugin --profile web why dsh-evolver
 ## 维护
 
 ```bash
-npm test                              # 单元与集成测试（卡片、迁移、记忆、设置、备份）
+npm test                              # 单元与集成测试（卡片、存储、设置、备份）
 ```

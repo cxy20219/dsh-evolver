@@ -117,15 +117,15 @@ window.__ModuleLoader__.load({
 			'state.linked': '已建立全局链接',
 			'overview.injection': '注入的上下文',
 			'overview.injection.hint': 'Agent 每次请求都会拿到这三块，别的地方都不占它的上下文。',
-			'overview.practice': '实践',
-			'overview.sight': '见闻',
+			'overview.cards': '永久卡',
+			'overview.soul': '灵魂',
 			'overview.preferences': '偏好',
 			'overview.suggestions': '建议',
 			'overview.root': '数据目录',
 			'overview.version': '版本',
 			'overview.budget': '预算',
 			'overview.dropped': '未进索引',
-			'practice.index': '注入的索引',
+			'overview.projection': '注入的索引',
 			'soul.hint': '灵魂是 Agent 的人格与边界，每个会话都会被读到；一次性的经历属于见闻。',
 			'soul.content': '灵魂（Markdown）',
 			'prefs.hint': '这里是全局偏好。保存后由 DSH 的 AGENTS.md 加载器注入给每个会话。',
@@ -204,10 +204,6 @@ window.__ModuleLoader__.load({
 			'settings.embedding.download': '下载权重',
 			'settings.embedding.cancel': '取消下载',
 			'settings.embedding.downloaded': '已下载',
-			'settings.embedding.legacy': '旧权重目录',
-			'settings.embedding.legacyHint': '权重在旧位置，已不再使用；可以删除以释放空间。',
-			'settings.embedding.cleanup': '清理旧权重',
-			'settings.embedding.cleanupDone': '已清理旧权重',
 			'settings.embedding.notDownloaded': '未下载',
 			'settings.embedding.downloading': '正在下载',
 			'settings.embedding.downloadDone': '权重已下载完成',
@@ -334,15 +330,15 @@ window.__ModuleLoader__.load({
 			'state.linked': 'The global link is in place',
 			'overview.injection': 'Injected context',
 			'overview.injection.hint': 'The agent gets exactly these three blocks in every request.',
-			'overview.practice': 'Practice',
-			'overview.sight': 'Sight',
+			'overview.cards': 'Permanent cards',
+			'overview.soul': 'Soul',
 			'overview.preferences': 'Preferences',
 			'overview.suggestions': 'Suggestions',
 			'overview.root': 'Data folder',
 			'overview.version': 'Version',
 			'overview.budget': 'Budget',
 			'overview.dropped': 'Left out of the index',
-			'practice.index': 'Injected index',
+			'overview.projection': 'Injected index',
 			'soul.hint': 'The soul is the agent’s persona and boundaries; it is read in every session.',
 			'soul.content': 'Soul (Markdown)',
 			'prefs.hint': 'Global preferences. DSH injects this file through its AGENTS.md loader.',
@@ -421,10 +417,6 @@ window.__ModuleLoader__.load({
 			'settings.embedding.download': 'Download',
 			'settings.embedding.cancel': 'Cancel download',
 			'settings.embedding.downloaded': 'Downloaded',
-			'settings.embedding.legacy': 'Old weights folder',
-			'settings.embedding.legacyHint': 'These weights are in the old location and no longer used; remove them to free space.',
-			'settings.embedding.cleanup': 'Remove old weights',
-			'settings.embedding.cleanupDone': 'Old weights removed',
 			'settings.embedding.notDownloaded': 'Not downloaded',
 			'settings.embedding.downloading': 'Downloading',
 			'settings.embedding.downloadDone': 'Weights downloaded',
@@ -718,20 +710,20 @@ window.__ModuleLoader__.load({
 			var injection = props.injection;
 			var overview = props.overview;
 			if (injection === null || overview === null) return h(Spinner, null, t('state.loading'));
-			var practice = overview.practice ?? {};
+			var projection = overview.projection ?? {};
 			return h('div', null,
 				h('div', { className: 'evrSection' }, t('overview.injection')),
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('overview.injection.hint')),
 				h('div', { className: 'evrGrid' },
 					h(StatCard, {
-						title: t('overview.practice'),
-						count: injection.practice.entries,
-						value: formatBytes(injection.practice.bytes),
-						hint: t('overview.budget') + ' ' + formatBytes(injection.practice.budget)
-							+ ' · ' + t('overview.dropped') + ' ' + injection.practice.dropped,
+						title: t('overview.cards'),
+						count: injection.cards.entries,
+						value: formatBytes(injection.cards.bytes),
+						hint: t('overview.budget') + ' ' + formatBytes(injection.cards.budget)
+							+ ' · ' + t('overview.dropped') + ' ' + injection.cards.dropped,
 					}),
 					h(StatCard, {
-						title: t('overview.sight'),
+						title: t('overview.soul'),
 						value: formatBytes(injection.soul.bytes),
 						hint: t('overview.budget') + ' ' + formatBytes(injection.soul.budget),
 					}),
@@ -744,7 +736,7 @@ window.__ModuleLoader__.load({
 					}),
 					h(StatCard, {
 						title: t('overview.root'),
-						value: String(practice.entries ?? 0),
+						value: String(projection.entries ?? 0),
 						hint: overview.root ?? '',
 					}),
 					h(StatCard, {
@@ -752,8 +744,8 @@ window.__ModuleLoader__.load({
 						value: overview.version ? 'v' + overview.version : '—',
 						hint: 'dsh-evolver',
 					})),
-				h('div', { className: 'evrSection' }, t('practice.index')),
-				h('pre', { className: 'evrPre' }, injection.practice.text ?? ''),
+				h('div', { className: 'evrSection' }, t('overview.projection')),
+				h('pre', { className: 'evrPre' }, injection.cards.text ?? ''),
 				h('div', { className: 'evrSection' }, t('overview.suggestions')),
 				(overview.suggestions ?? []).length === 0
 					? h('div', { className: 'evrHint' }, t('suggestion.empty'))
@@ -1453,21 +1445,6 @@ window.__ModuleLoader__.load({
 							+ ' · ' + t('settings.embedding.dimensions') + ': ' + (store.dimensions || '—')
 							+ ' · ' + (store.aligned ? t('settings.embedding.aligned') : t('settings.embedding.rebuilding'))
 							+ ' · ' + t('settings.embedding.entries') + ': ' + (store.cards ?? store.entries ?? 0))),
-					status.legacy && status.legacy.bytes > 0
-						? h('div', { className: 'evrCard' },
-							h('div', { className: 'evrCardHead' },
-								h('span', { className: 'evrCardTitle' }, t('settings.embedding.legacy')),
-								h('span', { className: 'evrCardCount' }, formatBytes(status.legacy.bytes))),
-							h('div', { className: 'evrCardHint' }, t('settings.embedding.legacyHint')),
-							h('div', { className: 'evrHint evrMono', style: { marginBottom: '8px' } },
-								(status.legacy.dirs || []).map(function (dir) { return dir.name; }).join(' · ')),
-							h('button', {
-								type: 'button',
-								className: 'evrBtn',
-								disabled: props.busy,
-								onClick: props.onEmbeddingCleanup,
-							}, t('settings.embedding.cleanup')))
-						: null,
 					h(Field, { label: t('settings.embedding.provider') },
 						h('div', { style: { display: 'flex', gap: '14px', flexWrap: 'wrap' } },
 							providers.map(function (item) {
@@ -2255,16 +2232,6 @@ window.__ModuleLoader__.load({
 				reader.readAsDataURL(file);
 			}, [call, notify, openCard, refreshCards, t]);
 
-			var cleanupEmbedding = useCallback(function () {
-				setBusy(true);
-				return call('embedding-cleanup', {}, 120000).then(function (value) {
-					setEmbedding(value.status);
-					notify(t('settings.embedding.cleanupDone') + ' · ' + formatBytes(value.bytes), false);
-				}).catch(function (reason) {
-					notify(reason instanceof Error ? reason.message : String(reason), true);
-				}).finally(function () { setBusy(false); });
-			}, [call, notify, t]);
-
 			var testEmbedding = useCallback(function () {
 				setBusy(true);
 				return call('embedding-test', {}, 120000).then(function (value) {
@@ -2352,7 +2319,6 @@ window.__ModuleLoader__.load({
 					onEmbeddingDownload: downloadEmbedding,
 					onEmbeddingCancel: cancelEmbedding,
 					onEmbeddingTest: testEmbedding,
-					onEmbeddingCleanup: cleanupEmbedding,
 					onRefreshEmbedding: refreshEmbedding,
 				});
 			} else {
