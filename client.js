@@ -117,6 +117,8 @@ window.__ModuleLoader__.load({
 			'settings.data.source.config': '来自组合配置',
 			'settings.data.source.default': '默认目录',
 			'settings.action.migrate': '迁移并切换',
+			'settings.action.pick': '浏览…',
+			'settings.pick.unavailable': '系统目录选择不可用，请手动输入绝对路径。',
 			'settings.transfer': '导入 / 导出',
 			'settings.transfer.hint': '导出一份完整副本；导入把副本合并进当前目录，默认不覆盖同名文件。',
 			'settings.transfer.exportPath': '导出到（绝对路径）',
@@ -247,6 +249,8 @@ window.__ModuleLoader__.load({
 			'settings.data.source.config': 'from the composition config',
 			'settings.data.source.default': 'default folder',
 			'settings.action.migrate': 'Move and switch',
+			'settings.action.pick': 'Browse…',
+			'settings.pick.unavailable': 'The system folder picker is unavailable; type an absolute path.',
 			'settings.transfer': 'Import / export',
 			'settings.transfer.hint': 'Export a full copy; import merges a copy into the current folder without overwriting by default.',
 			'settings.transfer.exportPath': 'Export to (absolute path)',
@@ -962,6 +966,43 @@ window.__ModuleLoader__.load({
 				});
 			}
 
+			/**
+			 * Ask the Host for the native folder picker and fill one field.
+			 *
+			 * @param {Function} setter - The state setter of the field.
+			 * @returns {void}
+			 */
+			function pick(setter) {
+				if (typeof props.onPickDirectory !== 'function') return;
+				props.onPickDirectory().then(function (path) {
+					if (typeof path === 'string' && path !== '') setter(path);
+				});
+			}
+
+			/**
+			 * One absolute-path input with a browse button.
+			 *
+			 * @param {Function} setter - The state setter of the field.
+			 * @param {string} value - Current value.
+			 * @param {string} placeholder - Placeholder text.
+			 * @returns {object} The element tree.
+			 */
+			function pathField(setter, value, placeholder) {
+				return h('div', { style: { display: 'flex', gap: '6px' } },
+					h('input', {
+						className: 'evrInput',
+						value: value,
+						placeholder: placeholder,
+						onChange: function (event) { setter(event.target.value); },
+					}),
+					h('button', {
+						type: 'button',
+						className: 'evrBtn',
+						disabled: busy,
+						onClick: function () { pick(setter); },
+					}, t('settings.action.pick')));
+			}
+
 			return h('div', null,
 				statusLine,
 				h('div', { className: 'evrSection' }, t('settings.data')),
@@ -976,12 +1017,7 @@ window.__ModuleLoader__.load({
 					h('div', { className: 'evrCardHint evrMono' }, settings.dataDir || '')),
 				h('div', { style: { marginTop: '10px' } },
 					h(Field, { label: t('settings.data.new'), hint: t('settings.data.moveHint') },
-						h('input', {
-							className: 'evrInput',
-							value: dataDir,
-							placeholder: '/Users/you/data/dsh-evolver',
-							onChange: function (event) { setDataDir(event.target.value); },
-						}))),
+						pathField(setDataDir, dataDir, '/Users/you/data/dsh-evolver'))),
 				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' } },
 					h('input', { type: 'checkbox', checked: dataForce, onChange: function (event) { setDataForce(event.target.checked); } }),
 					t('settings.data.force')),
@@ -997,19 +1033,9 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.transfer.hint')),
 				h('div', { className: 'evrFieldRow' },
 					h(Field, { label: t('settings.transfer.exportPath') },
-						h('input', {
-							className: 'evrInput',
-							value: exportDir,
-							placeholder: '/Users/you/backup/evolver',
-							onChange: function (event) { setExportDir(event.target.value); },
-						})),
+						pathField(setExportDir, exportDir, '/Users/you/backup/evolver')),
 					h(Field, { label: t('settings.transfer.importPath') },
-						h('input', {
-							className: 'evrInput',
-							value: importDir,
-							placeholder: '/Users/you/backup/evolver',
-							onChange: function (event) { setImportDir(event.target.value); },
-						}))),
+						pathField(setImportDir, importDir, '/Users/you/backup/evolver'))),
 				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' } },
 					h('input', { type: 'checkbox', checked: transferForce, onChange: function (event) { setTransferForce(event.target.checked); } }),
 					t('settings.transfer.force')),
@@ -1392,6 +1418,18 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, report, t]);
 
+			var pickDirectory = useCallback(function () {
+				var service = ctx.get('uiWorkspace');
+				if (service === undefined || typeof service.pickDirectory !== 'function') {
+					report(t('settings.pick.unavailable'), true);
+					return Promise.resolve(null);
+				}
+				return Promise.resolve(service.pickDirectory()).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+					return null;
+				});
+			}, [ctx, report, t]);
+
 			var body = null;
 			if (error !== null) {
 				body = h('div', { className: 'evrEmpty' },
@@ -1460,6 +1498,7 @@ window.__ModuleLoader__.load({
 					onImport: importData,
 					onBackupNow: backupNow,
 					onTestBackup: testBackup,
+					onPickDirectory: pickDirectory,
 				});
 			} else {
 				body = h(SuggestionsTab, { t: t, suggestions: overview?.suggestions ?? [] });
