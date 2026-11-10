@@ -349,10 +349,6 @@ window.__ModuleLoader__.load({
 			'.evrTab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
 			'.evrTab:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}',
 			'.evrTabActive{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500;border-color:var(--dsw-alias-border-l2)}',
-			'.evrSeg{display:inline-flex;gap:3px;margin:2px 0 14px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2)}',
-			'.evrSegItem{border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12.5px;line-height:1.4;padding:4px 12px;border-radius:var(--dsw-radius-md);cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease}',
-			'.evrSegItem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
-			'.evrSegItemActive{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500;border-color:var(--dsw-alias-border-l2)}',
 			'.evrBody{flex:1;min-height:0;overflow:auto;padding:18px 28px 36px;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2) transparent}',
 			'.evrBody::-webkit-scrollbar{width:10px;height:10px}',
 			'.evrBody::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2);border:3px solid transparent;border-radius:6px;background-clip:content-box}',
@@ -1116,7 +1112,7 @@ window.__ModuleLoader__.load({
 					}, t('settings.action.pick')));
 			}
 
-			var sectionBar = h('div', { className: 'evrSeg', role: 'tablist' }, [
+			var sectionBar = h('div', { className: 'evrToolbar', role: 'tablist' }, [
 				{ id: 'data', label: t('settings.data') },
 				{ id: 'transfer', label: t('settings.transfer') },
 				{ id: 'backup', label: t('settings.section.backup') },
@@ -1126,7 +1122,7 @@ window.__ModuleLoader__.load({
 					type: 'button',
 					role: 'tab',
 					'aria-selected': section === item.id,
-					className: 'evrSegItem' + (section === item.id ? ' evrSegItemActive' : ''),
+					className: 'evrTab' + (section === item.id ? ' evrTabActive' : ''),
 					onClick: function () { setSection(item.id); },
 				}, item.label);
 			}));
