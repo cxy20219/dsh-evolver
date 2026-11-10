@@ -1,4 +1,4 @@
-# dsh-evolver — one plugin, one sidebar entry, five tabs.
+# dsh-evolver — one plugin, one sidebar entry, one panel.
 #
 # The Host half owns the data folder and publishes two prompt sections plus
 # the tool surface; the browser half renders the panel.
