@@ -16,6 +16,7 @@
  */
 
 import { createHash, createHmac } from 'node:crypto'
+import { openAsBlob } from 'node:fs'
 
 /** How long one OSS request may take. */
 const REQUEST_TIMEOUT_MS = 60_000
@@ -199,13 +200,18 @@ export class OssClient {
 	 * @param {{method: string, key?: string, query?: Record<string, string>, body?: Buffer, contentType?: string}} request - The request.
 	 * @returns {Promise<Response>} The response.
 	 */
-	async send({ method, key = '', query = {}, body, contentType = '' }) {
-		const url = this.objectUrl(key, query)
+	/**
+	 * Build the URL and signed headers of one request.
+	 *
+	 * @param {{method: string, key?: string, query?: Record<string, string>, contentType?: string, contentMd5?: string, contentLength?: number}} request - The request parts.
+	 * @returns {{url: URL, headers: Record<string, string>}} The signed request.
+	 */
+	signed({ method, key = '', query = {}, contentType = '', contentMd5 = '', contentLength }) {
 		const date = new Date().toUTCString()
-		const contentMd5 = body === undefined ? '' : createHash('md5').update(body).digest('base64')
 		const headers = { Date: date }
 		if (contentType !== '') headers['Content-Type'] = contentType
 		if (contentMd5 !== '') headers['Content-MD5'] = contentMd5
+		if (contentLength !== undefined) headers['Content-Length'] = String(contentLength)
 		const resource = canonicalResource(this.bucket, key, query)
 		headers.Authorization = `OSS ${this.accessKeyId}:${signRequest(this.accessKeySecret, {
 			method,
@@ -215,6 +221,18 @@ export class OssClient {
 			headers,
 			resource,
 		})}`
+		return { url: this.objectUrl(key, query), headers }
+	}
+
+	/**
+	 * Send one request whose body is already in memory.
+	 *
+	 * @param {{method: string, key?: string, query?: Record<string, string>, body?: Buffer, contentType?: string}} request - The request.
+	 * @returns {Promise<Response>} The response.
+	 */
+	async send({ method, key = '', query = {}, body, contentType = '' }) {
+		const contentMd5 = body === undefined ? '' : createHash('md5').update(body).digest('base64')
+		const { url, headers } = this.signed({ method, key, query, contentType, contentMd5 })
 		let response
 		try {
 			response = await fetch(url, {
@@ -227,6 +245,33 @@ export class OssClient {
 			throw new Error(`OSS 请求失败：${error instanceof Error ? error.message : String(error)}`)
 		}
 		if (response.ok) return response
+		const text = await response.text().catch(() => '')
+		throw new Error(`OSS 请求失败：${errorMessage(text, response.status)}`)
+	}
+
+	/**
+	 * Upload a file without reading it into memory.
+	 *
+	 * @param {string} key - Object key.
+	 * @param {string} path - The file to upload.
+	 * @param {{size: number, contentMd5: string, contentType?: string}} options - What the file is.
+	 * @returns {Promise<number>} The uploaded size.
+	 */
+	async putObjectFromFile(key, path, { size, contentMd5, contentType = 'application/x-tar' }) {
+		const { url, headers } = this.signed({ method: 'PUT', key, contentType, contentMd5, contentLength: size })
+		let response
+		try {
+			const body = await openAsBlob(path)
+			response = await fetch(url, {
+				method: 'PUT',
+				headers,
+				body,
+				signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(this.timeoutMs) : undefined,
+			})
+		} catch (error) {
+			throw new Error(`OSS 请求失败：${error instanceof Error ? error.message : String(error)}`)
+		}
+		if (response.ok) return size
 		const text = await response.text().catch(() => '')
 		throw new Error(`OSS 请求失败：${errorMessage(text, response.status)}`)
 	}

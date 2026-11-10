@@ -7,9 +7,12 @@
  * beyond the last run, so a restart simply catches up on the next heartbeat.
  */
 
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { OssClient } from './oss.js'
-import { collectDataFiles } from './archive.js'
-import { createTar } from './tar.js'
+import { writeTarFile } from './archive.js'
 
 /** How often the scheduler looks at the clock. */
 const HEARTBEAT_MS = 60_000
@@ -105,15 +108,6 @@ export class BackupService {
 	}
 
 	/**
-	 * Read the data folder into the entries one snapshot carries.
-	 *
-	 * @returns {Promise<Array<{path: string, content: Buffer, mode: number}>>} The entries.
-	 */
-	async collectFiles() {
-		return collectDataFiles(this.root())
-	}
-
-	/**
 	 * Take one snapshot and apply the retention rule.
 	 *
 	 * @param {{force?: boolean, reason?: string}} [options] - Run options.
@@ -129,22 +123,30 @@ export class BackupService {
 		// Everything below runs inside the try: a failed settings write used to
 		// leave `running` set forever, and every later backup was refused with
 		// "already running" until the Host restarted.
+		const directory = await mkdtemp(join(tmpdir(), 'dsh-evolver-backup-'))
+		const tarPath = join(directory, 'snapshot.tar')
 		this.running = true
 		try {
 			await this.settings.updateStatus({ lastAttemptAt: startedAt.toISOString() })
-			const files = await this.collectFiles()
-			const archive = createTar(files, { now: startedAt })
+			// Weights live in the data folder now, so a snapshot can be
+			// hundreds of megabytes: write the tar to disk and upload the file
+			// instead of holding the whole archive in memory.
+			const packed = await writeTarFile(this.root(), tarPath)
 			const key = `${config.prefix}/backup-${keyStamp(startedAt)}.tar`
 			const client = this.client()
-			await client.putObject(key, archive, 'application/x-tar')
+			if (typeof client.putObjectFromFile === 'function') {
+				await client.putObjectFromFile(key, tarPath, { size: packed.bytes, contentMd5: packed.contentMd5 })
+			} else {
+				await client.putObject(key, await readFile(tarPath), 'application/x-tar')
+			}
 			// The snapshot exists now. Record it before retention: a failing
 			// delete must not make the next heartbeat upload another copy of
 			// the same data while the old objects linger.
 			await this.settings.updateStatus({
 				lastBackupAt: this.now().toISOString(),
 				lastObjectKey: key,
-				lastBytes: archive.length,
-				lastFiles: files.length,
+				lastBytes: packed.bytes,
+				lastFiles: packed.files,
 				lastRemoved: 0,
 				lastError: '',
 			})
@@ -167,11 +169,11 @@ export class BackupService {
 				}).catch(() => {})
 				this.logger?.warn?.(`dsh-evolver: backup cleanup failed: ${cleanupError}`)
 			}
-			this.logger?.info?.(`dsh-evolver: backup ${key} (${archive.length} bytes, ${files.length} files, ${removed} old)`)
+			this.logger?.info?.(`dsh-evolver: backup ${key} (${packed.bytes} bytes, ${packed.files} files, ${removed} old)`)
 			return {
 				key,
-				bytes: archive.length,
-				files: files.length,
+				bytes: packed.bytes,
+				files: packed.files,
 				removed,
 				reason,
 				...(cleanupError === '' ? {} : { cleanupError }),
@@ -183,6 +185,7 @@ export class BackupService {
 			throw error
 		} finally {
 			this.running = false
+			await rm(directory, { recursive: true, force: true }).catch(() => {})
 		}
 	}
 

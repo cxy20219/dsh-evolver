@@ -57,15 +57,15 @@ test('向量设置：非法值被归一化，API Key 只写不读', async () => 
 				model: 'nomic-embed-text',
 				baseURL: 'http://127.0.0.1:11434/v1/',
 				apiKey: 'EMB-KEY',
-				modelPath: 'relative/path',
+				modelPath: 'ignored/path',
 				runtimePath: '/tmp/runtime',
 			},
 		})
 		const saved = store.get().embedding
 		assert.equal(saved.provider, 'http')
 		assert.equal(saved.baseURL, 'http://127.0.0.1:11434/v1')
-		assert.equal(saved.modelPath, '')
 		assert.equal(saved.runtimePath, '/tmp/runtime')
+		assert.equal(Object.hasOwn(saved, 'modelPath'), false)
 		const view = store.publicView(ROOT_INFO)
 		assert.equal(view.embedding.hasApiKey, true)
 		assert.equal(Object.hasOwn(view.embedding, 'apiKey'), false)

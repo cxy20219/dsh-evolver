@@ -89,6 +89,69 @@ function isZeroBlock(block) {
 }
 
 /**
+ * Build one ustar header for a regular file.
+ *
+ * @param {{path: string, size: number, mode?: number, mtime?: number}} file - The entry.
+ * @returns {Buffer} The 512-byte header.
+ */
+export function buildTarHeader({ path, size, mode = 0o644, mtime = Math.floor(Date.now() / 1000) }) {
+	if (!Number.isFinite(size) || size < 0) throw new Error('tar 条目大小不合法')
+	const { name, prefix } = splitPath(path)
+	const header = Buffer.alloc(BLOCK)
+	writeField(header, name, 0, NAME_LENGTH)
+	writeField(header, octal(mode, 8), 100, 8)
+	writeField(header, octal(0, 8), 108, 8)
+	writeField(header, octal(0, 8), 116, 8)
+	writeField(header, octal(size, 12), 124, 12)
+	writeField(header, octal(mtime, 12), 136, 12)
+	// The checksum is computed with the field filled with spaces.
+	header.fill(0x20, 148, 156)
+	header[156] = 0x30 // '0': regular file
+	writeField(header, 'ustar\0', 257, 6)
+	writeField(header, '00', 263, 2)
+	writeField(header, prefix, 345, PREFIX_LENGTH)
+	let sum = 0
+	for (const byte of header) sum += byte
+	writeField(header, `${sum.toString(8).padStart(6, '0')}\0 `, 148, 8)
+	return header
+}
+
+/**
+ * Validate one ustar header and extract its fields.
+ *
+ * @param {Buffer} header - One 512-byte block.
+ * @returns {{path: string, size: number, mode: number, type: string}} The parsed entry.
+ */
+export function parseTarHeader(header) {
+	const stored = Number.parseInt(readField(header, 148, 8).replace(/[^0-7]/g, ''), 8)
+	let sum = 0
+	for (let index = 0; index < BLOCK; index += 1) {
+		sum += index >= 148 && index < 156 ? 0x20 : header[index]
+	}
+	if (!Number.isFinite(stored) || stored !== sum) {
+		throw new Error('tar 头校验失败')
+	}
+	const name = readField(header, 0, NAME_LENGTH)
+	const prefix = readField(header, 345, PREFIX_LENGTH)
+	const mode = Number.parseInt(readField(header, 100, 8).replace(/[^0-7]/g, ''), 8)
+	const size = Number.parseInt(readField(header, 124, 12).replace(/[^0-7]/g, ''), 8)
+	const type = String.fromCharCode(header[156])
+	if (type === 'L' || type === 'K' || type === 'x' || type === 'g') {
+		// A pax/GNU extension carries the real path of the next entry.
+		// Ignoring it would import files under truncated names, so refuse.
+		throw new Error('tar 使用了 GNU/pax 扩展头，无法安全解析；请用 ustar 格式（本插件的导出即为 ustar）。')
+	}
+	if (!Number.isFinite(size) || size < 0 || size > MAX_ENTRY_BYTES) {
+		throw new Error('tar 条目大小不合法')
+	}
+	const path = prefix === '' ? name : `${prefix}/${name}`
+	if (path.split('/').some((segment) => segment === '..' || segment === '')) {
+		throw new Error(`tar 条目路径不安全：${path}`)
+	}
+	return { path, size, mode, type }
+}
+
+/**
  * Build one tar archive.
  *
  * @param {Array<{path: string, content: Buffer | string, mode?: number}>} files - The entries.
@@ -102,23 +165,7 @@ export function createTar(files, { now = new Date() } = {}) {
 		const content = Buffer.isBuffer(file.content)
 			? file.content
 			: Buffer.from(String(file.content ?? ''), 'utf8')
-		const { name, prefix } = splitPath(file.path)
-		const header = Buffer.alloc(BLOCK)
-		writeField(header, name, 0, NAME_LENGTH)
-		writeField(header, octal(file.mode ?? 0o644, 8), 100, 8)
-		writeField(header, octal(0, 8), 108, 8)
-		writeField(header, octal(0, 8), 116, 8)
-		writeField(header, octal(content.length, 12), 124, 12)
-		writeField(header, octal(mtime, 12), 136, 12)
-		// The checksum is computed with the field filled with spaces.
-		header.fill(0x20, 148, 156)
-		header[156] = 0x30 // '0': regular file
-		writeField(header, 'ustar\0', 257, 6)
-		writeField(header, '00', 263, 2)
-		writeField(header, prefix, 345, PREFIX_LENGTH)
-		let sum = 0
-		for (const byte of header) sum += byte
-		writeField(header, `${sum.toString(8).padStart(6, '0')}\0 `, 148, 8)
+		const header = buildTarHeader({ path: file.path, size: content.length, mode: file.mode, mtime })
 		chunks.push(header, content)
 		const remainder = content.length % BLOCK
 		if (remainder !== 0) chunks.push(Buffer.alloc(BLOCK - remainder))
@@ -139,41 +186,22 @@ export function readTar(archive) {
 	while (offset + BLOCK <= archive.length) {
 		const header = archive.subarray(offset, offset + BLOCK)
 		if (isZeroBlock(header)) break
-		const stored = Number.parseInt(readField(header, 148, 8).replace(/[^0-7]/g, ''), 8)
-		let sum = 0
-		for (let index = 0; index < BLOCK; index += 1) {
-			sum += index >= 148 && index < 156 ? 0x20 : header[index]
-		}
-		if (!Number.isFinite(stored) || stored !== sum) {
-			throw new Error(`tar 头校验失败（偏移 ${offset}）`)
-		}
-		const name = readField(header, 0, NAME_LENGTH)
-		const prefix = readField(header, 345, PREFIX_LENGTH)
-		const mode = Number.parseInt(readField(header, 100, 8).replace(/[^0-7]/g, ''), 8)
-		const size = Number.parseInt(readField(header, 124, 12).replace(/[^0-7]/g, ''), 8)
-		const type = String.fromCharCode(header[156])
-		if (type === 'L' || type === 'K' || type === 'x' || type === 'g') {
-			// A pax/GNU extension carries the real path of the next entry.
-			// Ignoring it would import files under truncated names, so refuse.
-			throw new Error('tar 使用了 GNU/pax 扩展头，无法安全解析；请用 ustar 格式（本插件的导出即为 ustar）。')
-		}
-		if (!Number.isFinite(size) || size < 0 || size > MAX_ENTRY_BYTES) {
-			throw new Error('tar 条目大小不合法')
+		let parsed
+		try {
+			parsed = parseTarHeader(header)
+		} catch (error) {
+			throw new Error(`${error instanceof Error ? error.message : String(error)}（偏移 ${offset}）`)
 		}
 		offset += BLOCK
-		if (offset + size > archive.length) throw new Error('tar 内容被截断')
-		if (type === '0' || type === '\0') {
-			const path = prefix === '' ? name : `${prefix}/${name}`
-			if (path.split('/').some((segment) => segment === '..' || segment === '')) {
-				throw new Error(`tar 条目路径不安全：${path}`)
-			}
+		if (offset + parsed.size > archive.length) throw new Error('tar 内容被截断')
+		if (parsed.type === '0' || parsed.type === '\0') {
 			files.push({
-				path,
-				content: Buffer.from(archive.subarray(offset, offset + size)),
-				mode: Number.isFinite(mode) ? mode : undefined,
+				path: parsed.path,
+				content: Buffer.from(archive.subarray(offset, offset + parsed.size)),
+				mode: Number.isFinite(parsed.mode) ? parsed.mode : undefined,
 			})
 		}
-		offset += Math.ceil(size / BLOCK) * BLOCK
+		offset += Math.ceil(parsed.size / BLOCK) * BLOCK
 	}
 	return files
 }

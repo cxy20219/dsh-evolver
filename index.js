@@ -20,7 +20,7 @@
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
-import { MAX_ARCHIVE_BYTES, packDataDir, restoreEntries, unpackArchive, writeArchive } from './src/backup/archive.js'
+import { MAX_IMPORT_BYTES, extractArchiveFile, writeArchiveFile } from './src/backup/archive.js'
 import { BackupService } from './src/backup/service.js'
 import { EMBEDDING_MODELS, ModelDownloader, embeddingConfig, embeddingLocations, modelPresent, probeEmbedding, runtimeState } from './src/embedding.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
@@ -197,7 +197,7 @@ export async function apply(ctx, config) {
 	 * @returns {object} The createEmbedder configuration.
 	 */
 	function currentEmbeddingConfig() {
-		return embeddingConfig(settings.get().embedding, { dshHome, logger: ctx.logger })
+		return embeddingConfig(settings.get().embedding, { dataDir: evolver.root, dshHome, logger: ctx.logger })
 	}
 
 	/**
@@ -370,9 +370,10 @@ export async function apply(ctx, config) {
 			}
 			// Flush first so the archive contains the newest memory writes.
 			await storeRef.current.close()
-			const packed = await packDataDir(evolver.root)
-			await writeArchive(target, packed.archive)
-			return { file: target, bytes: packed.archive.length, files: packed.files }
+			// Weights are part of the data folder now; the archive streams, so
+			// a 570 MB model does not have to fit in memory.
+			const packed = await writeArchiveFile(evolver.root, target)
+			return { file: target, bytes: packed.bytes, files: packed.files }
 		},
 
 		/**
@@ -405,29 +406,23 @@ export async function apply(ctx, config) {
 			const source = requestPath(file)
 			const info = await lstat(source).catch(() => undefined)
 			if (info === undefined || !info.isFile()) throw new Error(`导入文件不存在：${source}`)
-			if (info.size > MAX_ARCHIVE_BYTES) {
-				throw new Error(`压缩包超过 ${MAX_ARCHIVE_BYTES / 1024 / 1024} MB，拒绝导入。`)
+			if (info.size > MAX_IMPORT_BYTES) {
+				throw new Error(`压缩包超过 ${MAX_IMPORT_BYTES / 1024 / 1024 / 1024} GB，拒绝导入。`)
 			}
 			const current = await canonicalPath(evolver.root)
 			if (isInsidePath(current, await canonicalPath(source))) {
 				throw new Error('导入文件不能是数据目录里的文件。')
 			}
 			await storeRef.current.close()
-			let entries
-			try {
-				entries = unpackArchive(await readFile(source))
-			} catch (error) {
-				await openMemory(evolver.root).catch(() => {})
-				throw new Error(`不能读取压缩包：${error instanceof Error ? error.message : String(error)}`)
-			}
 			let restored
 			try {
-				restored = await restoreEntries(evolver.root, entries, { force })
+				restored = await extractArchiveFile(source, evolver.root, { force })
 			} catch (error) {
 				// A half-finished import must not leave the in-memory store out
 				// of sync with the files that did land.
 				await openMemory(evolver.root).catch(() => {})
-				throw error
+				const message = error instanceof Error ? error.message : String(error)
+				throw new Error(message.includes('压缩包') ? message : `不能读取压缩包：${message}`)
 			}
 			try {
 				await evolver.switchRoot(evolver.root)
@@ -484,7 +479,7 @@ export async function apply(ctx, config) {
 	 * @returns {string} The signature.
 	 */
 	function embeddingSignature(embedding) {
-		return [embedding.provider, embedding.model, embedding.modelPath, embedding.runtimePath, embedding.baseURL, embedding.apiKey].join('\u0000')
+		return [embedding.provider, embedding.model, embedding.runtimePath, embedding.baseURL, embedding.apiKey].join('\u0000')
 	}
 
 	const downloader = new ModelDownloader({
@@ -504,7 +499,7 @@ export async function apply(ctx, config) {
 	 */
 	async function embeddingStatus() {
 		const raw = settings.get().embedding
-		const locations = embeddingLocations(raw, { dshHome })
+		const locations = embeddingLocations(raw, { dataDir: evolver.root, dshHome })
 		const present = {}
 		for (const model of EMBEDDING_MODELS) present[model.id] = await modelPresent(model, locations.modelsDir)
 		return {
@@ -535,7 +530,7 @@ export async function apply(ctx, config) {
 		},
 		async download(model) {
 			const raw = settings.get().embedding
-			const locations = embeddingLocations(raw, { dshHome })
+			const locations = embeddingLocations(raw, { dataDir: evolver.root, dshHome })
 			await downloader.start({ model, mirror: raw.mirror, modelsDir: locations.modelsDir })
 			return embeddingStatus()
 		},

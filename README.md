@@ -16,6 +16,7 @@
     memory/                     ← 记忆存储（JSONL + 向量）
   preferences/
     AGENTS.md                   ← 全局偏好（链到 ~/.dsh/AGENTS.md）
+  models/<模型>/                ← 本地 embedding 权重（可选，随备份/导出）
 ```
 
 ## 注入的三个来源
@@ -113,8 +114,9 @@
 | `bge-small-zh-v1.5` | 中文为主，英文可用 | 512 | ~25 MB | 体积最小，中文记忆优先 |
 | `bge-m3` | 中英 + 多语 | 1024 | ~587 MB | 质量最高，加载慢 |
 
-- 权重由面板下载到 `~/.dsh/evolver-models/<模型>/`（可改）；它在数据目录之外，
-  不进备份、不撑爆导出上限，换机器重新下载即可。
+- 权重由面板下载到数据目录的 `models/<模型>/`，和记忆一起统一管理：备份、导入、导出
+  都会带上它，换机器不用重新下载。代价是归档会变大（bge-m3 约 587 MB，bge-small-zh
+  约 25 MB），导出/备份会相应变慢；归档是流式读写的，不会整包进内存。
 - 下载源默认 `https://hf-mirror.com`，可改成 `https://huggingface.co`。
 - 本地模型需要运行时（transformers.js + ONNX runtime），插件不打包它：
   `npm install --prefix "$HOME/.dsh/embedding-runtime" @huggingface/transformers`

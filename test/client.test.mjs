@@ -331,6 +331,11 @@ async function loadPanel(runtime) {
 }
 
 /**
+ * Whether the stubbed embedding model is already downloaded.
+ */
+let embeddingPresent = false
+
+/**
  * Answer the panel's API calls.
  *
  * @param {string} endpoint - The endpoint name.
@@ -404,7 +409,7 @@ function apiPayload(endpoint, payload) {
 					bytes: 135392183,
 					note: '默认推荐',
 				}],
-				present: { 'multilingual-e5-small': false },
+				present: { 'multilingual-e5-small': embeddingPresent },
 				download: { status: 'idle', model: '', file: '', fileIndex: 0, fileCount: 0, bytes: 0, totalBytes: 0, error: '' },
 				store: { embedder: 'local', dimensions: 256, aligned: true, ready: false, backend: 'local', model: '', entries: 0 },
 			}
@@ -504,6 +509,41 @@ test('设置里的向量模型子标签展示可选模型和下载入口', async
 		assert.match(text, /settings\.embedding\.download/)
 		assert.match(text, /settings\.embedding\.providerModel/)
 	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('已下载的模型显示绿色不可点的“已下载”', async () => {
+	embeddingPresent = true
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.section.embedding')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const providers = findAll(tree, (node) => node.type === 'input' && node.props?.name === 'evr-embedding-provider')
+		providers[1].props.onChange({ target: { checked: true } })
+		tree = await runtime.settle(render)
+		const done = findAll(tree, (node) => typeof node.props?.className === 'string' && node.props.className.split(' ').includes('evrBtnOk'))
+		assert.equal(done.length, 1)
+		assert.equal(done[0].props.disabled, true)
+		assert.equal(textOf(done[0]), 'settings.embedding.downloaded')
+	} finally {
+		embeddingPresent = false
 		globalThis.fetch = previousFetch
 	}
 })

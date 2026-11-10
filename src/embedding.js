@@ -3,8 +3,9 @@
  *
  * The plugin ships no runtime: the ONNX model *weights* are data managed here,
  * while transformers.js and its ONNX runtime are a program the user installs
- * once. Weights live next to the harness home (not inside the data folder), so
- * a 135 MB model never travels into a backup or an export.
+ * once. Weights live in `<dataDir>/models`, so a backup, an import, an export
+ * or a move carries them along; the archive streams, so a large model does not
+ * have to fit in memory. The runtime stays outside the data folder.
  *
  * Everything in this module is dependency-free and testable with a plain
  * http server; the actual inference happens in `memory/embed.js`.
@@ -115,17 +116,19 @@ export async function modelPresent(model, modelsDir) {
 }
 
 /**
- * The default locations for weights and the runtime.
+ * Where weights and the runtime live.
  *
- * @param {{modelPath?: string, runtimePath?: string}} embedding - The settings block.
- * @param {{dshHome: string}} options - The harness home.
+ * Weights are part of the data folder (`<dataDir>/models`) so a backup, an
+ * import and a move all carry them. The runtime is a program, not data, and
+ * stays outside; it is the one path the user may override.
+ *
+ * @param {{runtimePath?: string}} embedding - The settings block.
+ * @param {{dataDir: string, dshHome: string}} options - The data folder and harness home.
  * @returns {{modelsDir: string, runtimePath: string}} The resolved folders.
  */
-export function embeddingLocations(embedding, { dshHome }) {
+export function embeddingLocations(embedding, { dataDir, dshHome }) {
 	return {
-		modelsDir: typeof embedding?.modelPath === 'string' && embedding.modelPath !== ''
-			? embedding.modelPath
-			: join(dshHome, 'evolver-models'),
+		modelsDir: join(dataDir, 'models'),
 		runtimePath: typeof embedding?.runtimePath === 'string' && embedding.runtimePath !== ''
 			? embedding.runtimePath
 			: join(dshHome, 'embedding-runtime'),
@@ -155,8 +158,8 @@ export function runtimeState(runtimePath) {
  * @param {{dshHome: string, logger?: object}} options - The harness home.
  * @returns {object} The configuration.
  */
-export function embeddingConfig(embedding, { dshHome, logger }) {
-	const locations = embeddingLocations(embedding, { dshHome })
+export function embeddingConfig(embedding, { dataDir, dshHome, logger }) {
+	const locations = embeddingLocations(embedding, { dataDir, dshHome })
 	const model = findEmbeddingModel(embedding.model)
 	const config = {
 		provider: embedding.provider,

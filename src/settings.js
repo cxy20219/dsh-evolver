@@ -64,7 +64,6 @@ export function defaultEmbedding() {
 	return {
 		provider: 'local',
 		model: 'multilingual-e5-small',
-		modelPath: '',
 		runtimePath: '',
 		baseURL: '',
 		apiKey: '',
@@ -85,14 +84,12 @@ export function normalizeEmbedding(value) {
 	const source = value !== null && typeof value === 'object' ? value : {}
 	const fallback = defaultEmbedding()
 	const model = readString(source.model, fallback.model, 128)
-	const modelPath = readString(source.modelPath, '', 300)
 	const runtimePath = readString(source.runtimePath, '', 300)
 	const baseURL = readString(source.baseURL, '', 300).replace(/\/+$/, '')
 	const mirror = readString(source.mirror, fallback.mirror, 300).replace(/\/+$/, '')
 	return {
 		provider: EMBEDDING_PROVIDERS.has(source.provider) ? source.provider : fallback.provider,
 		model: /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(model) ? model : fallback.model,
-		modelPath: isAbsolute(modelPath) ? modelPath : '',
 		runtimePath: isAbsolute(runtimePath) ? runtimePath : '',
 		baseURL: /^https?:\/\//i.test(baseURL) ? baseURL : '',
 		apiKey: typeof source.apiKey === 'string' ? source.apiKey.trim() : '',
@@ -395,7 +392,6 @@ export class SettingsStore {
 			embedding: {
 				provider: this.data.embedding.provider,
 				model: this.data.embedding.model,
-				modelPath: this.data.embedding.modelPath,
 				runtimePath: this.data.embedding.runtimePath,
 				baseURL: this.data.embedding.baseURL,
 				hasApiKey: this.data.embedding.apiKey !== '',

@@ -159,19 +159,21 @@ test('embeddingConfig 解析默认目录与模型前缀', () => {
 	const config = embeddingConfig({
 		provider: 'model',
 		model: 'bge-small-zh-v1.5',
-		modelPath: '',
 		runtimePath: '',
 		baseURL: '',
 		apiKey: '',
-	}, { dshHome: '/home/test' })
-	assert.equal(config.modelPath, join('/home/test', 'evolver-models'))
+	}, { dataDir: '/data/evolver', dshHome: '/home/test' })
+	assert.equal(config.modelPath, join('/data/evolver', 'models'))
 	assert.equal(config.runtimePath, join('/home/test', 'embedding-runtime'))
 	assert.equal(config.modelName, 'bge-small-zh-v1.5')
+	assert.equal(config.dimensions, 512)
 	assert.match(config.queryPrefix, /检索/)
 	assert.equal(config.passagePrefix, '')
 
-	const e5 = embeddingConfig({ provider: 'local', model: 'multilingual-e5-small', modelPath: '/data/models', runtimePath: '/data/runtime' }, { dshHome: '/home/test' })
-	assert.equal(e5.modelPath, '/data/models')
+	const e5 = embeddingConfig({ provider: 'local', model: 'multilingual-e5-small', runtimePath: '/data/runtime' }, { dataDir: '/data/evolver', dshHome: '/home/test' })
+	assert.equal(e5.modelPath, join('/data/evolver', 'models'))
+	assert.equal(e5.runtimePath, '/data/runtime')
+	assert.equal(e5.dimensions, undefined)
 	assert.equal(e5.queryPrefix, 'query: ')
 	assert.equal(e5.passagePrefix, 'passage: ')
 })

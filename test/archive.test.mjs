@@ -1,14 +1,17 @@
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { isGzip, packDataDir, restoreEntries, unpackArchive } from '../src/backup/archive.js'
-import { createTar } from '../src/backup/tar.js'
+import { extractArchiveFile, isGzip, writeArchiveFile, writeTarFile } from '../src/backup/archive.js'
+import { createTar, readTar } from '../src/backup/tar.js'
+
+/** A 3 MB stand-in for an ONNX model. */
+const MODEL_BYTES = Buffer.alloc(3 * 1024 * 1024, 7)
 
 /**
- * Build a small data folder.
+ * Build a small data folder, including a model-sized file.
  *
  * @returns {Promise<string>} The folder.
  */
@@ -16,94 +19,116 @@ async function dataFolder() {
 	const root = await mkdtemp(join(tmpdir(), 'evr-archive-'))
 	await mkdir(join(root, 'practice', 'docs'), { recursive: true })
 	await mkdir(join(root, 'practice', 'tools'), { recursive: true })
-	await mkdir(join(root, 'sight', 'memory'), { recursive: true })
+	await mkdir(join(root, 'sight'), { recursive: true })
 	await mkdir(join(root, 'preferences'), { recursive: true })
+	await mkdir(join(root, 'models', 'test-model'), { recursive: true })
 	await writeFile(join(root, 'practice', 'docs', 'entry.md'), '---\ntitle: 条目\n---\n\n正文\n', 'utf8')
-	await writeFile(join(root, 'sight', 'soul.md'), '# 灵魂\n', 'utf8')
-	await writeFile(join(root, 'sight', 'memory', 'memories.jsonl'), '{"id":"m1"}\n', 'utf8')
-	await writeFile(join(root, 'preferences', 'AGENTS.md'), '# 偏好\n', 'utf8')
 	await writeFile(join(root, 'practice', 'tools', 'run.sh'), '#!/bin/sh\n', 'utf8')
+	await writeFile(join(root, 'sight', 'soul.md'), '# 灵魂\n', 'utf8')
+	await writeFile(join(root, 'preferences', 'AGENTS.md'), '# 偏好\n', 'utf8')
+	await writeFile(join(root, 'models', 'test-model', 'model.onnx'), MODEL_BYTES)
 	await chmod(join(root, 'practice', 'tools', 'run.sh'), 0o755)
 	return root
 }
 
-test('打包成 gzip tar 再解开：路径、内容与权限都在', async () => {
+test('流式导出 .tar.gz 再解压：内容、权限和 models 目录都在', async () => {
 	const source = await dataFolder()
 	const target = await mkdtemp(join(tmpdir(), 'evr-archive-out-'))
+	const out = await mkdtemp(join(tmpdir(), 'evr-archive-file-'))
 	try {
-		const { archive, files } = await packDataDir(source)
-		assert.equal(isGzip(archive), true)
-		assert.equal(files, 5)
-		const entries = unpackArchive(archive)
+		const archive = join(out, 'export.tar.gz')
+		const packed = await writeArchiveFile(source, archive)
+		assert.equal(packed.files, 5)
+		assert.equal(isGzip(await readFile(archive)), true)
+
+		const restored = await extractArchiveFile(archive, target)
+		assert.equal(restored.files, 5)
+		assert.equal(restored.skipped, 0)
+		assert.equal(await readFile(join(target, 'practice', 'docs', 'entry.md'), 'utf8').then((text) => text.includes('条目')), true)
+		assert.equal((await stat(join(target, 'practice', 'tools', 'run.sh'))).mode & 0o777, 0o755)
+		assert.deepEqual(await readFile(join(target, 'models', 'test-model', 'model.onnx')), MODEL_BYTES)
+	} finally {
+		await rm(source, { recursive: true, force: true })
+		await rm(target, { recursive: true, force: true })
+		await rm(out, { recursive: true, force: true })
+	}
+})
+
+test('流式 tar（云端备份格式）也能解压，且不需要整包进内存', async () => {
+	const source = await dataFolder()
+	const target = await mkdtemp(join(tmpdir(), 'evr-tar-out-'))
+	const out = await mkdtemp(join(tmpdir(), 'evr-tar-file-'))
+	try {
+		const tar = join(out, 'snapshot.tar')
+		const packed = await writeTarFile(source, tar)
+		assert.equal(packed.files, 5)
+		assert.equal(packed.bytes > 3 * 1024 * 1024, true)
+		const entries = readTar(await readFile(tar))
 		assert.deepEqual(entries.map((entry) => entry.path).sort(), [
+			'models/test-model/model.onnx',
 			'practice/docs/entry.md',
 			'practice/tools/run.sh',
 			'preferences/AGENTS.md',
-			'sight/memory/memories.jsonl',
 			'sight/soul.md',
 		])
-		const restored = await restoreEntries(target, entries)
+		const restored = await extractArchiveFile(tar, target)
 		assert.equal(restored.files, 5)
-		assert.equal(await readFile(join(target, 'practice', 'docs', 'entry.md'), 'utf8').then((text) => text.includes('条目')), true)
-		assert.equal((await lstat(join(target, 'practice', 'tools', 'run.sh'))).mode & 0o777, 0o755)
 	} finally {
 		await rm(source, { recursive: true, force: true })
+		await rm(target, { recursive: true, force: true })
+		await rm(out, { recursive: true, force: true })
+	}
+})
+
+test('导入只写白名单目录，默认不覆盖，force 才覆盖', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-archive-rules-'))
+	const target = await mkdtemp(join(tmpdir(), 'evr-archive-target-'))
+	try {
+		const archive = join(dir, 'mixed.tar')
+		await writeFile(archive, createTar([
+			{ path: 'practice/a.md', content: 'new' },
+			{ path: 'other/b.md', content: 'outside the whitelist' },
+		]))
+		const first = await extractArchiveFile(archive, target)
+		assert.equal(first.files, 1)
+		assert.equal(first.skipped, 1)
+		assert.equal(await readFile(join(target, 'practice', 'a.md'), 'utf8'), 'new')
+		await assert.rejects(() => readFile(join(target, 'other', 'b.md'), 'utf8'))
+
+		await writeFile(join(target, 'practice', 'a.md'), 'old', 'utf8')
+		const skipped = await extractArchiveFile(archive, target)
+		assert.equal(skipped.files, 0)
+		assert.equal(skipped.skipped, 2)
+		assert.equal(await readFile(join(target, 'practice', 'a.md'), 'utf8'), 'old')
+
+		const forced = await extractArchiveFile(archive, target, { force: true })
+		assert.equal(forced.files, 1)
+		assert.equal(await readFile(join(target, 'practice', 'a.md'), 'utf8'), 'new')
+	} finally {
+		await rm(dir, { recursive: true, force: true })
 		await rm(target, { recursive: true, force: true })
 	}
 })
 
-test('未压缩的 tar（云端备份格式）也能导入', () => {
-	const tar = createTar([
-		{ path: 'practice/INDEX.md', content: '# 索引\n' },
-		{ path: 'sight/soul.md', content: '# 灵魂\n' },
-	])
-	assert.equal(isGzip(tar), false)
-	const entries = unpackArchive(tar)
-	assert.deepEqual(entries.map((entry) => entry.path), ['practice/INDEX.md', 'sight/soul.md'])
-})
-
-test('损坏的或空的压缩包给出可读错误', () => {
-	assert.throws(() => unpackArchive(Buffer.alloc(0)), /空/)
-	assert.throws(() => unpackArchive(Buffer.from('definitely not an archive')), /tar|截断|校验/)
-	const gzipped = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
-	assert.throws(() => unpackArchive(gzipped), /不是可读的/)
-})
-
-test('导入只写 practice / sight / preferences，跳过路径穿越与其他目录', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'evr-archive-dst-'))
+test('路径穿越、损坏包和空包都会被拒绝', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-archive-bad-'))
+	const target = await mkdtemp(join(tmpdir(), 'evr-archive-bad-target-'))
 	try {
-		const entries = [
-			{ path: 'practice/a.md', content: Buffer.from('a') },
-			{ path: 'other/b.md', content: Buffer.from('b') },
-			{ path: '../evil.md', content: Buffer.from('x') },
-			{ path: '/abs.md', content: Buffer.from('x') },
-			{ path: 'practice/../escape.md', content: Buffer.from('x') },
-		]
-		const restored = await restoreEntries(root, entries)
-		assert.equal(restored.files, 1)
-		assert.equal(restored.skipped, 4)
-		assert.equal(await readFile(join(root, 'practice', 'a.md'), 'utf8'), 'a')
-		await assert.rejects(() => readFile(join(root, 'other', 'b.md'), 'utf8'))
-		await assert.rejects(() => readFile(join(root, 'evil.md'), 'utf8'))
-	} finally {
-		await rm(root, { recursive: true, force: true })
-	}
-})
+		const evil = join(dir, 'evil.tar')
+		await writeFile(evil, createTar([{ path: '../evil.md', content: 'x' }]))
+		await assert.rejects(() => extractArchiveFile(evil, target), /路径不安全/)
 
-test('导入默认不覆盖，force 才覆盖', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'evr-archive-force-'))
-	try {
-		await mkdir(join(root, 'practice'), { recursive: true })
-		await writeFile(join(root, 'practice', 'a.md'), 'old', 'utf8')
-		const entries = [{ path: 'practice/a.md', content: Buffer.from('new') }]
-		const first = await restoreEntries(root, entries)
-		assert.equal(first.files, 0)
-		assert.equal(first.skipped, 1)
-		assert.equal(await readFile(join(root, 'practice', 'a.md'), 'utf8'), 'old')
-		const forced = await restoreEntries(root, entries, { force: true })
-		assert.equal(forced.files, 1)
-		assert.equal(await readFile(join(root, 'practice', 'a.md'), 'utf8'), 'new')
+		const junk = join(dir, 'junk.tar.gz')
+		await writeFile(junk, 'definitely not an archive', 'utf8')
+		await assert.rejects(() => extractArchiveFile(junk, target), /校验|tar/)
+
+		const empty = join(dir, 'empty.tar')
+		await writeFile(empty, Buffer.alloc(1024))
+		await assert.rejects(() => extractArchiveFile(empty, target), /没有可导入的条目/)
+
+		await assert.rejects(() => readFile(join(dir, 'evil.md'), 'utf8'))
 	} finally {
-		await rm(root, { recursive: true, force: true })
+		await rm(dir, { recursive: true, force: true })
+		await rm(target, { recursive: true, force: true })
 	}
 })

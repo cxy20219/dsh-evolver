@@ -178,8 +178,8 @@ window.__ModuleLoader__.load({
 			'settings.embedding.runtimeReady': '运行时可用',
 			'settings.embedding.runtimeMissing': '运行时未安装（本地模型需要 transformers.js）',
 			'settings.embedding.runtimeHint': '在终端执行下面的命令安装（约 300 MB），装完保存或测试即可生效：',
-			'settings.embedding.modelPath': '权重目录',
-			'settings.embedding.modelPathHint': '留空用默认目录（数据目录之外，不参与备份）',
+			'settings.embedding.runtimeFieldHint': '留空用默认位置（数据目录之外）',
+			'settings.embedding.storage': '权重保存在数据目录的 models/ 下，随备份、导入、导出一起走；大模型会明显增大备份与导出体积。',
 			'settings.embedding.mirror': '下载源',
 			'settings.embedding.mirrorHint': '默认 hf-mirror.com；在国外可改成 https://huggingface.co',
 			'settings.embedding.baseURL': '服务地址',
@@ -358,8 +358,8 @@ window.__ModuleLoader__.load({
 			'settings.embedding.runtimeReady': 'Runtime available',
 			'settings.embedding.runtimeMissing': 'Runtime missing (the local model needs transformers.js)',
 			'settings.embedding.runtimeHint': 'Install it once in a terminal (about 300 MB), then save or test:',
-			'settings.embedding.modelPath': 'Weights folder',
-			'settings.embedding.modelPathHint': 'Empty uses the default (outside the data folder, not backed up)',
+			'settings.embedding.runtimeFieldHint': 'Empty uses the default (outside the data folder)',
+			'settings.embedding.storage': 'Weights live in data/models and travel with backups, imports and exports; a large model makes both noticeably bigger.',
 			'settings.embedding.mirror': 'Download source',
 			'settings.embedding.mirrorHint': 'Defaults to hf-mirror.com; use https://huggingface.co elsewhere',
 			'settings.embedding.baseURL': 'Service URL',
@@ -485,6 +485,8 @@ window.__ModuleLoader__.load({
 			'.evrToastText{white-space:pre-wrap;word-break:break-word}',
 			'.evrToastClose{flex:none;border:0;background:transparent;color:inherit;cursor:pointer;font-size:16px;line-height:1;padding:0 2px}',
 			'.evrError{border-left:3px solid var(--dsw-alias-state-error-primary);padding-left:10px}',
+			'.evrBtnOk{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary);background:transparent}',
+			'.evrBtnOk:disabled{opacity:1;cursor:default}',
 			'.evrBar{height:6px;border-radius:99px;background:var(--dsw-alias-bg-layer-3);overflow:hidden;margin:6px 0 8px}',
 			'.evrBarFill{height:100%;background:var(--dsw-alias-state-business-primary,currentColor);border-radius:99px;transition:width .3s ease}',
 		].join('\n');
@@ -501,8 +503,9 @@ window.__ModuleLoader__.load({
 		 * @param {object} payload - JSON payload.
 		 * @returns {Promise<object>} The endpoint's value.
 		 */
-		function callHost(ctx, endpoint, payload) {
+		function callHost(ctx, endpoint, payload, timeoutMs) {
 			if (ctx.get('connection') === undefined) return Promise.reject(new Error('连接不可用'));
+			var deadline = typeof timeoutMs === 'number' && timeoutMs > 0 ? timeoutMs : 30000;
 			var options = {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -512,7 +515,7 @@ window.__ModuleLoader__.load({
 			// A hung Host must not leave every button disabled for the rest of the
 			// session: the panel gives the request a deadline.
 			if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-				options.signal = AbortSignal.timeout(30000);
+				options.signal = AbortSignal.timeout(deadline);
 			}
 			return fetch(API_PREFIX + '/' + endpoint, options).then(function (response) {
 				return response.json().then(function (value) {
@@ -524,7 +527,7 @@ window.__ModuleLoader__.load({
 				});
 			}).catch(function (reason) {
 				if (reason && (reason.name === 'TimeoutError' || reason.name === 'AbortError')) {
-					throw new Error('请求超时（30 秒）');
+					throw new Error('请求超时（' + Math.round(deadline / 1000) + ' 秒）');
 				}
 				throw reason;
 			});
@@ -997,7 +1000,6 @@ window.__ModuleLoader__.load({
 			return {
 				provider: e.provider || 'local',
 				model: e.model || 'multilingual-e5-small',
-				modelPath: e.modelPath || '',
 				runtimePath: e.runtimePath || '',
 				baseURL: e.baseURL || '',
 				apiKey: '',
@@ -1240,7 +1242,8 @@ window.__ModuleLoader__.load({
 				];
 				return h('div', null,
 					h('div', { className: 'evrSection' }, t('settings.embedding.title')),
-					h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.embedding.hint')),
+					h('div', { className: 'evrHint', style: { marginBottom: '6px' } }, t('settings.embedding.hint')),
+					h('div', { className: 'evrHint evrMono', style: { marginBottom: '10px' } }, t('settings.embedding.storage')),
 					h('div', { className: 'evrCard' },
 						h('div', { className: 'evrCardHead' },
 							h('span', { className: 'evrCardTitle' }, t('settings.embedding.status')),
@@ -1286,14 +1289,16 @@ window.__ModuleLoader__.load({
 									h('div', { className: 'evrRowTitle' }, model.label),
 									h('div', { className: 'evrRowMeta' }, model.languages + ' · ' + model.dimensions + ' ' + t('settings.embedding.dimensions') + ' · ' + formatBytes(model.bytes) + ' · ' + (downloaded ? t('settings.embedding.downloaded') : t('settings.embedding.notDownloaded'))),
 									h('div', { className: 'evrRowMeta' }, model.note)),
-								downloading && download.model === model.id
-									? h('span', { className: 'evrStatus' }, percent + '%')
-									: h('button', {
-										type: 'button',
-										className: 'evrBtn',
-										disabled: props.busy || downloading,
-										onClick: function () { props.onEmbeddingDownload(model.id); },
-									}, t('settings.embedding.download')));
+								downloaded
+									? h('button', { type: 'button', className: 'evrBtn evrBtnOk', disabled: true }, t('settings.embedding.downloaded'))
+									: downloading && download.model === model.id
+										? h('span', { className: 'evrStatus' }, percent + '%')
+										: h('button', {
+											type: 'button',
+											className: 'evrBtn',
+											disabled: props.busy || downloading,
+											onClick: function () { props.onEmbeddingDownload(model.id); },
+										}, t('settings.embedding.download')));
 						}),
 						downloading
 							? h('div', { className: 'evrCard' },
@@ -1308,14 +1313,11 @@ window.__ModuleLoader__.load({
 							? h('div', { className: 'evrHint evrError' }, t('settings.embedding.downloading') + ': ' + (download.error || ''))
 							: null,
 						h('div', { style: { marginTop: '10px' } },
-							h(Field, { label: t('settings.embedding.runtime'), hint: t('settings.embedding.modelPathHint') },
+							h(Field, { label: t('settings.embedding.runtime'), hint: t('settings.embedding.runtimeFieldHint') },
 								pathField(function (value) { set({ runtimePath: value }); }, form.runtimePath, status.resolved?.runtimePath ?? ''))),
 						h('div', { className: 'evrHint' + (runtime.available ? '' : ' evrWarn') },
 							runtime.available ? t('settings.embedding.runtimeReady') : t('settings.embedding.runtimeMissing')),
 						runtime.available ? null : h('pre', { className: 'evrPre', style: { marginTop: '6px' } }, t('settings.embedding.runtimeHint') + '\n' + (runtime.hint || '')),
-						h('div', { style: { marginTop: '10px' } },
-							h(Field, { label: t('settings.embedding.modelPath'), hint: t('settings.embedding.modelPathHint') },
-								pathField(function (value) { set({ modelPath: value }); }, form.modelPath, status.resolved?.modelsDir ?? ''))),
 						h(Field, { label: t('settings.embedding.mirror'), hint: t('settings.embedding.mirrorHint') },
 							h('input', {
 								className: 'evrInput',
@@ -1566,7 +1568,7 @@ window.__ModuleLoader__.load({
 		function Panel(props) {
 			var ctx = props.ctx;
 			var t = props.t;
-			var call = useCallback(function (endpoint, payload) { return callHost(ctx, endpoint, payload); }, [ctx]);
+			var call = useCallback(function (endpoint, payload, timeoutMs) { return callHost(ctx, endpoint, payload, timeoutMs); }, [ctx]);
 
 			var [tab, setTab] = useState('overview');
 			var [overview, setOverview] = useState(null);
@@ -1795,7 +1797,7 @@ window.__ModuleLoader__.load({
 			var migrateData = useCallback(function (dir, force) {
 				setBusy(true);
 				notify(t('state.working'), false);
-				call('data-migrate', { dir: dir, force: force }).then(function (value) {
+				call('data-migrate', { dir: dir, force: force }, 300000).then(function (value) {
 					notify(t('state.migrated') + ' → ' + String(value.root ?? dir), false);
 					setSettingsEpoch(function (value) { return value + 1; });
 					return loadAll();
@@ -1807,7 +1809,7 @@ window.__ModuleLoader__.load({
 			var exportData = useCallback(function (dir, name, force) {
 				setBusy(true);
 				notify(t('state.working'), false);
-				call('data-export', { dir: dir, name: name, force: force }).then(function (value) {
+				call('data-export', { dir: dir, name: name, force: force }, 300000).then(function (value) {
 					notify(t('state.exported') + ' → ' + String(value.file ?? dir) + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
 				}).catch(function (reason) {
 					notify(reason instanceof Error ? reason.message : String(reason), true);
@@ -1817,7 +1819,7 @@ window.__ModuleLoader__.load({
 			var importData = useCallback(function (dir, force) {
 				setBusy(true);
 				notify(t('state.working'), false);
-				call('data-import', { file: dir, force: force }).then(function (value) {
+				call('data-import', { file: dir, force: force }, 300000).then(function (value) {
 					notify(t('state.imported') + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0) + (value.skipped > 0 ? ' · ' + t('state.skipped') + ' ' + value.skipped : ''), false);
 					return loadAll();
 				}).catch(function (reason) {
@@ -1828,7 +1830,7 @@ window.__ModuleLoader__.load({
 			var backupNow = useCallback(function () {
 				setBusy(true);
 				notify(t('state.working'), false);
-				call('backup-now', { force: true }).then(function (value) {
+				call('backup-now', { force: true }, 300000).then(function (value) {
 					if (value && value.settings) setSettings(value.settings);
 					notify(t('state.backed') + ' · ' + formatBytes(value.bytes ?? 0), false);
 				}).catch(function (reason) {
@@ -1921,7 +1923,7 @@ window.__ModuleLoader__.load({
 
 			var testEmbedding = useCallback(function () {
 				setBusy(true);
-				return call('embedding-test').then(function (value) {
+				return call('embedding-test', {}, 120000).then(function (value) {
 					var message = t('settings.embedding.testOk') + ' · ' + String(value.backend) + ' · ' + String(value.dimensions) + ' 维 · ' + String(value.latencyMs) + ' ms';
 					if (value.backend !== value.configured) message += ' · ' + t('settings.embedding.fellBack');
 					notify(message, false);
