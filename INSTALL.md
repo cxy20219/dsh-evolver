@@ -1,0 +1,55 @@
+# 安装 dsh-evolver
+
+## 前置
+
+- DeepSeek Harness（`dsh`）已安装并可运行；Node.js ≥ 22。
+- `pnpm` 在 PATH 上（`dsh plugin` 用它管理 profile 依赖）。
+- 一个可用的 profile（默认 `web`）。
+
+## 从压缩包安装
+
+```bash
+# 1. 解压到一个长期保留的位置（不要放 /tmp；本地安装是 link，删了源码插件就坏）
+unzip dsh-evolver-0.3.0.zip -d ~/.dsh/plugins
+
+# 2. 装进 profile：会写依赖，并把 bundle patch 注册进 profile
+dsh plugin --profile web add ~/.dsh/plugins/dsh-evolver
+
+# 3. 重启 DSH Web，Host 插件在启动时加载
+#    先停掉当前的 dsh web（Ctrl-C），再：
+dsh web
+```
+
+确认：
+
+```bash
+dsh plugin --profile web why dsh-evolver
+```
+
+浏览器里左侧边栏应出现「演化器」入口，点开是五个页签。
+
+## 从 Git 安装
+
+```bash
+dsh plugin --profile web add https://github.com/cxy20219/dsh-evolver.git
+```
+
+## 首次启动会发生什么
+
+1. 创建数据目录 `~/.dsh/evolver/`（`practice/`、`sight/`、`preferences/`）并写入种子文档。
+2. 把 `~/.dsh/AGENTS.md` 链接到 `~/.dsh/evolver/preferences/AGENTS.md`。
+   如果原来是真实文件，内容会先备份为 `preferences/AGENTS.md.imported`。
+3. 如果检测到旧的 `~/.dsh/panel/memory/` 与 `~/.dsh/panel/agent.md`，会**复制**到新目录（源文件保留）。
+
+## 迁移到另一台机器
+
+整个 `~/.dsh/evolver/` 就是迁移单位：复制过去即可，记忆、实践、偏好、灵魂都在里面。
+`~/.dsh/AGENTS.md` 是符号链接，目标机器上让插件重新建立即可（首次启动会自动做）。
+
+## 卸载
+
+```bash
+dsh plugin --profile web remove dsh-evolver
+```
+
+数据目录不会删除；要彻底清理再手动删 `~/.dsh/evolver/` 并恢复 `~/.dsh/AGENTS.md`。

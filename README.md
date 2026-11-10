@@ -58,6 +58,8 @@
 
 ## 安装
 
+详细步骤（含迁移与卸载）见 [INSTALL.md](INSTALL.md)。
+
 ```bash
 # 从目录安装（git clone 后，或解压压缩包后）
 dsh plugin --profile web add /path/to/dsh-evolver
