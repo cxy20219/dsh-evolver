@@ -16,7 +16,7 @@ import { join } from 'node:path'
 
 import { MemoryStore } from '../memory/store.js'
 import { hybridRetrieve } from '../memory/hybrid.js'
-import { cardId, isCardId } from './ids.js'
+import { cardCreatedAt, cardId, isCardId } from './ids.js'
 import { ResourceStore, resourceRelativePath, safeResourceName } from './resources.js'
 import {
 	archiveTags,
@@ -197,14 +197,11 @@ export class CardStore {
 	cardOf(record) {
 		return {
 			id: record.id,
-			label: record.label ?? labelOf(record.body),
-			summary: record.summary ?? '',
+			label: labelOf(record.body),
 			body: record.body ?? '',
 			tags: record.tags ?? [],
 			links: record.links ?? [],
-			resources: record.resources ?? [],
-			source: record.source ?? 'manual',
-			created: record.created ?? '',
+			created: cardCreatedAt(record.id),
 			updated: record.updated ?? '',
 			verified: record.verified ?? '',
 		}
@@ -252,33 +249,17 @@ export class CardStore {
 		)
 		const permanent = isPermanent(tags)
 		const now = new Date().toISOString()
-		const derivedLabel = labelOf(body)
-		const label = oneLine(input.label ?? (derivedLabel !== '' ? derivedLabel : previous?.label ?? ''), 80)
-		const summaryInput = oneLine(input.summary ?? '', 200)
-		const summary = permanent ? (summaryInput || previous?.summary || label) : ''
 		const links = Array.isArray(input.links) ? [...new Set(input.links.map(String))] : (previous?.links ?? [])
 		for (const link of links) {
 			if (!isCardId(link)) throw new Error(`链接目标不是卡片 id：${link}`)
 		}
-		const resourceByName = new Map()
-		if (Array.isArray(input.resources)) {
-			for (const item of input.resources) {
-				const name = safeResourceName(item?.name)
-				if (name === '') continue
-				resourceByName.set(name, { name, bytes: Number(item.bytes) || 0, sha256: typeof item.sha256 === 'string' ? item.sha256 : '' })
-			}
-		} else if (previous !== undefined) {
-			for (const item of previous.resources ?? []) {
-				const name = safeResourceName(item.name)
-				if (name !== '') resourceByName.set(name, { ...item, name })
-			}
-		}
+		const resourceNames = new Set((await this.resources.list(id)).map((item) => item.name))
 		const inputNames = []
 		for (const resource of resourceInputs) {
 			const name = safeResourceName(resource.name)
 			if (name === '') throw new Error(`资源文件名不合法：${String(resource.name)}`)
 			inputNames.push(name)
-			if (!resourceByName.has(name)) resourceByName.set(name, { name, bytes: 0, sha256: '' })
+			resourceNames.add(name)
 		}
 		for (const name of inputNames) {
 			const relativePath = resourceRelativePath(id, name)
@@ -286,30 +267,23 @@ export class CardStore {
 		}
 		if (inputNames.length === 1) body = body.replaceAll('{{resource}}', resourceRelativePath(id, inputNames[0]))
 		if (body.includes('{{resource')) throw new Error('正文里有未解析的附件占位符；请用 {{resource}} 或 {{resource:文件名}}。')
-		assertResourceReferences(body, id, [...resourceByName.keys()])
+		assertResourceReferences(body, id, [...resourceNames])
 		if (charCount(body) > this.cardMaxChars) {
 			throw new Error(`卡片正文超过 ${this.cardMaxChars} 字上限；请拆成多张卡，或把长内容放入资源附件。`)
 		}
 		for (const resource of resourceInputs) {
-			const metadata = await this.resources.put(id, resource.name, resource.data)
-			resourceByName.set(metadata.name, metadata)
+			await this.resources.put(id, resource.name, resource.data)
 		}
-		const resources = [...resourceByName.values()]
 		const verified = permanent
 			? (input.verified ?? previous?.verified ?? now.slice(0, 10))
 			: ''
 		const record = {
 			id,
-			label,
-			summary,
 			body,
 			tags,
-			links,
-			resources,
-			source: input.source ?? previous?.source ?? 'manual',
-			created: previous?.created ?? input.created ?? now,
+			...(links.length > 0 ? { links } : {}),
 			updated: now,
-			verified,
+			...(verified === '' ? {} : { verified }),
 		}
 		await this.cards.putMemory(record)
 		return this.cardOf(record)
@@ -327,13 +301,12 @@ export class CardStore {
 		const card = this.get(id)
 		if (card === undefined) throw new Error(`找不到卡片：${id}`)
 		const metadata = await this.resources.put(id, name, data)
-		const resources = (card.resources ?? []).filter((item) => item.name !== metadata.name)
-		resources.push(metadata)
 		const relativePath = resourceRelativePath(id, metadata.name)
 		const body = hasResourceReference(card.body, relativePath)
 			? card.body
 			: `${card.body.trim()}\n\n[${metadata.name}](${relativePath})：用途：附件资源；入口：按文件说明；输入、输出和关联流程：待补充。`.trim()
-		return this.put({ ...card, id, body, resources })
+		await this.put({ ...card, id, body })
+		return this.read(id)
 	}
 
 	/**
@@ -354,7 +327,7 @@ export class CardStore {
 				contents.push({ name: item.name, bytes: item.bytes, error: error instanceof Error ? error.message : String(error) })
 			}
 		}
-		return { ...card, resourceContents: contents }
+		return { ...card, resources: listed, resourceContents: contents }
 	}
 
 	/**
@@ -454,16 +427,15 @@ export class CardStore {
 	 * Promote a card: drop inbox/temporary tags, add a permanent marker.
 	 *
 	 * @param {string} id - Card id.
-	 * @param {{summary?: string, tags?: string[], verified?: string}} [options] - Promotion fields.
+	 * @param {{tags?: string[], verified?: string}} [options] - Promotion fields.
 	 * @returns {Promise<object>} The promoted card.
 	 */
-	async promote(id, { summary, tags, verified } = {}) {
+	async promote(id, { tags, verified } = {}) {
 		const card = this.get(id)
 		if (card === undefined) throw new Error(`找不到卡片：${id}`)
 		return this.put({
 			...card,
 			id,
-			summary: summary ?? card.summary ?? card.label,
 			tags: promoteTags(tags ?? card.tags),
 			verified: verified ?? new Date().toISOString().slice(0, 10),
 		})

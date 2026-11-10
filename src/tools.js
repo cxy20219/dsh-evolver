@@ -80,9 +80,7 @@ export function createTools({ cards, sessions }) {
 				type: 'object',
 				properties: {
 					id: { type: 'string', description: '更新已有卡片时传入 id；新卡留空' },
-					body: { type: 'string', description: '卡片正文；有附件时必须包含 [标题]({{resource}})：用途、入口命令、输入输出、关联流程' },
-					label: { type: 'string', description: '列表里的一行标题；留空从正文首行派生' },
-					summary: { type: 'string', description: '永久卡/实践卡的一句话摘要' },
+					body: { type: 'string', description: '卡片正文；首行会派生 label。有附件时必须包含 [标题]({{resource}})：用途、入口命令、输入输出、关联流程' },
 					tags: { type: 'array', items: { type: 'string' }, description: '层级标签，例如 ["永久笔记/web开发","实践/工作流"]' },
 					links: { type: 'array', items: { type: 'string' }, description: '关联卡片 id' },
 					verified: { type: 'string', description: '最后验证日期 YYYY-MM-DD' },
@@ -107,20 +105,19 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_promote',
-			description: '把 #收集箱/#临时 卡片提升为永久卡：去掉临时标签，加入 #永久笔记；已有 #实践 分支的卡保持实践类型。可补 summary 和标签。',
+			description: '把 #收集箱/#临时 卡片提升为永久卡：去掉临时标签，加入 #永久笔记；已有 #实践 分支的卡保持实践类型。可替换标签。',
 			parameters: {
 				type: 'object',
 				properties: {
 					id: { type: 'string', description: '卡片 id' },
-					summary: { type: 'string', description: '一句话摘要（可选）' },
-					tags: { type: 'array', items: { type: 'string' }, description: '补充/替换层级标签（可选）' },
+					tags: { type: 'array', items: { type: 'string' }, description: '替换层级标签（可选）' },
 				},
 				required: ['id'],
 			},
 			output: OBJECT_OUTPUT,
 			async execute(args) {
 				const input = args ?? {}
-				return sanitize(await cards.promote(String(input.id ?? ''), { summary: input.summary, tags: input.tags }))
+				return sanitize(await cards.promote(String(input.id ?? ''), { tags: input.tags }))
 			},
 		},
 		{

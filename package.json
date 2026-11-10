@@ -1,6 +1,6 @@
 {
   "name": "dsh-evolver",
-  "version": "3.1.0",
+  "version": "4.0.0",
   "private": true,
   "description": "Self-evolution console for the DeepSeek Harness: one append-only card store with hierarchical tags, bidirectional links, resources and a 2 KB permanent-card projection; the sinking discipline lives in the plugin, so no extra skill is needed.",
   "type": "module",

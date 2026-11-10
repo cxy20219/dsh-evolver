@@ -10,7 +10,7 @@
 
 ```bash
 # 1. 解压到一个长期保留的位置（不要放 /tmp；本地安装是 link，删了源码插件就坏）
-unzip dsh-evolver-3.1.0.zip -d ~/.dsh/plugins
+unzip dsh-evolver-4.0.0.zip -d ~/.dsh/plugins
 
 # 2. 装进 profile：会写依赖，并把 bundle patch 注册进 profile
 dsh plugin --profile web add ~/.dsh/plugins/dsh-evolver
@@ -44,7 +44,7 @@ dsh plugin --profile web add https://github.com/cxy20219/dsh-evolver.git
    **如果它已经被别的工具链接到别处，插件不会自动接管**：面板「偏好」会显示
    「被其他来源占用」，确认后点「接管这个链接」（同样先备份再替换）。
    不想让插件管全局偏好时，点「移除全局链接」即可，偏好文件本身不会被删。
-3. 3.1 不做旧版本兼容：不会导入 `practice/`、`sight/memory/`，旧 HTTP 接口、旧工具名、
+3. 4.0 不做旧版本兼容：不会导入 `practice/`、`sight/memory/`，旧 HTTP 接口、旧工具名、
    旧 slug、旧向量格式和旧权重目录迁移都已移除。升级前请用旧版本导出数据，或确认卡片库
    已经存在。
 

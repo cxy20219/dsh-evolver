@@ -45,9 +45,7 @@ window.__ModuleLoader__.load({
 			'cards.editor.edit': '编辑卡片',
 			'cards.field.body': '正文',
 			'cards.field.tags': '标签（逗号分隔）',
-			'cards.field.summary': '一句话摘要',
 			'cards.field.links': '链接（卡片 id，逗号分隔）',
-			'cards.field.summaryHint': '留空自动使用正文首行',
 			'cards.field.tagsHint': '收集箱, 永久笔记/web开发, 实践/经验',
 			'cards.charCount': '字',
 			'cards.save': '保存',
@@ -239,9 +237,7 @@ window.__ModuleLoader__.load({
 			'cards.editor.edit': 'Edit card',
 			'cards.field.body': 'Body',
 			'cards.field.tags': 'Tags (comma separated)',
-			'cards.field.summary': 'One-line summary',
 			'cards.field.links': 'Links (card ids, comma separated)',
-			'cards.field.summaryHint': 'Empty uses the first line',
 			'cards.field.tagsHint': 'inbox, permanent/web/react, practice/experience',
 			'cards.charCount': 'chars',
 			'cards.save': 'Save',
@@ -909,12 +905,6 @@ window.__ModuleLoader__.load({
 						value: fields.tags,
 						placeholder: t('cards.field.tagsHint'),
 						onChange: function (event) { patch({ tags: event.target.value }); },
-					})),
-					field(t('cards.field.summary'), h('input', {
-						className: 'evrInput',
-						value: fields.summary,
-						placeholder: t('cards.field.summaryHint'),
-						onChange: function (event) { patch({ summary: event.target.value }); },
 					})),
 					field(t('cards.field.links'), h('input', {
 						className: 'evrInput',
@@ -2050,7 +2040,6 @@ window.__ModuleLoader__.load({
 						id: '',
 						body: '',
 						tags: '收集箱',
-						summary: '',
 						links: '',
 					},
 				});
@@ -2065,7 +2054,6 @@ window.__ModuleLoader__.load({
 						id: card.id,
 						body: card.body,
 						tags: (card.tags ?? []).join(', '),
-						summary: card.summary || '',
 						links: (card.links ?? []).join(', '),
 					},
 				});
@@ -2087,7 +2075,6 @@ window.__ModuleLoader__.load({
 					...(fields.id === '' ? {} : { id: fields.id }),
 					body: fields.body,
 					tags: split(fields.tags),
-					summary: fields.summary,
 					links: split(fields.links),
 				};
 				setBusy(true);
@@ -2104,7 +2091,7 @@ window.__ModuleLoader__.load({
 
 			var promoteCard = useCallback(function (id) {
 				setBusy(true);
-				return call('card-promote', { id: id, summary: cardDetail?.card?.summary || cardDetail?.card?.label || '' }).then(function () {
+				return call('card-promote', { id: id }).then(function () {
 					return refreshCards().then(function () { return openCard(id); });
 				}).catch(function (reason) {
 					notify(reason instanceof Error ? reason.message : String(reason), true);

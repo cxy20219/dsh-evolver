@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { cardId, isCardId } from '../src/cards/ids.js'
+import { cardCreatedAt, cardId, isCardId } from '../src/cards/ids.js'
 import { normalizeTag, normalizeTags, buildTagTree } from '../src/cards/tags.js'
 import { safeResourceName } from '../src/cards/resources.js'
 import { cardPrompt } from '../src/cards/prompt.js'
@@ -88,21 +88,22 @@ test('卡片写入：标签生命周期、label、上限、提升、归档、双
 		assert.equal(edited.label, '换了一行')
 		assert.ok(edited.tags.includes('收集箱'), '不带标签的更新保留原生命周期')
 
-		const promoted = await store.promote(memo.id, { summary: '部署方式' })
+		assert.deepEqual(Object.keys(store.cards.db.get(memo.id)).sort(), ['body', 'id', 'tags', 'updated'])
+		const promoted = await store.promote(memo.id)
 		assert.ok(promoted.tags.includes('永久笔记'))
+		assert.deepEqual(Object.keys(store.cards.db.get(memo.id)).sort(), ['body', 'id', 'tags', 'updated', 'verified'])
 		assert.equal(promoted.tags.includes('收集箱'), false)
 		assert.equal(promoted.verified.length > 0, true)
-		assert.equal(promoted.summary, '部署方式')
 
 		const practice = await store.put({
 			body: '第二条实践卡',
 			tags: ['实践', '实践/工作流', '验证/索引'],
-			summary: '索引说明',
 		})
 		assert.ok(practice.tags.includes('实践'))
 		assert.equal(practice.tags.includes('永久笔记'), false)
-		assert.equal(practice.summary, '索引说明')
 		const linked = await store.put({ body: '指向第一张卡', tags: ['临时'], links: [memo.id] })
+		assert.deepEqual(Object.keys(store.cards.db.get(linked.id)).sort(), ['body', 'id', 'links', 'tags', 'updated'])
+		assert.equal(memo.created, cardCreatedAt(memo.id))
 
 		const backlinks = store.backlinks()
 		assert.deepEqual(backlinks[memo.id], [linked.id])
@@ -125,9 +126,8 @@ test('卡片写入：标签生命周期、label、上限、提升、归档、双
 		assert.equal(store.list({ tags: ['归档'], includeArchived: true }).some((card) => card.id === linked.id), true)
 		assert.equal(store.list({ anyTags: ['永久笔记', '实践'] }).length, 2)
 
-		const query = await store.query({ text: '部署' })
+		const query = await store.query({ text: '换了一行' })
 		assert.equal(query[0]?.id, memo.id)
-		assert.equal(store.get(practice.id)?.summary, '索引说明')
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })

@@ -10,7 +10,6 @@ import { classifyNoise } from '../memory/noise.js'
 import { findSecret } from '../secrets.js'
 import { isCardId } from './ids.js'
 import { cardPrompt } from './prompt.js'
-import { labelOf } from './store.js'
 import {
 	isArchived,
 	isPermanent,
@@ -73,8 +72,6 @@ export function createCardAgent(cards) {
 		for (const link of links) {
 			if (!isCardId(link)) throw new Error(`链接目标不是卡片 id：${link}`)
 		}
-		const label = typeof input.label === 'string' && input.label !== '' ? input.label : labelOf(body)
-		const summary = permanent ? String(input.summary ?? label) : ''
 		const resourceName = input.resourceName === undefined ? '' : String(input.resourceName)
 		const resourceContent = input.resourceContent === undefined ? '' : String(input.resourceContent)
 		if (resourceName !== '' && resourceContent === '') {
@@ -86,13 +83,10 @@ export function createCardAgent(cards) {
 		if (resourceContent !== '') assertNoSecret(resourceContent)
 		return cards.put({
 			...(typeof input.id === 'string' && input.id !== '' ? { id: input.id } : {}),
-			label,
-			summary,
 			body,
 			tags,
 			links,
 			verified: permanent ? String(input.verified ?? new Date().toISOString().slice(0, 10)) : '',
-			source: 'agent',
 		}, resourceName === '' ? {} : { resourceInputs: [{ name: resourceName, data: resourceContent }] })
 	}
 
@@ -114,13 +108,12 @@ export function createCardAgent(cards) {
 		const cardTags = normalizeTags([LIFECYCLE_TAGS.inbox, semantic, ...(Array.isArray(tags) ? tags : [])])
 		const twin = cards.list({ tags: [LIFECYCLE_TAGS.inbox], limit: 200 }).find((card) => textOverlap(card.body, text) >= MERGE_THRESHOLD)
 		if (twin !== undefined) {
-			const saved = await cards.put({ ...twin, body: text, label: labelOf(text), tags: cardTags })
+			const saved = await cards.put({ ...twin, body: text, tags: cardTags })
 			return { success: true, id: saved.id, message: '已更新临时卡。' }
 		}
 		const saved = await cards.put({
 			body: text,
 			tags: cardTags,
-			source: 'ingest',
 		})
 		return { success: true, id: saved.id, message: '已保存临时卡。' }
 	}
@@ -157,16 +150,13 @@ export function createCardAgent(cards) {
 	 * already carries a `实践` branch.
 	 *
 	 * @param {string} id - The card id.
-	 * @param {{summary?: string, tags?: string[]}} [patch] - Optional fields.
+	 * @param {{tags?: string[]}} [patch] - Optional tags.
 	 * @returns {Promise<object>} The permanent card.
 	 */
-	async function promote(id, { summary, tags } = {}) {
+	async function promote(id, { tags } = {}) {
 		const card = cards.get(String(id ?? ''))
 		if (card === undefined) throw new Error(`卡片不存在：${String(id ?? '')}`)
-		return cards.promote(card.id, {
-			...(typeof summary === 'string' && summary !== '' ? { summary } : {}),
-			...(Array.isArray(tags) ? { tags } : {}),
-		})
+		return cards.promote(card.id, Array.isArray(tags) ? { tags } : {})
 	}
 
 	/**

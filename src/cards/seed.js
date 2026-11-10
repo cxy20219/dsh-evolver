@@ -3,7 +3,7 @@
  *
  * They are card-native on purpose: no old practice tree, no frontmatter
  * parser, no migration path. Long documents live in the resource attachment;
- * the card itself keeps the label/summary and lifecycle tags.
+ * the card itself keeps the body reference and lifecycle tags.
  */
 
 /** The starter documents. */
@@ -59,12 +59,9 @@ export async function seedStarterCards(store) {
 			const related = entry.tags.filter((tag) => tag.startsWith('实践/')).map((tag) => '#' + tag).join(' ')
 			const body = `[${entry.label}]({{resource}})：用途：${entry.summary}；入口：阅读附件文档；输入：无；输出：可复用的步骤；关联流程：${related || '#实践'}。`
 			await store.put({
-				label: entry.label,
-				summary: entry.summary,
 				body,
 				tags: entry.tags,
 				verified: entry.verified,
-				source: 'seed',
 			}, { resourceInputs: [{ name: entry.resource, data: entry.body }] })
 			count += 1
 		} catch {

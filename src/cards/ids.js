@@ -53,3 +53,20 @@ export function cardId(now = Date.now(), random = randomBytes) {
 export function isCardId(value) {
 	return typeof value === 'string' && CARD_ID.test(value)
 }
+
+/**
+ * Decode the creation time embedded in a card ULID.
+ *
+ * @param {unknown} value - A card id.
+ * @returns {string} ISO timestamp, or an empty string for an invalid id.
+ */
+export function cardCreatedAt(value) {
+	if (!isCardId(value)) return ''
+	let time = 0
+	for (let index = 5; index < 15; index += 1) {
+		const digit = ALPHABET.indexOf(value[index])
+		if (digit < 0) return ''
+		time = time * 32 + digit
+	}
+	return new Date(time).toISOString()
+}

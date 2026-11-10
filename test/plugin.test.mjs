@@ -121,7 +121,7 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 			assert.equal(overview.version, pkg.version)
 
 			const saved = await (await post(routes, 'card-write', {
-				card: { label: '来自接口', summary: '接口写入的条目', body: '正文', tags: ['永久笔记', '测试'] },
+				card: { body: '来自接口\n\n正文', tags: ['永久笔记', '测试'] },
 			})).json()
 			// The prompt injects only the tag tree, never the card itself.
 			assert.match(sections[0].text(), /#永久笔记/)
@@ -142,10 +142,9 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 			})).json()
 			const promoteTool = tools.find((tool) => tool.name === 'card_promote')
 			assert.equal(promoteTool !== undefined, true)
-			const promoted = await promoteTool.execute({ id: temporary.id, summary: '提升后的摘要' })
+			const promoted = await promoteTool.execute({ id: temporary.id })
 			assert.ok(promoted.tags.includes('永久笔记'))
 			assert.equal(promoted.tags.includes('临时'), false)
-			assert.equal(promoted.summary, '提升后的摘要')
 		} finally {
 			await disposeEffects(effects)
 		}
@@ -234,7 +233,7 @@ test('导出、导入与迁移数据目录', async () => {
 
 			// 导出的压缩包可以再导入：删一张卡，再从包里恢复（含附件）
 			const restorable = await (await post(routes, 'card-write', {
-				card: { label: '会被恢复', summary: 'p', body: 'b', tags: ['永久笔记', '测试'] },
+				card: { body: '会被恢复\n\nb', tags: ['永久笔记', '测试'] },
 			})).json()
 			await post(routes, 'card-attach', {
 				id: restorable.id,
@@ -375,9 +374,8 @@ test('卡片接口：列表、写入、读取、提升、附件、标签、归�
 
 			const read = await (await post(routes, 'card-read', { id: created.id })).json()
 			assert.equal(read.card.id, created.id)
-			const promoted = await (await post(routes, 'card-promote', { id: created.id, summary: '测试摘要' })).json()
+			const promoted = await (await post(routes, 'card-promote', { id: created.id })).json()
 			assert.ok(promoted.tags.includes('永久笔记'))
-			assert.equal(promoted.summary, '测试摘要')
 
 			const attached = await (await post(routes, 'card-attach', {
 				id: created.id,
