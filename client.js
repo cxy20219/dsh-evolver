@@ -37,6 +37,7 @@ window.__ModuleLoader__.load({
 			'state.exported': '已导出',
 			'state.imported': '已导入',
 			'state.backed': '备份完成',
+			'state.working': '处理中…',
 			'action.refresh': '刷新',
 			'action.save': '保存',
 			'action.delete': '删除',
@@ -121,7 +122,7 @@ window.__ModuleLoader__.load({
 			'settings.action.pick': '浏览…',
 			'settings.pick.unavailable': '系统目录选择不可用，请手动输入绝对路径。',
 			'settings.transfer': '导入 / 导出',
-			'settings.transfer.hint': '导出一份完整副本；导入把副本合并进当前目录，默认不覆盖同名文件。',
+			'settings.transfer.hint': '导出一份完整副本到该目录（该目录本身成为一份数据目录）；导入把副本合并进当前目录，默认不覆盖同名文件。',
 			'settings.transfer.exportPath': '导出到（绝对路径）',
 			'settings.transfer.importPath': '从（绝对路径）导入',
 			'settings.transfer.force': '覆盖同名文件',
@@ -170,6 +171,7 @@ window.__ModuleLoader__.load({
 			'state.exported': 'Exported',
 			'state.imported': 'Imported',
 			'state.backed': 'Backup complete',
+			'state.working': 'Working…',
 			'action.refresh': 'Refresh',
 			'action.save': 'Save',
 			'action.delete': 'Delete',
@@ -254,7 +256,7 @@ window.__ModuleLoader__.load({
 			'settings.action.pick': 'Browse…',
 			'settings.pick.unavailable': 'The system folder picker is unavailable; type an absolute path.',
 			'settings.transfer': 'Import / export',
-			'settings.transfer.hint': 'Export a full copy; import merges a copy into the current folder without overwriting by default.',
+			'settings.transfer.hint': 'Export a full copy into that folder (it becomes a data folder); import merges a copy into the current folder without overwriting by default.',
 			'settings.transfer.exportPath': 'Export to (absolute path)',
 			'settings.transfer.importPath': 'Import from (absolute path)',
 			'settings.transfer.force': 'Overwrite existing files',
@@ -386,6 +388,9 @@ window.__ModuleLoader__.load({
 			'.evrMono{font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px}',
 			'.evrPre{white-space:pre-wrap;word-break:break-word;font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px;line-height:1.65;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);padding:10px 12px;margin:0}',
 			'.evrWarn{border-left:3px solid var(--dsw-alias-state-warn-primary);padding-left:10px}',
+			'.evrStickyStatus{position:sticky;top:0;z-index:3;margin:0 0 12px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2);font-size:12.5px;box-shadow:var(--dsw-elevation-soft)}',
+			'.evrStickyStatusOk{color:var(--dsw-alias-state-success-primary)}',
+			'.evrStickyStatusError{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}',
 			'.evrError{border-left:3px solid var(--dsw-alias-state-error-primary);padding-left:10px}',
 		].join('\n');
 
@@ -939,7 +944,10 @@ window.__ModuleLoader__.load({
 			var targetIsCurrent = samePath(dataDir, settings.dataDir);
 			var statusLine = props.status === null || props.status === undefined
 				? null
-				: h('div', { className: 'evrHint' + (props.status.error ? ' evrStatusError' : ' evrStatusOk'), style: { marginBottom: '10px' } }, props.status.message);
+				: h('div', {
+					className: 'evrStickyStatus ' + (props.status.error ? 'evrStickyStatusError' : 'evrStickyStatusOk'),
+					role: 'status',
+				}, props.status.message);
 			var statusLines = [
 				t('settings.backup.lastBackup') + ': ' + (status.lastBackupAt ? relativeTime(status.lastBackupAt, t) : t('settings.backup.never')),
 				t('settings.backup.lastAttempt') + ': ' + (status.lastAttemptAt ? relativeTime(status.lastAttemptAt, t) : '—'),
@@ -1383,8 +1391,9 @@ window.__ModuleLoader__.load({
 
 			var migrateData = useCallback(function (dir, force) {
 				setBusy(true);
-				call('data-migrate', { dir: dir, force: force }).then(function () {
-					report(t('state.migrated'), false);
+				report(t('state.working'), false);
+				call('data-migrate', { dir: dir, force: force }).then(function (value) {
+					report(t('state.migrated') + ' → ' + String(value.root ?? dir), false);
 					setSettingsEpoch(function (value) { return value + 1; });
 					return loadAll();
 				}).catch(function (reason) {
@@ -1394,8 +1403,9 @@ window.__ModuleLoader__.load({
 
 			var exportData = useCallback(function (dir, force) {
 				setBusy(true);
+				report(t('state.working'), false);
 				call('data-export', { dir: dir, force: force }).then(function (value) {
-					report(t('state.exported') + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
+					report(t('state.exported') + ' → ' + String(value.root ?? dir) + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
 				}).catch(function (reason) {
 					report(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
@@ -1403,8 +1413,9 @@ window.__ModuleLoader__.load({
 
 			var importData = useCallback(function (dir, force) {
 				setBusy(true);
-				call('data-import', { dir: dir, force: force }).then(function () {
-					report(t('state.imported'), false);
+				report(t('state.working'), false);
+				call('data-import', { dir: dir, force: force }).then(function (value) {
+					report(t('state.imported') + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
 					return loadAll();
 				}).catch(function (reason) {
 					report(reason instanceof Error ? reason.message : String(reason), true);
@@ -1413,6 +1424,7 @@ window.__ModuleLoader__.load({
 
 			var backupNow = useCallback(function () {
 				setBusy(true);
+				report(t('state.working'), false);
 				call('backup-now', { force: true }).then(function (value) {
 					if (value && value.settings) setSettings(value.settings);
 					report(t('state.backed') + ' · ' + formatBytes(value.bytes ?? 0), false);
@@ -1423,6 +1435,7 @@ window.__ModuleLoader__.load({
 
 			var testBackup = useCallback(function () {
 				setBusy(true);
+				report(t('state.working'), false);
 				call('backup-test', {}).then(function (value) {
 					report(t('settings.backup.testOk') + ' · ' + String(value.endpoint ?? ''), false);
 				}).catch(function (reason) {
