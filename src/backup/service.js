@@ -7,26 +7,15 @@
  * beyond the last run, so a restart simply catches up on the next heartbeat.
  */
 
-import { lstat, readFile, readdir } from 'node:fs/promises'
-import { join } from 'node:path'
-
 import { OssClient } from './oss.js'
+import { collectDataFiles } from './archive.js'
 import { createTar } from './tar.js'
-
-/** The largest data folder one snapshot will take. */
-const MAX_BACKUP_BYTES = 64 * 1024 * 1024
 
 /** How often the scheduler looks at the clock. */
 const HEARTBEAT_MS = 60_000
 
 /** How long after startup the first catch-up check runs. */
 const STARTUP_DELAY_MS = 10_000
-
-/** Files that are never part of a snapshot. */
-function isTransient(name) {
-	if (name === '.DS_Store') return true
-	return name.endsWith('.tmp')
-}
 
 /**
  * Whether a key is one of this plugin's backup objects.
@@ -118,41 +107,10 @@ export class BackupService {
 	/**
 	 * Read the data folder into the entries one snapshot carries.
 	 *
-	 * @returns {Promise<Array<{path: string, content: Buffer}>>} The entries.
+	 * @returns {Promise<Array<{path: string, content: Buffer, mode: number}>>} The entries.
 	 */
 	async collectFiles() {
-		const root = this.root()
-		const files = []
-		let total = 0
-		/**
-		 * Walk one folder.
-		 *
-		 * @param {string} folder - The folder to walk.
-		 * @param {string} prefix - The path prefix inside the archive.
-		 * @returns {Promise<void>} Resolves when it was walked.
-		 */
-		async function walk(folder, prefix) {
-			const names = await readdir(folder).catch(() => [])
-			for (const name of names.sort()) {
-				if (isTransient(name)) continue
-				const path = join(folder, name)
-				const info = await lstat(path).catch(() => undefined)
-				if (info === undefined) continue
-				if (info.isSymbolicLink()) continue
-				if (info.isDirectory()) {
-					await walk(path, `${prefix}${name}/`)
-					continue
-				}
-				if (!info.isFile()) continue
-				total += info.size
-				if (total > MAX_BACKUP_BYTES) {
-					throw new Error(`数据目录超过 ${MAX_BACKUP_BYTES / 1024 / 1024} MB，暂不支持云端备份。`)
-				}
-				files.push({ path: `${prefix}${name}`, content: await readFile(path), mode: info.mode & 0o777 })
-			}
-		}
-		await walk(root, '')
-		return files
+		return collectDataFiles(this.root())
 	}
 
 	/**

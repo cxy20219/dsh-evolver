@@ -7,8 +7,8 @@
  * recoverable.
  */
 
-import { cp, lstat, mkdir, readdir } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
+import { cp, lstat, mkdir, readdir, realpath } from 'node:fs/promises'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 
 /** Files that are never part of a backup or a copy. */
 const SKIP_SUFFIXES = ['.tmp']
@@ -44,6 +44,27 @@ export function pathsOverlap(first, second) {
 	const a = resolve(first)
 	const b = resolve(second)
 	return a === b || a.startsWith(b + sep) || b.startsWith(a + sep)
+}
+
+/**
+ * Whether a path resolves to something inside `root`, following every link.
+ *
+ * The lexical helpers above cannot see a symlinked parent; anything that
+ * writes files has to use this one before touching the disk.
+ *
+ * @param {string} root - The folder that must contain the target.
+ * @param {string} target - The path to test.
+ * @returns {Promise<boolean>} True when the target really stays inside.
+ */
+export async function isReallyInside(root, target) {
+	const base = await realpath(root).catch(() => undefined)
+	if (base === undefined) return false
+	const probe = await realpath(target).catch(async () => {
+		const parent = await realpath(dirname(target)).catch(() => undefined)
+		return parent === undefined ? undefined : join(parent, basename(target))
+	})
+	if (probe === undefined) return false
+	return probe === base || probe.startsWith(base + sep)
 }
 
 /**

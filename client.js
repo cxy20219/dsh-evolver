@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
 			'state.imported': '已导入',
 			'state.backed': '备份完成',
 			'state.working': '处理中…',
+			'state.skipped': '跳过',
 			'action.refresh': '刷新',
 			'action.save': '保存',
 			'action.delete': '删除',
@@ -122,9 +123,9 @@ window.__ModuleLoader__.load({
 			'settings.action.pick': '浏览…',
 			'settings.pick.unavailable': '系统目录选择不可用，请手动输入绝对路径。',
 			'settings.transfer': '导入 / 导出',
-			'settings.transfer.hint': '导出一份完整副本到该目录（该目录本身成为一份数据目录）；导入把副本合并进当前目录，默认不覆盖同名文件。',
-			'settings.transfer.exportPath': '导出到（绝对路径）',
-			'settings.transfer.importPath': '从（绝对路径）导入',
+			'settings.transfer.hint': '导出会生成一个 .tar.gz 压缩包（整份数据目录）；导入支持 .tar.gz / .tgz / .tar，默认不覆盖同名文件。',
+			'settings.transfer.exportPath': '导出到（.tar.gz 文件）',
+			'settings.transfer.importPath': '从压缩包导入（.tar.gz / .tgz / .tar）',
 			'settings.transfer.force': '覆盖同名文件',
 			'settings.action.export': '导出',
 			'settings.action.import': '导入',
@@ -172,6 +173,7 @@ window.__ModuleLoader__.load({
 			'state.imported': 'Imported',
 			'state.backed': 'Backup complete',
 			'state.working': 'Working…',
+			'state.skipped': 'skipped',
 			'action.refresh': 'Refresh',
 			'action.save': 'Save',
 			'action.delete': 'Delete',
@@ -256,9 +258,9 @@ window.__ModuleLoader__.load({
 			'settings.action.pick': 'Browse…',
 			'settings.pick.unavailable': 'The system folder picker is unavailable; type an absolute path.',
 			'settings.transfer': 'Import / export',
-			'settings.transfer.hint': 'Export a full copy into that folder (it becomes a data folder); import merges a copy into the current folder without overwriting by default.',
-			'settings.transfer.exportPath': 'Export to (absolute path)',
-			'settings.transfer.importPath': 'Import from (absolute path)',
+			'settings.transfer.hint': 'Export writes one .tar.gz archive of the whole data folder; import accepts .tar.gz / .tgz / .tar and does not overwrite by default.',
+			'settings.transfer.exportPath': 'Export to (.tar.gz file)',
+			'settings.transfer.importPath': 'Import from an archive (.tar.gz / .tgz / .tar)',
 			'settings.transfer.force': 'Overwrite existing files',
 			'settings.action.export': 'Export',
 			'settings.action.import': 'Import',
@@ -932,6 +934,12 @@ window.__ModuleLoader__.load({
 				setForm(backupForm(settings));
 			}, [settings]);
 
+			useEffect(function () {
+				if (exportDir === '' && settings && typeof settings.suggestedArchive === 'string' && settings.suggestedArchive !== '') {
+					setExportDir(settings.suggestedArchive);
+				}
+			}, [settings, exportDir]);
+
 			if (settings === null || settings === undefined) return h(Spinner, null, t('state.loading'));
 
 			var backup = settings.backup || {};
@@ -1051,9 +1059,19 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.transfer.hint')),
 				h('div', { className: 'evrFieldRow' },
 					h(Field, { label: t('settings.transfer.exportPath') },
-						pathField(setExportDir, exportDir, '/Users/you/backup/evolver')),
+						h('input', {
+							className: 'evrInput',
+							value: exportDir,
+							placeholder: '/Users/you/Desktop/dsh-evolver-20260101-120000.tar.gz',
+							onChange: function (event) { setExportDir(event.target.value); },
+						})),
 					h(Field, { label: t('settings.transfer.importPath') },
-						pathField(setImportDir, importDir, '/Users/you/backup/evolver'))),
+						h('input', {
+							className: 'evrInput',
+							value: importDir,
+							placeholder: '/Users/you/Desktop/dsh-evolver-20260101-120000.tar.gz',
+							onChange: function (event) { setImportDir(event.target.value); },
+						}))),
 				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' } },
 					h('input', { type: 'checkbox', checked: transferForce, onChange: function (event) { setTransferForce(event.target.checked); } }),
 					t('settings.transfer.force')),
@@ -1404,8 +1422,8 @@ window.__ModuleLoader__.load({
 			var exportData = useCallback(function (dir, force) {
 				setBusy(true);
 				report(t('state.working'), false);
-				call('data-export', { dir: dir, force: force }).then(function (value) {
-					report(t('state.exported') + ' → ' + String(value.root ?? dir) + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
+				call('data-export', { file: dir, force: force }).then(function (value) {
+					report(t('state.exported') + ' → ' + String(value.file ?? dir) + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
 				}).catch(function (reason) {
 					report(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
@@ -1414,8 +1432,8 @@ window.__ModuleLoader__.load({
 			var importData = useCallback(function (dir, force) {
 				setBusy(true);
 				report(t('state.working'), false);
-				call('data-import', { dir: dir, force: force }).then(function (value) {
-					report(t('state.imported') + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
+				call('data-import', { file: dir, force: force }).then(function (value) {
+					report(t('state.imported') + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0) + (value.skipped > 0 ? ' · ' + t('state.skipped') + ' ' + value.skipped : ''), false);
 					return loadAll();
 				}).catch(function (reason) {
 					report(reason instanceof Error ? reason.message : String(reason), true);

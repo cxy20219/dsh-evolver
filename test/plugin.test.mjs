@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { API_PREFIX, apply } from '../index.js'
-import { readTar } from '../src/backup/tar.js'
+import { createTar, readTar } from '../src/backup/tar.js'
 import { fakeOss } from './support/fake-oss.mjs'
 
 /**
@@ -211,19 +211,56 @@ test('导出、导入与迁移数据目录', async () => {
 		const root = join(home, 'evolver')
 		await apply(ctx, { dataDir: root })
 		try {
-			const exportDir = join(home, 'exported')
-			const exported = await (await post(routes, 'data-export', { dir: exportDir })).json()
+			const archive = join(home, 'evolver-backup.tar.gz')
+			const exported = await (await post(routes, 'data-export', { file: archive })).json()
+			assert.equal(exported.file, archive)
+			assert.ok(exported.bytes > 0)
 			assert.ok(exported.files >= 2)
-			await readFile(join(exportDir, 'practice', 'INDEX.md'), 'utf8')
+			assert.equal((await stat(archive)).isFile(), true)
+			assert.deepEqual([...(await readFile(archive)).subarray(0, 2)], [0x1f, 0x8b])
 
-			// 导出目录在数据目录里面会被拒绝
-			const nested = await post(routes, 'data-export', { dir: join(root, 'nested') })
+			// 导出文件不能放在数据目录里面，也不能是根目录
+			const nested = await post(routes, 'data-export', { file: join(root, 'nested.tar.gz') })
 			assert.equal(nested.status, 400)
-			const rootDir = await post(routes, 'data-export', { dir: '/' })
+			const rootDir = await post(routes, 'data-export', { file: '/' })
 			assert.equal(rootDir.status, 400)
 
-			const imported = await (await post(routes, 'data-import', { dir: exportDir })).json()
+			// 导出的压缩包可以再导入：删一条，再从包里恢复
+			await post(routes, 'practice-write', {
+				kind: 'doc', name: 'restored.md', title: '会被恢复', purpose: 'p', topic: 'T', body: 'b',
+			})
+			const second = join(home, 'second.tar.gz')
+			await post(routes, 'data-export', { file: second, force: true })
+			await post(routes, 'practice-delete', { path: 'docs/t/restored.md' })
+			await assert.rejects(() => readFile(join(root, 'practice', 'docs', 't', 'restored.md'), 'utf8'))
+			const imported = await (await post(routes, 'data-import', { file: second })).json()
 			assert.equal(imported.root, root)
+			assert.ok(imported.files >= 1)
+			assert.match(await readFile(join(root, 'practice', 'docs', 't', 'restored.md'), 'utf8'), /会被恢复/)
+
+			// 未压缩的 tar（云端备份格式）也能导入
+			const plain = join(home, 'snapshot.tar')
+			await writeFile(plain, createTar([{
+				path: 'practice/docs/plain.md',
+				content: '---\ntitle: 来自 tar\npurpose: p\nkind: doc\nverified: 2026-11-10\n---\n\nx\n',
+			}]))
+			const fromTar = await (await post(routes, 'data-import', { file: plain })).json()
+			assert.ok(fromTar.files >= 1)
+			await readFile(join(root, 'practice', 'docs', 'plain.md'), 'utf8')
+
+			// 不是压缩包的内容给出明确错误
+			const junk = join(home, 'junk.tar.gz')
+			await writeFile(junk, 'not an archive', 'utf8')
+			const bad = await post(routes, 'data-import', { file: junk })
+			assert.equal(bad.status, 400)
+			assert.match((await bad.json()).error.message, /不能读取压缩包/)
+
+			// 包内路径穿越在读取阶段被拒绝
+			const evil = join(home, 'evil.tar')
+			await writeFile(evil, createTar([{ path: '../evil.md', content: 'x' }]))
+			const evilResult = await post(routes, 'data-import', { file: evil })
+			assert.equal(evilResult.status, 400)
+			await assert.rejects(() => readFile(join(home, 'evil.md'), 'utf8'))
 
 			// 同一个目录换个符号链接的写法也不能迁移
 			const alias = join(home, 'current-alias')

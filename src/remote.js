@@ -200,10 +200,10 @@ export function createEvolverHandler({ evolver, memory, settings, backup, worksp
 					return { ok: true, value: { ...moved, settings: view() } }
 				}
 				case 'data-export': {
-					return { ok: true, value: await workspace.exportTo(text(payload, 'dir'), { force: payload?.force === true }) }
+					return { ok: true, value: await workspace.exportTo(text(payload, 'file'), { force: payload?.force === true }) }
 				}
 				case 'data-import': {
-					const imported = await workspace.importFrom(text(payload, 'dir'), { force: payload?.force === true })
+					const imported = await workspace.importFrom(text(payload, 'file'), { force: payload?.force === true })
 					return { ok: true, value: { ...imported, settings: view() } }
 				}
 				case 'backup-now': {

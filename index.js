@@ -17,9 +17,10 @@
  * the Connection service the Host already provides.
  */
 
-import { readFile, realpath } from 'node:fs/promises'
+import { lstat, readFile, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
+import { MAX_ARCHIVE_BYTES, packDataDir, restoreEntries, unpackArchive, writeArchive } from './src/backup/archive.js'
 import { BackupService } from './src/backup/service.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
 import { MemoryStore } from './src/memory/store.js'
@@ -27,7 +28,7 @@ import { createMemoryActions } from './src/memory-actions.js'
 import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { createTools } from './src/tools.js'
-import { copyTree, countEntries, isDirectory, pathsOverlap } from './src/workspace.js'
+import { copyTree, countEntries, isDirectory, isInsidePath, pathsOverlap } from './src/workspace.js'
 
 /** The plugin's row name. */
 export const name = 'dsh-evolver'
@@ -285,20 +286,24 @@ export async function apply(ctx, config) {
 		 * @param {{force?: boolean}} [options] - Overwrite behaviour.
 		 * @returns {Promise<object>} What happened.
 		 */
-		async exportTo(dir, { force = false } = {}) {
-			const requested = requestPath(dir)
-			const target = await canonicalPath(requested)
+		async exportTo(file, { force = false } = {}) {
+			const target = requestPath(file)
 			const current = await canonicalPath(evolver.root)
-			assertSeparate(current, target, '导出目录')
-			if (await isDirectory(requested)) {
-				const entries = await countEntries(requested)
-				if (entries > 0 && !force) throw new Error(`导出目录不是空的（${entries} 项）；确认覆盖后重试。`)
-			} else if (!(await isDirectory(dirname(requested)))) {
-				throw new Error(`导出目录的上级不存在：${dirname(requested)}`)
+			if (isInsidePath(current, await canonicalPath(target))) {
+				throw new Error('导出文件不能放在数据目录里面。')
 			}
+			const existing = await lstat(target).catch(() => undefined)
+			if (existing !== undefined) {
+				if (!existing.isFile()) throw new Error(`导出目标必须是文件：${target}`)
+				if (!force) throw new Error(`文件已存在：${target}；确认覆盖后重试。`)
+			} else if (!(await isDirectory(dirname(target)))) {
+				throw new Error(`导出目录的上级不存在：${dirname(target)}`)
+			}
+			// Flush first so the archive contains the newest memory writes.
 			await storeRef.current.close()
-			const copied = await copyTree(evolver.root, requested, { force })
-			return { root: requested, ...copied }
+			const packed = await packDataDir(evolver.root)
+			await writeArchive(target, packed.archive)
+			return { file: target, bytes: packed.archive.length, files: packed.files }
 		},
 
 		/**
@@ -308,25 +313,42 @@ export async function apply(ctx, config) {
 		 * @param {{force?: boolean}} [options] - Overwrite behaviour.
 		 * @returns {Promise<object>} What happened.
 		 */
-		async importFrom(dir, { force = false } = {}) {
-			const requested = requestPath(dir)
-			const source = await canonicalPath(requested)
+		async importFrom(file, { force = false } = {}) {
+			const source = requestPath(file)
+			const info = await lstat(source).catch(() => undefined)
+			if (info === undefined || !info.isFile()) throw new Error(`导入文件不存在：${source}`)
+			if (info.size > MAX_ARCHIVE_BYTES) {
+				throw new Error(`压缩包超过 ${MAX_ARCHIVE_BYTES / 1024 / 1024} MB，拒绝导入。`)
+			}
 			const current = await canonicalPath(evolver.root)
-			if (!(await isDirectory(requested))) throw new Error(`导入目录不存在：${requested}`)
-			assertSeparate(current, source, '导入目录')
+			if (isInsidePath(current, await canonicalPath(source))) {
+				throw new Error('导入文件不能是数据目录里的文件。')
+			}
 			await storeRef.current.close()
-			let copied
+			let entries
 			try {
-				copied = await copyTree(requested, evolver.root, { force })
+				entries = unpackArchive(await readFile(source))
 			} catch (error) {
-				// A half-finished import must not leave the in-memory store
-				// out of sync with the files that did land.
+				await openMemory(evolver.root).catch(() => {})
+				throw new Error(`不能读取压缩包：${error instanceof Error ? error.message : String(error)}`)
+			}
+			let restored
+			try {
+				restored = await restoreEntries(evolver.root, entries, { force })
+			} catch (error) {
+				// A half-finished import must not leave the in-memory store out
+				// of sync with the files that did land.
 				await openMemory(evolver.root).catch(() => {})
 				throw error
 			}
-			await evolver.switchRoot(evolver.root)
+			try {
+				await evolver.switchRoot(evolver.root)
+			} catch (error) {
+				await openMemory(evolver.root).catch(() => {})
+				throw error
+			}
 			await openMemory(evolver.root)
-			return { root: evolver.root, ...copied }
+			return restored
 		},
 	}
 

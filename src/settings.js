@@ -11,7 +11,7 @@
  */
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 
 /** How many searches may be stored remotely. */
 const KEEP_MIN = 1
@@ -69,6 +69,16 @@ export function defaultStatus() {
  */
 export function defaultSettings() {
 	return { dataDir: '', backup: defaultBackup(), status: defaultStatus() }
+}
+
+/**
+ * A filename-friendly timestamp for a suggested export path.
+ *
+ * @param {Date} [date] - The time.
+ * @returns {string} `YYYYMMDD-HHmmss`.
+ */
+function archiveStamp(date = new Date()) {
+	return date.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-')
 }
 
 /**
@@ -274,6 +284,9 @@ export class SettingsStore {
 			defaultDataDir: rootInfo.defaultRoot,
 			storedDataDir: this.data.dataDir,
 			settingsPath: this.path,
+			// Next to the data folder, not inside it: a local export must not
+			// end up in the next export.
+			suggestedArchive: join(dirname(rootInfo.root), `dsh-evolver-${archiveStamp()}.tar.gz`),
 			backup: {
 				enabled: backup.enabled,
 				endpoint: backup.endpoint,
