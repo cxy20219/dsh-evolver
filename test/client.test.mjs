@@ -390,7 +390,7 @@ function apiPayload(endpoint, payload) {
 					id: 'card-01HF7YAT00S37S1ZGTH35DPPXW',
 					label: '卡片标题',
 					body: '卡片正文',
-					tags: ['永久笔记', '验证/浏览器'],
+					tags: ['践行/验证/浏览器'],
 					links: [],
 					resources: [],
 					updated: '2026-11-10T00:00:00.000Z',
@@ -405,7 +405,7 @@ function apiPayload(endpoint, payload) {
 					id: payload.id,
 					label: '卡片标题',
 					body: '卡片正文',
-					tags: ['永久笔记', '验证/浏览器'],
+					tags: ['践行/验证/浏览器'],
 					links: [],
 					resources: [],
 				},
@@ -608,7 +608,7 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
 		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.new').length === 1)
-		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.inbox').length === 1)
+		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.execution').length === 1)
 		assert.ok(findAll(tree, (node) => textOf(node) === '卡片标题').length >= 1)
 
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.soul')[0].props.onClick()
@@ -619,7 +619,7 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 	}
 })
 
-test('卡片筛选切到收集箱后保持选中，搜索和新建都在工具栏', async () => {
+test('卡片筛选切到践行后保持选中，搜索和新建都在工具栏', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
 	globalThis.fetch = async (url, options) => {
@@ -638,10 +638,10 @@ test('卡片筛选切到收集箱后保持选中，搜索和新建都在工具�
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
-		const inbox = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.inbox')[0]
-		inbox.props.onClick()
+		const execution = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.execution')[0]
+		execution.props.onClick()
 		tree = await runtime.settle(render)
-		const selected = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.inbox')[0]
+		const selected = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.execution')[0]
 		assert.match(String(selected.props.className), /evrTabActive/)
 		assert.equal(findAll(tree, (node) => node.type === 'input' && node.props?.type === 'search').length >= 1, true)
 	} finally {

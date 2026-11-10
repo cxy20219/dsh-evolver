@@ -5,8 +5,8 @@
  *
  *   1. **the data** — one folder (`~/.dsh/evolver` by default) with the card
  *      log and resources, the soul and the global preferences;
- *   2. **the injection** — the 2 KB permanent-card projection, the soul and
- *      the proactive protocol;
+ *   2. **the injection** — the 2 KB tag tree, the soul and the
+ *      proactive protocol;
  *   3. **the tools** — card-native query/read/write/index/promote/archive/
  *      remove, plus `evolve_review` and `session_digest`;
  *   4. **the settings** — where the data folder lives, its card budget, and
@@ -338,10 +338,11 @@ export async function apply(ctx, config) {
 			const tags = Array.isArray(payload.tags) ? payload.tags : []
 			const anyTags = Array.isArray(payload.anyTags) ? payload.anyTags : []
 			const includeArchived = payload.includeArchived === true
+			const archivedOnly = payload.archivedOnly === true
 			const query = String(payload.query ?? '').trim()
 			const cards = query === ''
-				? store.list({ tags, anyTags, limit, includeArchived })
-				: await store.query({ text: query, tags, anyTags, limit, includeArchived })
+				? store.list({ tags, anyTags, limit, includeArchived, archivedOnly })
+				: await store.query({ text: query, tags, anyTags, limit, includeArchived, archivedOnly })
 			return { cards, tree: store.tagTree(), status: store.status(), cardMaxChars: settings.get().cardMaxChars }
 		},
 		async read(payload = {}) {

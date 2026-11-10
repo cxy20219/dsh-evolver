@@ -32,7 +32,7 @@ test('evolve_review 直接返回卡片盘点的结果', async () => {
 		status: { cards: 4 },
 		permanent: 3,
 		fleeting: 1,
-		hints: ['有 1 张临时卡待判断'],
+		hints: ['有 1 张 #即兴 卡待整理'],
 	}
 	const tool = createTools({ cards: { review: async () => review } }).find((entry) => entry.name === 'evolve_review')
 	const result = await tool.execute({})

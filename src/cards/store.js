@@ -4,10 +4,10 @@
  * A card is one append-only log record plus optional resource files. Its
  * classification lives entirely in hierarchical tags:
  *
- *   #收集箱 / #临时 / #永久笔记 / #实践/经验 / #实践/工作流 / #归档
+ *   #践行 / #见闻 / #即兴 / #复盘 / #觉察 / #试错
  *
  * There is no separate type/shape/status/category field. The search engine
- * (BM25 + vectors + lifecycle) and the tag tree are the retrieval surface;
+ * (BM25 + vectors) and the tag tree are the retrieval surface;
  * the prompt injects only the tag tree, never card bodies.
  */
 
@@ -22,13 +22,12 @@ import {
 	archiveTags,
 	buildTagTree,
 	isArchived,
-	isPermanent,
 	isUnder,
-	lifecycleOf,
-	LIFECYCLE_TAGS,
-	normalizeLifecycleTags,
+	normalizeCardTags,
 	normalizeTags,
-	promoteTags,
+	rootOf,
+	settleTags,
+	TOP_TAGS,
 } from './tags.js'
 
 /** The default body budget, in Unicode code points. */
@@ -112,17 +111,6 @@ function assertResourceReferences(body, cardId, names) {
 }
 
 /**
- * The lifecycle tags of a card, used to preserve the state on partial updates.
- *
- * @param {string[]} tags - The tags.
- * @returns {string[]} The tags under a lifecycle root.
- */
-function lifecycleMarkerTags(tags) {
-	const roots = [LIFECYCLE_TAGS.inbox, LIFECYCLE_TAGS.fleeting, LIFECYCLE_TAGS.permanent, LIFECYCLE_TAGS.practice, LIFECYCLE_TAGS.archived]
-	return (Array.isArray(tags) ? tags : []).filter((tag) => roots.some((root) => isUnder(tag, root)))
-}
-
-/**
  * The unified card store.
  */
 export class CardStore {
@@ -178,11 +166,21 @@ export class CardStore {
 	 */
 	status() {
 		const cards = this.all()
-		const lifecycle = { inbox: 0, fleeting: 0, permanent: 0, archived: 0 }
-		for (const card of cards) lifecycle[lifecycleOf(card.tags)] += 1
+		const roots = Object.fromEntries(TOP_TAGS.map((tag) => [tag, 0]))
+		let archived = 0
+		for (const card of cards) {
+			if (isArchived(card.tags)) {
+				archived += 1
+				continue
+			}
+			for (const root of new Set(card.tags.map((tag) => rootOf(tag)))) {
+				if (roots[root] !== undefined) roots[root] += 1
+			}
+		}
 		return {
 			cards: cards.length,
-			lifecycle,
+			roots,
+			archived,
 			embedder: this.cards.status().embedder,
 			vectorsReady: this.cards.vectorsReady(),
 		}
@@ -240,14 +238,7 @@ export class CardStore {
 		const existing = this.cards.getEntry(id)
 		const previous = existing === undefined ? undefined : this.cardOf(existing)
 		let body = String(input.body ?? previous?.body ?? '')
-		const rawTags = input.tags === undefined ? (previous?.tags ?? []) : normalizeTags(input.tags)
-		const explicitMarker = (Array.isArray(input.tags) ? normalizeTags(input.tags) : [])
-			.some((tag) => lifecycleMarkerTags([tag]).length > 0)
-		const tags = normalizeLifecycleTags(
-			explicitMarker || previous === undefined ? rawTags : [...rawTags, ...lifecycleMarkerTags(previous.tags)],
-			{ defaultLifecycle: 'inbox' },
-		)
-		const permanent = isPermanent(tags)
+		const tags = normalizeCardTags(input.tags ?? previous?.tags ?? [])
 		const now = new Date().toISOString()
 		const links = Array.isArray(input.links) ? [...new Set(input.links.map(String))] : (previous?.links ?? [])
 		for (const link of links) {
@@ -274,9 +265,7 @@ export class CardStore {
 		for (const resource of resourceInputs) {
 			await this.resources.put(id, resource.name, resource.data)
 		}
-		const verified = permanent
-			? (input.verified ?? previous?.verified ?? now.slice(0, 10))
-			: ''
+		const verified = input.verified ?? previous?.verified ?? ''
 		const record = {
 			id,
 			body,
@@ -336,12 +325,13 @@ export class CardStore {
 	 * @param {{tags?: string[], anyTags?: string[], limit?: number, includeArchived?: boolean}} [options] - Filters.
 	 * @returns {object[]} The cards.
 	 */
-	list({ tags = [], anyTags = [], limit = 50, includeArchived = false } = {}) {
+	list({ tags = [], anyTags = [], limit = 50, includeArchived = false, archivedOnly = false } = {}) {
 		const filters = normalizeTags(tags)
 		const any = normalizeTags(anyTags)
-		const archivedFilter = filters.some((tag) => isUnder(tag, LIFECYCLE_TAGS.archived))
+		const archivedFilter = filters.some((tag) => tag.split('/').pop() === '归档')
 		const cards = this.all().filter((card) => {
-			if (!includeArchived && !archivedFilter && isArchived(card.tags)) return false
+			if (archivedOnly && !isArchived(card.tags)) return false
+			if (!includeArchived && !archivedFilter && !archivedOnly && isArchived(card.tags)) return false
 			if (filters.length > 0) {
 				const cardTags = card.tags ?? []
 				if (!filters.every((filter) => cardTags.some((tag) => isUnder(tag, filter)))) return false
@@ -362,19 +352,20 @@ export class CardStore {
 	 * @param {{text?: string, tags?: string[], anyTags?: string[], limit?: number, includeArchived?: boolean}} [request] - The query.
 	 * @returns {Promise<object[]>} Matching cards.
 	 */
-	async query({ text = '', tags = [], anyTags = [], limit = 8, includeArchived = false } = {}) {
+	async query({ text = '', tags = [], anyTags = [], limit = 8, includeArchived = false, archivedOnly = false } = {}) {
 		const filters = normalizeTags(tags)
 		const any = normalizeTags(anyTags)
-		const archivedFilter = filters.some((tag) => isUnder(tag, LIFECYCLE_TAGS.archived))
+		const archivedFilter = filters.some((tag) => tag.split('/').pop() === '归档')
 		const keep = (card) => {
-			if (!includeArchived && !archivedFilter && isArchived(card.tags)) return false
+			if (archivedOnly && !isArchived(card.tags)) return false
+			if (!includeArchived && !archivedFilter && !archivedOnly && isArchived(card.tags)) return false
 			if (filters.length > 0 && !filters.every((filter) => (card.tags ?? []).some((tag) => isUnder(tag, filter)))) return false
 			if (any.length > 0 && !any.some((filter) => (card.tags ?? []).some((tag) => isUnder(tag, filter)))) return false
 			return true
 		}
 		const queryText = String(text ?? '').trim()
 		const size = Math.max(1, Math.min(50, Math.round(Number(limit) || 8)))
-		if (queryText === '') return this.list({ tags, anyTags, limit: size, includeArchived })
+		if (queryText === '') return this.list({ tags, anyTags, limit: size, includeArchived, archivedOnly })
 		let queryVector
 		if (this.cards.vectorsReady()) {
 			try {
@@ -424,7 +415,7 @@ export class CardStore {
 	}
 
 	/**
-	 * Promote a card: drop inbox/temporary tags, add a permanent marker.
+	 * Move a card out of #即兴 into one or more settled branches.
 	 *
 	 * @param {string} id - Card id.
 	 * @param {{tags?: string[], verified?: string}} [options] - Promotion fields.
@@ -436,8 +427,8 @@ export class CardStore {
 		return this.put({
 			...card,
 			id,
-			tags: promoteTags(tags ?? card.tags),
-			verified: verified ?? new Date().toISOString().slice(0, 10),
+			tags: settleTags(card.tags, Array.isArray(tags) ? tags : []),
+			verified: (typeof verified === 'string' && verified !== '') ? verified : (card.verified || new Date().toISOString().slice(0, 10)),
 		})
 	}
 

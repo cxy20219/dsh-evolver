@@ -2,7 +2,7 @@
  * dsh-evolver — browser half.
  *
  * One sidebar entry opens one panel with five tabs:
- * 概览 / 实践 / 见闻 / 偏好 / 建议.
+ * 概览 / 卡片 / 灵魂 / 偏好 / 建议.
  *
  * The panel shows the same three things the agent gets: the card projection,
  * the soul and the global preferences — plus the health of the folder.
@@ -34,9 +34,12 @@ window.__ModuleLoader__.load({
 			'cards.search': '搜索卡片…',
 			'cards.searchAction': '搜索',
 			'cards.filter.all': '全部',
-			'cards.filter.inbox': '收集箱',
-			'cards.filter.fleeting': '临时',
-			'cards.filter.permanent': '永久',
+			'cards.filter.execution': '践行',
+			'cards.filter.input': '见闻',
+			'cards.filter.improvise': '即兴',
+			'cards.filter.review': '复盘',
+			'cards.filter.awareness': '觉察',
+			'cards.filter.experiment': '试错',
 			'cards.filter.archived': '归档',
 			'cards.empty': '还没有卡片。',
 			'cards.tags': '标签',
@@ -46,12 +49,12 @@ window.__ModuleLoader__.load({
 			'cards.field.body': '正文',
 			'cards.field.tags': '标签（逗号分隔）',
 			'cards.field.links': '链接（卡片 id，逗号分隔）',
-			'cards.field.tagsHint': '收集箱, 永久笔记/web开发, 实践/经验',
+			'cards.field.tagsHint': '践行/工作流, 见闻/网络, 复盘/经验',
 			'cards.charCount': '字',
 			'cards.save': '保存',
 			'cards.cancel': '取消',
 			'cards.edit': '编辑',
-			'cards.promote': '提升为永久',
+			'cards.promote': '整理',
 			'cards.archive': '归档',
 			'cards.delete': '删除',
 			'cards.deleteConfirm': '确定删除这张卡片？',
@@ -226,9 +229,12 @@ window.__ModuleLoader__.load({
 			'cards.search': 'Search cards…',
 			'cards.searchAction': 'Search',
 			'cards.filter.all': 'All',
-			'cards.filter.inbox': 'Inbox',
-			'cards.filter.fleeting': 'Fleeting',
-			'cards.filter.permanent': 'Permanent',
+			'cards.filter.execution': 'Practice',
+			'cards.filter.input': 'Input',
+			'cards.filter.improvise': 'Improvise',
+			'cards.filter.review': 'Review',
+			'cards.filter.awareness': 'Awareness',
+			'cards.filter.experiment': 'Experiment',
 			'cards.filter.archived': 'Archived',
 			'cards.empty': 'No cards yet.',
 			'cards.tags': 'Tags',
@@ -238,12 +244,12 @@ window.__ModuleLoader__.load({
 			'cards.field.body': 'Body',
 			'cards.field.tags': 'Tags (comma separated)',
 			'cards.field.links': 'Links (card ids, comma separated)',
-			'cards.field.tagsHint': 'inbox, permanent/web/react, practice/experience',
+			'cards.field.tagsHint': 'practice/workflow, input/network, review/experience',
 			'cards.charCount': 'chars',
 			'cards.save': 'Save',
 			'cards.cancel': 'Cancel',
 			'cards.edit': 'Edit',
-			'cards.promote': 'Promote to permanent',
+			'cards.promote': 'Settle',
 			'cards.archive': 'Archive',
 			'cards.delete': 'Delete',
 			'cards.deleteConfirm': 'Delete this card?',
@@ -760,6 +766,7 @@ window.__ModuleLoader__.load({
 			var state = props.state;
 			var filter = props.filter ?? {};
 			var [search, setSearch] = useState(filter.query ?? '');
+			var [promoteTarget, setPromoteTarget] = useState('践行');
 			if (state === null || state === undefined) return h(Spinner, null, t('state.loading'));
 			var cards = Array.isArray(state.cards) ? state.cards : [];
 			var tree = Array.isArray(state.tree) ? state.tree : [];
@@ -781,7 +788,7 @@ window.__ModuleLoader__.load({
 							background: filter.tag === node.path ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
 							paddingLeft: (8 + depth * 12) + 'px',
 						},
-						onClick: function () { props.onFilter({ tag: node.path, anyTags: [], archived: false }); },
+						onClick: function () { props.onFilter({ tag: node.path, anyTags: [], archivedOnly: false }); },
 					},
 						h('div', { className: 'evrRowMain' },
 							h('div', { className: 'evrRowTitle' }, node.name),
@@ -802,10 +809,6 @@ window.__ModuleLoader__.load({
 
 			function field(label, input, hint) {
 				return h(Field, { label: label, hint: hint }, input);
-			}
-
-			function hasTag(card, root) {
-				return (card.tags ?? []).some(function (tag) { return tag === root || tag.indexOf(root + '/') === 0; });
 			}
 
 			function renderList() {
@@ -831,8 +834,11 @@ window.__ModuleLoader__.load({
 				var detail = props.detail;
 				if (detail === null || detail === undefined || detail.card === null) return renderList();
 				var card = detail.card;
-				var permanent = hasTag(card, '永久笔记') || hasTag(card, '实践');
-				var archived = hasTag(card, '归档');
+				var settled = (card.tags ?? []).some(function (tag) {
+					var root = tag.split('/')[0];
+					return root !== '即兴' && ['践行', '见闻', '复盘', '觉察', '试错'].indexOf(root) >= 0;
+				});
+				var archived = (card.tags ?? []).some(function (tag) { return tag.slice(-3) === '/归档'; });
 				return h('div', null,
 					h('div', { className: 'evrCard' },
 						h('div', { className: 'evrCardHead' },
@@ -844,8 +850,17 @@ window.__ModuleLoader__.load({
 							(card.tags ?? []).map(function (tag) { return h('span', { key: tag, className: 'evrTag' }, "#" + tag); }))),
 					h('div', { className: 'evrToolbar' },
 						h('button', { type: 'button', className: 'evrBtn', onClick: props.onEdit }, t('cards.edit')),
-						!permanent && !archived
-							? h('button', { type: 'button', className: 'evrBtn evrBtnPrimary', onClick: function () { props.onPromote(card.id); } }, t('cards.promote'))
+						!settled && !archived
+							? h('select', {
+								className: 'evrInput',
+								value: promoteTarget,
+								onChange: function (event) { setPromoteTarget(event.target.value); },
+							}, ['践行', '见闻', '复盘', '觉察', '试错'].map(function (branch) {
+								return h('option', { key: branch, value: branch }, branch);
+							}))
+							: null,
+						!settled && !archived
+							? h('button', { type: 'button', className: 'evrBtn evrBtnPrimary', onClick: function () { props.onPromote(card.id, promoteTarget); } }, t('cards.promote'))
 							: null,
 						!archived
 							? h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onArchive(card.id); } }, t('cards.archive'))
@@ -933,16 +948,19 @@ window.__ModuleLoader__.load({
 						type: 'button',
 						className: 'evrBtn',
 						style: { width: '100%', marginBottom: '6px' },
-						onClick: function () { props.onFilter({ tag: '', anyTags: [], archived: false }); },
+						onClick: function () { props.onFilter({ tag: '', anyTags: [], archivedOnly: false }); },
 					}, t('cards.tagReset')),
 					tagRows(tree, 0)),
 				h('div', { style: { flex: 1, minWidth: 0 } },
 					h('div', { className: 'evrToolbar' },
-						filterButton(t('cards.filter.all'), { tag: '', anyTags: [], archived: false }, filter.tag === '' && (filter.anyTags ?? []).length === 0 && filter.archived !== true),
-						filterButton(t('cards.filter.inbox'), { tag: '收集箱', anyTags: [], archived: false }, filter.tag === '收集箱'),
-						filterButton(t('cards.filter.fleeting'), { tag: '临时', anyTags: [], archived: false }, filter.tag === '临时'),
-						filterButton(t('cards.filter.permanent'), { tag: '', anyTags: ['永久笔记', '实践'], archived: false }, (filter.anyTags ?? []).indexOf('永久笔记') >= 0),
-						filterButton(t('cards.filter.archived'), { tag: '归档', anyTags: [], archived: true }, filter.tag === '归档' && filter.archived === true)),
+						filterButton(t('cards.filter.all'), { tag: '', anyTags: [], archivedOnly: false }, filter.tag === '' && (filter.anyTags ?? []).length === 0 && filter.archivedOnly !== true),
+						filterButton(t('cards.filter.execution'), { tag: '践行', anyTags: [], archivedOnly: false }, filter.tag === '践行'),
+						filterButton(t('cards.filter.input'), { tag: '见闻', anyTags: [], archivedOnly: false }, filter.tag === '见闻'),
+						filterButton(t('cards.filter.improvise'), { tag: '即兴', anyTags: [], archivedOnly: false }, filter.tag === '即兴'),
+						filterButton(t('cards.filter.review'), { tag: '复盘', anyTags: [], archivedOnly: false }, filter.tag === '复盘'),
+						filterButton(t('cards.filter.awareness'), { tag: '觉察', anyTags: [], archivedOnly: false }, filter.tag === '觉察'),
+						filterButton(t('cards.filter.experiment'), { tag: '试错', anyTags: [], archivedOnly: false }, filter.tag === '试错'),
+						filterButton(t('cards.filter.archived'), { tag: '', anyTags: [], archivedOnly: true }, filter.archivedOnly === true)),
 					h('div', { className: 'evrToolbar' },
 						h('input', {
 							className: 'evrInput',
@@ -1709,7 +1727,7 @@ window.__ModuleLoader__.load({
 			var [ingest, setIngest] = useState(null);
 			var [ingestDraft, setIngestDraft] = useState(null);
 			var [cards, setCards] = useState(null);
-			var [cardFilter, setCardFilter] = useState({ tag: '', anyTags: [], archived: false, query: '' });
+			var [cardFilter, setCardFilter] = useState({ tag: '', anyTags: [], archivedOnly: false, query: '' });
 			var [cardDetail, setCardDetail] = useState(null);
 			var [cardEditor, setCardEditor] = useState(null);
 			var [status, setStatus] = useState(null);
@@ -2004,7 +2022,7 @@ window.__ModuleLoader__.load({
 					query: filter.query ?? '',
 					tags: filter.tag ? [filter.tag] : [],
 					anyTags: filter.anyTags ?? [],
-					includeArchived: filter.archived === true,
+					archivedOnly: filter.archivedOnly === true,
 				};
 				return call('card-list', payload).then(function (value) {
 					setCards(value);
@@ -2039,7 +2057,7 @@ window.__ModuleLoader__.load({
 					fields: {
 						id: '',
 						body: '',
-						tags: '收集箱',
+						tags: '即兴',
 						links: '',
 					},
 				});
@@ -2089,14 +2107,14 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, cardEditor, notify, openCard, refreshCards, t]);
 
-			var promoteCard = useCallback(function (id) {
+			var promoteCard = useCallback(function (id, target) {
 				setBusy(true);
-				return call('card-promote', { id: id }).then(function () {
+				return call('card-promote', { id: id, tags: [target || '践行'] }).then(function () {
 					return refreshCards().then(function () { return openCard(id); });
 				}).catch(function (reason) {
 					notify(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
-			}, [call, cardDetail, notify, openCard, refreshCards]);
+			}, [call, notify, openCard, refreshCards]);
 
 			var archiveCard = useCallback(function (id) {
 				setBusy(true);

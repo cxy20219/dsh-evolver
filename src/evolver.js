@@ -41,7 +41,7 @@ const STARTER_SOUL = `# 灵魂（soul）
 ## 记忆纪律
 
 - 过往经历存在「见闻」里，用记忆工具按需召回，不要凭印象编造。
-- 可复用的结论应该沉淀进「实践」，而不是只留在记忆里。
+- 可复用的结论应该沉淀进标签枝干（#践行 / #复盘 / #觉察…），而不是只留在记忆里。
 `
 
 /** The global preferences, seeded when the folder is new. */

@@ -1,7 +1,7 @@
 /**
  * The card operations the agent's tools are made of.
  *
- * Classification is tag-only: `#收集箱`, `#临时`, `#永久笔记`, `#实践/...`.
+ * Classification is tag-only: `#践行`, `#见闻`, `#即兴`, `#复盘`, `#觉察`, `#试错`.
  * There is no type/shape/status/category field and no legacy wrapper.
  */
 
@@ -11,12 +11,11 @@ import { findSecret } from '../secrets.js'
 import { isCardId } from './ids.js'
 import { cardPrompt } from './prompt.js'
 import {
-	isArchived,
-	isPermanent,
-	LIFECYCLE_TAGS,
-	normalizeLifecycleTags,
-	normalizeTags,
 	descriptionOf,
+	isArchived,
+	isSettled,
+	normalizeCardTags,
+	normalizeTags,
 } from './tags.js'
 
 /** A fleeting card is one statement, not a document. */
@@ -27,12 +26,12 @@ const MERGE_THRESHOLD = 0.85
 
 /** Map extracted memory kinds to semantic tags. */
 const KIND_TAGS = {
-	fact: '事实',
-	preference: '偏好',
-	convention: '约定',
-	correction: '纠正',
-	failure: '踩坑',
-	'tool-quirk': '工具怪癖',
+	fact: '见闻/事实',
+	preference: '觉察/偏好',
+	convention: '践行/约定',
+	correction: '复盘/纠正',
+	failure: '复盘/踩坑',
+	'tool-quirk': '见闻/工具怪癖',
 }
 
 /**
@@ -63,9 +62,9 @@ export function createCardAgent(cards) {
 		const body = String(input.body ?? '').trim()
 		if (body === '') throw new Error('卡片正文不能为空。')
 		assertNoSecret(body)
-		const tags = normalizeLifecycleTags(input.tags)
-		const permanent = isPermanent(tags)
-		if (!permanent && classifyNoise(body).noise === true) {
+		const tags = normalizeCardTags(input.tags)
+		const settled = isSettled(tags)
+		if (!settled && classifyNoise(body).noise === true) {
 			throw new Error('这段内容像流水账或噪声，没有保存；请写可复用的结论。')
 		}
 		const links = Array.isArray(input.links) ? [...new Set(input.links.map(String))] : []
@@ -86,7 +85,7 @@ export function createCardAgent(cards) {
 			body,
 			tags,
 			links,
-			verified: permanent ? String(input.verified ?? new Date().toISOString().slice(0, 10)) : '',
+			...(input.verified === undefined || input.verified === '' ? {} : { verified: String(input.verified) }),
 		}, resourceName === '' ? {} : { resourceInputs: [{ name: resourceName, data: resourceContent }] })
 	}
 
@@ -99,23 +98,23 @@ export function createCardAgent(cards) {
 	async function saveFleeting({ kind = 'fact', content, tags } = {}) {
 		const text = String(content ?? '').trim()
 		if (text === '') return { success: false, message: 'content 不能为空。' }
-		if ([...text].length > MAX_MEMORY_CHARS) return { success: false, message: `一条临时卡最多 ${MAX_MEMORY_CHARS} 字，写长请拆成多张或用永久卡。` }
+		if ([...text].length > MAX_MEMORY_CHARS) return { success: false, message: `一条 #即兴 卡最多 ${MAX_MEMORY_CHARS} 字，写长请拆成多张。` }
 		const noise = classifyNoise(text)
 		if (noise.noise) return { success: false, message: `这条内容像噪声（${noise.category}），没有保存。` }
 		const secret = findSecret(text)
 		if (secret !== undefined) return { success: false, message: `这条内容包含${secret}，没有保存；密钥不要写进卡片。` }
 		const semantic = KIND_TAGS[kind] ?? ''
-		const cardTags = normalizeTags([LIFECYCLE_TAGS.inbox, semantic, ...(Array.isArray(tags) ? tags : [])])
-		const twin = cards.list({ tags: [LIFECYCLE_TAGS.inbox], limit: 200 }).find((card) => textOverlap(card.body, text) >= MERGE_THRESHOLD)
+		const cardTags = normalizeCardTags(['即兴', semantic, ...(Array.isArray(tags) ? tags : [])])
+		const twin = cards.list({ tags: ['即兴'], limit: 200 }).find((card) => textOverlap(card.body, text) >= MERGE_THRESHOLD)
 		if (twin !== undefined) {
 			const saved = await cards.put({ ...twin, body: text, tags: cardTags })
-			return { success: true, id: saved.id, message: '已更新临时卡。' }
+			return { success: true, id: saved.id, message: '已更新 #即兴 卡。' }
 		}
 		const saved = await cards.put({
 			body: text,
 			tags: cardTags,
 		})
-		return { success: true, id: saved.id, message: '已保存临时卡。' }
+		return { success: true, id: saved.id, message: '已保存 #即兴 卡。' }
 	}
 
 	/**
@@ -146,12 +145,11 @@ export function createCardAgent(cards) {
 	}
 
 	/**
-	 * Promote a card: replace inbox/temporary tags with `永久笔记` unless it
-	 * already carries a `实践` branch.
+	 * Move an #即兴 card into one of the settled branches.
 	 *
 	 * @param {string} id - The card id.
-	 * @param {{tags?: string[]}} [patch] - Optional tags.
-	 * @returns {Promise<object>} The permanent card.
+	 * @param {{tags?: string[]}} [patch] - The target branch tags.
+	 * @returns {Promise<object>} The settled card.
 	 */
 	async function promote(id, { tags } = {}) {
 		const card = cards.get(String(id ?? ''))
@@ -211,14 +209,14 @@ export function createCardAgent(cards) {
 			.sort((left, right) => String(right.updated).localeCompare(String(left.updated)))
 			.slice(0, 5)
 			.map((card) => ({ id: card.id, label: card.label, tags: card.tags, updated: card.updated }))
-		const stale = active.filter((card) => isPermanent(card.tags) && (() => {
+		const stale = active.filter((card) => {
+			if (card.verified === '') return false
 			const parsed = Date.parse(card.verified)
 			return !Number.isFinite(parsed) || now - parsed > 180 * 86_400_000
-		})())
+		})
 		const hints = []
-		if (status.lifecycle.permanent === 0) hints.push('还没有永久卡；把验证过的结论提升为 #永久笔记 或 #实践/...。')
-		if (status.lifecycle.inbox + status.lifecycle.fleeting > 0) hints.push(`有 ${status.lifecycle.inbox + status.lifecycle.fleeting} 张收集箱/临时卡待判断：可提升的用 card_promote，过期的用 card_remove。`)
-		if (stale.length > 0) hints.push(`${stale.length} 张永久卡超过半年未验证，优先复查最近用到的。`)
+		if (status.roots.即兴 > 0) hints.push(`有 ${status.roots.即兴} 张 #即兴 卡待整理：选定 #践行/#见闻/#复盘/#觉察/#试错 后用 card_promote。`)
+		if (stale.length > 0) hints.push(`${stale.length} 张带 verified 的卡超过半年未复查。`)
 		if (hints.length === 0) hints.push('卡片库是健康的；没有高信号时不用为了主动而主动。')
 		return { status, recent, stale: stale.length, hints }
 	}

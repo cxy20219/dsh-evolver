@@ -38,12 +38,12 @@ export function createTools({ cards, sessions }) {
 	return [
 		{
 			name: 'card_query',
-			description: '按关键词和层级标签检索卡片。标签：收集箱/临时/永久笔记/实践/经验/工作流 等；父标签自动包含子标签。提示词里只有标签树，具体内容必须在这里取。',
+			description: '按关键词和层级标签检索卡片。顶层只有 践行/见闻/即兴/复盘/觉察/试错；父标签自动包含子标签。提示词里只有标签树，具体内容必须在这里取。',
 			parameters: {
 				type: 'object',
 				properties: {
 					query: { type: 'string', description: '检索关键词或问题；留空则按标签列出' },
-					tags: { type: 'array', items: { type: 'string' }, description: '标签前缀，例如 ["永久笔记/web开发","实践/经验"]' },
+					tags: { type: 'array', items: { type: 'string' }, description: '标签前缀，例如 ["践行/工作流","见闻/网络"]' },
 					limit: { type: 'integer', description: '返回条数，默认 8' },
 					includeArchived: { type: 'boolean', description: '是否包含 #归档 卡片，默认 false' },
 				},
@@ -75,13 +75,13 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_write',
-			description: '写入或更新一张卡。分类只由 tags 表达：默认 #收集箱；未验证的笔记用 #临时；长期笔记用 #永久笔记/领域/主题；已验证的实践用 #实践/经验、#实践/工作流、#实践/工具。带附件时必须同时给 resourceName 和 resourceContent；body 必须包含 `[标题]({{resource}})：用途、入口命令、输入输出、关联流程`，写入时 {{resource}} 替换为相对数据目录的 knowledge/resources/<card-id>/<文件名>，缺少引用会被拒绝。脚本附件会自动设为可执行。写前先 card_query 查重；不写流水账、一次性命令、猜测、密钥。links 只能是卡片 id。',
+			description: '写入或更新一张卡。顶层标签只允许 #践行 #见闻 #即兴 #复盘 #觉察 #试错；新卡默认 #即兴，子标签自由向下生长。带附件时必须同时给 resourceName 和 resourceContent；body 必须包含 `[标题]({{resource}})：用途、入口命令、输入输出、关联流程`，写入时 {{resource}} 替换为相对数据目录的 knowledge/resources/<card-id>/<文件名>，缺少引用会被拒绝。脚本附件会自动设为可执行。写前先 card_query 查重；不写流水账、一次性命令、猜测、密钥。links 只能是卡片 id。',
 			parameters: {
 				type: 'object',
 				properties: {
 					id: { type: 'string', description: '更新已有卡片时传入 id；新卡留空' },
 					body: { type: 'string', description: '卡片正文；首行会派生 label。有附件时必须包含 [标题]({{resource}})：用途、入口命令、输入输出、关联流程' },
-					tags: { type: 'array', items: { type: 'string' }, description: '层级标签，例如 ["永久笔记/web开发","实践/工作流"]' },
+					tags: { type: 'array', items: { type: 'string' }, description: '层级标签，顶层必须是六大枝干之一，例如 ["践行/工作流","见闻/网络"]' },
 					links: { type: 'array', items: { type: 'string' }, description: '关联卡片 id' },
 					verified: { type: 'string', description: '最后验证日期 YYYY-MM-DD' },
 					resourceName: { type: 'string', description: '附件文件名；必须与 resourceContent 同时提供' },
@@ -105,7 +105,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_promote',
-			description: '把 #收集箱/#临时 卡片提升为永久卡：去掉临时标签，加入 #永久笔记；已有 #实践 分支的卡保持实践类型。可替换标签。',
+			description: '把 #即兴 卡片整理进六大枝干：从 #践行/#见闻/#复盘/#觉察/#试错 中选择目标标签。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -122,7 +122,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_archive',
-			description: '给卡片加 #归档 标签：从默认检索和标签树里移出，但保留记录和资源。',
+			description: '给卡片加 <枝干>/归档 叶子（例如 #践行/归档）：从默认检索和标签树里移出，但保留记录和资源。',
 			parameters: {
 				type: 'object',
 				properties: { id: { type: 'string', description: '卡片 id' } },
@@ -148,7 +148,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'evolve_review',
-			description: '盘点卡片库：收集箱/临时/永久/归档数量、最近卡片、久未验证的永久卡和可执行 hints。',
+			description: '盘点卡片库：六大枝干数量、#即兴 待整理项、归档数量、最近卡片、久未复查的卡和可执行 hints。',
 			parameters: { type: 'object', properties: {} },
 			output: OBJECT_OUTPUT,
 			async execute() {

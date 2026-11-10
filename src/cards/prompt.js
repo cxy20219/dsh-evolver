@@ -10,13 +10,14 @@
 import { buildTagTree, descriptionOf } from './tags.js'
 
 /** The branches that should lead the injected map. */
-const ROOT_ORDER = ['收集箱', '临时', '永久笔记', '实践', '归档', '事实', '偏好', '约定', '纠正', '踩坑', '工具怪癖']
+const ROOT_ORDER = ['践行', '见闻', '即兴', '复盘', '觉察', '试错']
 
 /** The fixed discipline text. */
 export const CARD_DISCIPLINE = [
 	'[卡片] 只注入标签树，不注入卡片正文；标签路径就是分类，父标签包含所有子标签。',
 	'- 找内容用 card_query（关键词/标签），读全文用 card_read；双链和反链跟着卡片走。',
-	'- 新卡默认 #收集箱；整理后用 #临时 或 #永久笔记；已验证的实践用 #实践/经验、#实践/工作流、#实践/工具。',
+	'- 顶层只允许 #践行 #见闻 #即兴 #复盘 #觉察 #试错；新卡默认 #即兴，整理时选一个枝干继续向下生长。',
+	'- 归档写成 <枝干>/归档，例如 #践行/归档；不要创建第七个顶层标签。',
 	'- 有附件时正文必须写 `[标题]({{resource}})：用途、入口命令、输入输出、关联流程`；resourceContent 放完整文件，脚本附件自动可执行。',
 	'- 不写流水账、一次性命令、猜测、密钥；没有高信号就跳过。',
 ].join('\n')
@@ -59,9 +60,9 @@ function treeLines(cards) {
  * @returns {string} The section text.
  */
 export function cardPrompt(cards, budget = 2048) {
-	const header = `${CARD_DISCIPLINE}\n[标签类型] #收集箱=刚收集；#临时=未验证；#永久笔记=长期原子笔记；#实践=已验证实践；#归档=保留追溯\n[标签树]`
+	const header = `${CARD_DISCIPLINE}\n[标签类型] #践行=落地行动；#见闻=外部输入；#即兴=主动应变；#复盘=反思提炼；#觉察=内省盲区；#试错=低成本迭代\n[标签树]`
 	const lines = treeLines(cards)
-	if (lines.length === 0) return `${header}\n（空；新卡默认 #收集箱）`
+	if (lines.length === 0) return `${header}\n（空；新卡默认 #即兴）`
 	const kept = []
 	let used = Buffer.byteLength(header, 'utf8')
 	for (const line of lines) {
