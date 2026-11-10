@@ -113,6 +113,7 @@ window.__ModuleLoader__.load({
 			'settings.data.new': '新目录（绝对路径）',
 			'settings.data.moveHint': '会先把现有数据复制过去，成功后再切换；旧目录保持原样，可回滚。',
 			'settings.data.force': '目标目录非空时也继续（覆盖同名文件）',
+			'settings.data.same': '这就是当前数据目录，选另一个目录再迁移。',
 			'settings.data.source.settings': '来自本页设置',
 			'settings.data.source.config': '来自组合配置',
 			'settings.data.source.default': '默认目录',
@@ -245,6 +246,7 @@ window.__ModuleLoader__.load({
 			'settings.data.new': 'New folder (absolute path)',
 			'settings.data.moveHint': 'The data is copied first and the switch happens only after the copy; the old folder stays as it was.',
 			'settings.data.force': 'Continue even when the target folder is not empty (overwrite files)',
+			'settings.data.same': 'That is the current data folder; pick another one to move.',
 			'settings.data.source.settings': 'from this page',
 			'settings.data.source.config': 'from the composition config',
 			'settings.data.source.default': 'default folder',
@@ -930,6 +932,11 @@ window.__ModuleLoader__.load({
 			var backup = settings.backup || {};
 			var status = settings.status || {};
 			var sourceKey = 'settings.data.source.' + (settings.dataDirSource || 'settings');
+			var samePath = function (left, right) {
+				var clean = function (value) { return String(value || '').replace(/\/+$/, ''); };
+				return clean(left) !== '' && clean(left) === clean(right);
+			};
+			var targetIsCurrent = samePath(dataDir, settings.dataDir);
 			var statusLine = props.status === null || props.status === undefined
 				? null
 				: h('div', { className: 'evrHint' + (props.status.error ? ' evrStatusError' : ' evrStatusOk'), style: { marginBottom: '10px' } }, props.status.message);
@@ -1018,6 +1025,9 @@ window.__ModuleLoader__.load({
 				h('div', { style: { marginTop: '10px' } },
 					h(Field, { label: t('settings.data.new'), hint: t('settings.data.moveHint') },
 						pathField(setDataDir, dataDir, '/Users/you/data/dsh-evolver'))),
+				targetIsCurrent
+					? h('div', { className: 'evrHint evrWarn', style: { marginTop: '8px' } }, t('settings.data.same'))
+					: null,
 				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' } },
 					h('input', { type: 'checkbox', checked: dataForce, onChange: function (event) { setDataForce(event.target.checked); } }),
 					t('settings.data.force')),
@@ -1025,7 +1035,7 @@ window.__ModuleLoader__.load({
 					h('button', {
 						type: 'button',
 						className: 'evrBtn evrBtnPrimary',
-						disabled: busy || dataDir.trim() === '',
+						disabled: busy || dataDir.trim() === '' || targetIsCurrent,
 						onClick: function () { props.onMigrate(dataDir.trim(), dataForce); },
 					}, t('settings.action.migrate'))),
 
@@ -1170,6 +1180,7 @@ window.__ModuleLoader__.load({
 			var [soul, setSoul] = useState(null);
 			var [preferences, setPreferences] = useState(null);
 			var [settings, setSettings] = useState(null);
+			var [settingsEpoch, setSettingsEpoch] = useState(0);
 			var [memories, setMemories] = useState([]);
 			var [kind, setKind] = useState('doc');
 			var [editor, setEditor] = useState(null);
@@ -1374,6 +1385,7 @@ window.__ModuleLoader__.load({
 				setBusy(true);
 				call('data-migrate', { dir: dir, force: force }).then(function () {
 					report(t('state.migrated'), false);
+					setSettingsEpoch(function (value) { return value + 1; });
 					return loadAll();
 				}).catch(function (reason) {
 					report(reason instanceof Error ? reason.message : String(reason), true);
@@ -1487,6 +1499,7 @@ window.__ModuleLoader__.load({
 				});
 			} else if (tab === 'settings') {
 				body = h(SettingsTab, {
+					key: settingsEpoch,
 					t: t,
 					settings: settings,
 					busy: busy,

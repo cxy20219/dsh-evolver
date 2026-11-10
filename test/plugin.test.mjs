@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -225,6 +225,13 @@ test('导出、导入与迁移数据目录', async () => {
 			const imported = await (await post(routes, 'data-import', { dir: exportDir })).json()
 			assert.equal(imported.root, root)
 
+			// 同一个目录换个符号链接的写法也不能迁移
+			const alias = join(home, 'current-alias')
+			await symlink(root, alias)
+			const viaAlias = await post(routes, 'data-migrate', { dir: alias })
+			assert.equal(viaAlias.status, 400)
+			assert.match((await viaAlias.json()).error.message, /这就是当前数据目录/)
+
 			// 目标非空且没勾选覆盖时不迁移
 			const busy = join(home, 'busy')
 			await mkdir(busy, { recursive: true })
@@ -235,6 +242,11 @@ test('导出、导入与迁移数据目录', async () => {
 			const movedTo = join(home, 'moved')
 			const moved = await (await post(routes, 'data-migrate', { dir: movedTo })).json()
 			assert.equal(moved.root, movedTo)
+
+			// 迁到当前目录本身：给出明确的“不需要迁移”，而不是笼统的路径冲突
+			const same = await post(routes, 'data-migrate', { dir: movedTo })
+			assert.equal(same.status, 400)
+			assert.match((await same.json()).error.message, /这就是当前数据目录/)
 			assert.equal(moved.settings.dataDir, movedTo)
 			await readFile(join(movedTo, 'practice', 'INDEX.md'), 'utf8')
 

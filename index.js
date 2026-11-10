@@ -17,8 +17,8 @@
  * the Connection service the Host already provides.
  */
 
-import { readFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { readFile, realpath } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { BackupService } from './src/backup/service.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
@@ -113,6 +113,25 @@ function requestPath(value) {
 	// write, however the user got there.
 	if (resolved === dirname(resolved)) throw new Error('不能把文件系统根目录当作目标。')
 	return resolved
+}
+
+/**
+ * Resolve a path to the directory it physically names.
+ *
+ * Two spellings of the same folder (a symlinked parent, for example) must be
+ * recognised as the same folder before anything is copied; a missing target
+ * falls back to its parent's real path plus the requested name.
+ *
+ * @param {string} path - The absolute path.
+ * @returns {Promise<string>} The canonical path.
+ */
+async function canonicalPath(path) {
+	try {
+		return await realpath(path)
+	} catch {
+		const parent = await realpath(dirname(path)).catch(() => undefined)
+		return parent === undefined ? path : join(parent, basename(path))
+	}
 }
 
 /**
@@ -220,36 +239,43 @@ export async function apply(ctx, config) {
 		 * @returns {Promise<object>} What happened.
 		 */
 		async migrate(dir, { force = false } = {}) {
-			const target = requestPath(dir)
-			const current = evolver.root
+			// The requested spelling is what the user sees and what the settings
+			// store; the canonical path is only used for the safety checks, so
+			// two spellings of the same folder cannot slip past them.
+			const requested = requestPath(dir)
+			const target = await canonicalPath(requested)
+			const current = await canonicalPath(evolver.root)
+			if (target === current) {
+				throw new Error('这就是当前数据目录，不需要迁移；请选择另一个目录。')
+			}
 			assertSeparate(current, target, '新数据目录')
-			if (await isDirectory(target)) {
-				const entries = await countEntries(target)
+			if (await isDirectory(requested)) {
+				const entries = await countEntries(requested)
 				if (entries > 0 && !force) throw new Error(`目标目录不是空的（${entries} 项）；确认覆盖后重试。`)
-			} else if (!(await isDirectory(dirname(target)))) {
-				throw new Error(`目标目录的上级不存在：${dirname(target)}`)
+			} else if (!(await isDirectory(dirname(requested)))) {
+				throw new Error(`目标目录的上级不存在：${dirname(requested)}`)
 			}
 			// Flush first: the copy has to see the newest memory writes.
 			await storeRef.current.close()
 			let copied
 			try {
-				copied = await copyTree(current, target, { force })
+				copied = await copyTree(evolver.root, requested, { force })
 			} catch (error) {
 				// The old folder is untouched; reopen it so the plugin keeps
 				// answering with the data it had before the attempt.
-				await openMemory(current).catch(() => {})
+				await openMemory(evolver.root).catch(() => {})
 				throw error
 			}
 			// Persist the new location *before* switching: if the switch fails,
 			// the next start still lands on the folder that already holds the
 			// copy, instead of silently drifting back to the old one.
-			await settings.update({ dataDir: target })
-			await evolver.switchRoot(target)
-			await openMemory(target)
+			await settings.update({ dataDir: requested })
+			await evolver.switchRoot(requested)
+			await openMemory(requested)
 			rootState.source = 'settings'
 			rootState.warning = ''
-			ctx.logger.info(`dsh-evolver: data folder moved to ${target}`)
-			return { root: target, ...copied }
+			ctx.logger.info(`dsh-evolver: data folder moved to ${requested}`)
+			return { root: requested, ...copied }
 		},
 
 		/**
@@ -260,18 +286,19 @@ export async function apply(ctx, config) {
 		 * @returns {Promise<object>} What happened.
 		 */
 		async exportTo(dir, { force = false } = {}) {
-			const target = requestPath(dir)
-			const current = evolver.root
+			const requested = requestPath(dir)
+			const target = await canonicalPath(requested)
+			const current = await canonicalPath(evolver.root)
 			assertSeparate(current, target, '导出目录')
-			if (await isDirectory(target)) {
-				const entries = await countEntries(target)
+			if (await isDirectory(requested)) {
+				const entries = await countEntries(requested)
 				if (entries > 0 && !force) throw new Error(`导出目录不是空的（${entries} 项）；确认覆盖后重试。`)
-			} else if (!(await isDirectory(dirname(target)))) {
-				throw new Error(`导出目录的上级不存在：${dirname(target)}`)
+			} else if (!(await isDirectory(dirname(requested)))) {
+				throw new Error(`导出目录的上级不存在：${dirname(requested)}`)
 			}
 			await storeRef.current.close()
-			const copied = await copyTree(current, target, { force })
-			return { root: target, ...copied }
+			const copied = await copyTree(evolver.root, requested, { force })
+			return { root: requested, ...copied }
 		},
 
 		/**
@@ -282,23 +309,24 @@ export async function apply(ctx, config) {
 		 * @returns {Promise<object>} What happened.
 		 */
 		async importFrom(dir, { force = false } = {}) {
-			const source = requestPath(dir)
-			const current = evolver.root
-			if (!(await isDirectory(source))) throw new Error(`导入目录不存在：${source}`)
+			const requested = requestPath(dir)
+			const source = await canonicalPath(requested)
+			const current = await canonicalPath(evolver.root)
+			if (!(await isDirectory(requested))) throw new Error(`导入目录不存在：${requested}`)
 			assertSeparate(current, source, '导入目录')
 			await storeRef.current.close()
 			let copied
 			try {
-				copied = await copyTree(source, current, { force })
+				copied = await copyTree(requested, evolver.root, { force })
 			} catch (error) {
 				// A half-finished import must not leave the in-memory store
 				// out of sync with the files that did land.
-				await openMemory(current).catch(() => {})
+				await openMemory(evolver.root).catch(() => {})
 				throw error
 			}
-			await evolver.switchRoot(current)
-			await openMemory(current)
-			return { root: current, ...copied }
+			await evolver.switchRoot(evolver.root)
+			await openMemory(evolver.root)
+			return { root: evolver.root, ...copied }
 		},
 	}
 
