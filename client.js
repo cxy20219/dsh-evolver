@@ -111,6 +111,8 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.less': '少',
 			'overview.heatmap.more': '多',
 			'overview.tree': '标签树',
+			'overview.tree.graphLabel': '标签关系图',
+			'overview.graph.center': '标签',
 			'overview.tree.empty': '还没有标签。',
 			'overview.injection': '注入的上下文',
 			'overview.injection.hint': 'Agent 每次请求都会拿到这三块，别的地方都不占它的上下文。',
@@ -321,6 +323,8 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.less': 'Less',
 			'overview.heatmap.more': 'More',
 			'overview.tree': 'Tag tree',
+			'overview.tree.graphLabel': 'Tag relationship graph',
+			'overview.graph.center': 'Tags',
 			'overview.tree.empty': 'No tags yet.',
 			'overview.injection': 'Injected context',
 			'overview.injection.hint': 'The agent gets exactly these three blocks in every request.',
@@ -509,8 +513,15 @@ window.__ModuleLoader__.load({
 			'.evrTagBtnStatic{cursor:default}',
 			'.evrTagBtnStatic:hover{background:transparent;color:var(--dsw-alias-label-secondary)}',
 			'.evrOverviewSplit{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}',
-			'.evrOverviewHeat{flex:1 1 0;min-width:280px;max-width:none}',
-			'.evrOverviewTags{flex:0 1 380px;max-width:380px;min-width:280px}',
+			'.evrOverviewHeat{flex:0 1 360px;min-width:300px;max-width:360px}',
+			'.evrOverviewTags{flex:1 1 560px;min-width:420px;max-width:none}',
+			'.evrGraph{width:100%;height:auto;max-height:560px;display:block;margin:0 auto}',
+			'.evrGraphEdge{fill:none;stroke-width:1;stroke-opacity:.38}',
+			'.evrGraphLabel{fill:var(--dsw-alias-label-secondary);font-size:10.5px;font-family:inherit}',
+			'.evrGraphRoot{fill:var(--dsw-alias-label-primary);font-size:11px;font-weight:500}',
+			'.evrGraphCount{fill:var(--dsw-alias-label-tertiary);font-size:9px}',
+			'.evrGraphCenter{fill:var(--dsw-alias-bg-layer-3);stroke:var(--dsw-alias-border-l2)}',
+			'.evrGraphCenterLabel{fill:var(--dsw-alias-label-secondary);font-size:11px;font-family:inherit}',
 			'.evrHeatmapWrap{overflow-x:auto;padding:2px 0}',
 			'.evrHeatmapBody{display:flex;gap:6px;align-items:flex-start}',
 			'.evrHeatmapDays{display:grid;grid-template-rows:repeat(7,18px);gap:4px;font-size:9px;line-height:18px;color:var(--dsw-alias-label-tertiary);text-align:right;width:12px}',
@@ -703,6 +714,92 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * A radial graph of the six root tags and their descendants.
+		 *
+		 * The angular span of each branch is proportional to its leaf count;
+		 * the graph is display-only, while the cards tab keeps the filterable
+		 * collapsible tree.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function TagGraph(props) {
+			var t = props.t;
+			var nodes = Array.isArray(props.nodes) ? props.nodes : [];
+			if (nodes.length === 0) return h('div', { className: 'evrHint' }, t('overview.tree.empty'));
+			var width = 820;
+			var height = 600;
+			var cx = width / 2;
+			var cy = height / 2;
+			var colors = ['#4f8a6e', '#657ea6', '#a77b55', '#87679a', '#4f8794', '#9b6b6b'];
+			var edges = [];
+			var elements = [];
+			function leaves(node) {
+				var children = node.children ?? [];
+				return children.length === 0 ? 1 : children.reduce(function (sum, child) { return sum + leaves(child); }, 0);
+			}
+			var total = nodes.reduce(function (sum, node) { return sum + leaves(node); }, 0);
+			var startAngle = -Math.PI / 2;
+			function place(node, start, end, depth, parent, colorIndex, rootPath) {
+				var angle = (start + end) / 2;
+				var radius = depth === 0 ? 105 : depth === 1 ? 195 : 270 + (depth - 2) * 55;
+				var x = cx + Math.cos(angle) * radius;
+				var y = cy + Math.sin(angle) * radius;
+				var color = colors[colorIndex % colors.length];
+				var edge = null;
+				if (parent === null) {
+					edge = 'M ' + cx + ' ' + cy + ' L ' + x.toFixed(2) + ' ' + y.toFixed(2);
+				} else {
+					var midAngle = (parent.angle + angle) / 2;
+					var midRadius = (parent.radius + radius) / 2;
+					var qx = cx + Math.cos(midAngle) * midRadius;
+					var qy = cy + Math.sin(midAngle) * midRadius;
+					edge = 'M ' + parent.x.toFixed(2) + ' ' + parent.y.toFixed(2) + ' Q ' + qx.toFixed(2) + ' ' + qy.toFixed(2) + ' ' + x.toFixed(2) + ' ' + y.toFixed(2);
+				}
+				edges.push(h('path', { key: 'e-' + node.path, d: edge, className: 'evrGraphEdge', stroke: color }));
+				var right = x >= cx;
+				var labelX = x + (right ? 9 : -9);
+				var textProps = {
+					key: 'l-' + node.path,
+					x: labelX,
+					y: y + 3,
+					textAnchor: right ? 'start' : 'end',
+					className: depth === 0 ? 'evrGraphLabel evrGraphRoot' : 'evrGraphLabel',
+				};
+				elements.push(h('g', { key: node.path, className: 'evrGraphNode' },
+					h('circle', { cx: x, cy: y, r: depth === 0 ? 5 : 3.2, fill: color }),
+					h('text', textProps, '#' + node.name, h('tspan', { dx: 6, className: 'evrGraphCount' }, String(node.count))),
+					h('title', null, '#' + node.path + ' · ' + node.count)));
+				var children = node.children ?? [];
+				if (children.length > 0) {
+					var weight = children.reduce(function (sum, child) { return sum + leaves(child); }, 0);
+					var cursor = start;
+					children.forEach(function (child) {
+						var span = (end - start) * (leaves(child) / weight);
+						place(child, cursor, cursor + span, depth + 1, { x: x, y: y, angle: angle, radius: radius }, colorIndex, node.path);
+						cursor += span;
+					});
+				}
+			}
+			var cursor = startAngle;
+			nodes.forEach(function (node, index) {
+				var span = (Math.PI * 2) * (leaves(node) / total);
+				place(node, cursor, cursor + span, 0, null, index, node.path);
+				cursor += span;
+			});
+			return h('svg', {
+				className: 'evrGraph',
+				viewBox: '0 0 ' + width + ' ' + height,
+				role: 'img',
+				'aria-label': t('overview.tree.graphLabel'),
+			},
+				h('g', null, edges),
+				h('circle', { cx: cx, cy: cy, r: 22, className: 'evrGraphCenter' }),
+				h('text', { x: cx, y: cy + 3, textAnchor: 'middle', className: 'evrGraphCenterLabel' }, t('overview.graph.center')),
+				h('g', null, elements));
+		}
+
+		/**
 		 * A read-only or clickable hierarchical tag tree.
 		 *
 		 * Every node with children can be collapsed independently, recursively.
@@ -885,7 +982,7 @@ window.__ModuleLoader__.load({
 						h('div', { className: 'evrSection' }, t('overview.tree')),
 						tree.length === 0
 							? h('div', { className: 'evrHint' }, t('overview.tree.empty'))
-							: h(TagTree, { nodes: tree }))),
+							: h(TagGraph, { t: t, nodes: tree }))),
 				h('div', { className: 'evrSection' }, t('overview.injection')),
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('overview.injection.hint')),
 				h('div', { className: 'evrGrid' },
