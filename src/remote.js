@@ -32,6 +32,13 @@ export const ENDPOINTS = [
 	'memory-save',
 	'memory-forget',
 	'memory-stats',
+	'settings',
+	'settings-save',
+	'data-migrate',
+	'data-export',
+	'data-import',
+	'backup-now',
+	'backup-test',
 ]
 
 /**
@@ -84,7 +91,7 @@ function count(payload, field, fallback, max) {
  * @param {{evolver: object, memory: object}} deps - The evolver and the memory actions.
  * @returns {(endpoint: string, payload: unknown) => Promise<object>} The handler.
  */
-export function createEvolverHandler({ evolver, memory }) {
+export function createEvolverHandler({ evolver, memory, settings, backup, workspace, view }) {
 	return async function handleEvolver(endpoint, payload) {
 		try {
 			switch (endpoint) {
@@ -178,6 +185,33 @@ export function createEvolverHandler({ evolver, memory }) {
 				}
 				case 'memory-stats': {
 					return { ok: true, value: memory.stats() }
+				}
+				case 'settings': {
+					return { ok: true, value: view() }
+				}
+				case 'settings-save': {
+					// Only the backup block is mutable here: the data folder has
+					// its own endpoint, because moving it has to copy and reopen.
+					await settings.update({ backup: payload?.backup ?? {} })
+					return { ok: true, value: view() }
+				}
+				case 'data-migrate': {
+					const moved = await workspace.migrate(text(payload, 'dir'), { force: payload?.force === true })
+					return { ok: true, value: { ...moved, settings: view() } }
+				}
+				case 'data-export': {
+					return { ok: true, value: await workspace.exportTo(text(payload, 'dir'), { force: payload?.force === true }) }
+				}
+				case 'data-import': {
+					const imported = await workspace.importFrom(text(payload, 'dir'), { force: payload?.force === true })
+					return { ok: true, value: { ...imported, settings: view() } }
+				}
+				case 'backup-now': {
+					const backupResult = await backup.runNow({ force: payload?.force === true, reason: 'manual' })
+					return { ok: true, value: { ...backupResult, settings: view() } }
+				}
+				case 'backup-test': {
+					return { ok: true, value: await backup.testConnection() }
 				}
 				default: {
 					return {

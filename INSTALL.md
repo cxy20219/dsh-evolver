@@ -10,7 +10,7 @@
 
 ```bash
 # 1. 解压到一个长期保留的位置（不要放 /tmp；本地安装是 link，删了源码插件就坏）
-unzip dsh-evolver-0.5.0.zip -d ~/.dsh/plugins
+unzip dsh-evolver-0.6.0.zip -d ~/.dsh/plugins
 
 # 2. 装进 profile：会写依赖，并把 bundle patch 注册进 profile
 dsh plugin --profile web add ~/.dsh/plugins/dsh-evolver
@@ -46,6 +46,12 @@ dsh plugin --profile web add https://github.com/cxy20219/dsh-evolver.git
 
 > 在组合里配置 `dataDir` 时必须是绝对路径；相对路径会在启动时报错，而不是悄悄
 > 落到 Host 的工作目录。
+
+## 设置与备份
+
+数据目录、OSS 备份配置和密钥保存在 `~/.dsh/evolver.config.json`（0600），
+不在数据目录里。设置页里改过的数据目录优先于组合配置里的 `dataDir`；
+迁移、导入/导出与云端备份的细节见 [README](README.md#设置页数据目录与云端备份)。
 
 ## 迁移到另一台机器
 

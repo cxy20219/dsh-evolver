@@ -32,6 +32,11 @@ window.__ModuleLoader__.load({
 			'tab.sight': '见闻',
 			'tab.preferences': '偏好',
 			'tab.suggestions': '建议',
+			'tab.settings': '设置',
+			'state.migrated': '已迁移到新目录',
+			'state.exported': '已导出',
+			'state.imported': '已导入',
+			'state.backed': '备份完成',
 			'action.refresh': '刷新',
 			'action.save': '保存',
 			'action.delete': '删除',
@@ -102,6 +107,52 @@ window.__ModuleLoader__.load({
 			'kind.tool': '工具',
 			'kind.resource': '资源',
 			'kind.agent': 'Agents',
+			'settings.hint': '数据目录决定实践、见闻与偏好放在哪里；云端备份把整个目录打包上传。',
+			'settings.data': '数据目录',
+			'settings.data.current': '当前目录',
+			'settings.data.new': '新目录（绝对路径）',
+			'settings.data.moveHint': '会先把现有数据复制过去，成功后再切换；旧目录保持原样，可回滚。',
+			'settings.data.force': '目标目录非空时也继续（覆盖同名文件）',
+			'settings.data.source.settings': '来自本页设置',
+			'settings.data.source.config': '来自组合配置',
+			'settings.data.source.default': '默认目录',
+			'settings.action.migrate': '迁移并切换',
+			'settings.transfer': '导入 / 导出',
+			'settings.transfer.hint': '导出一份完整副本；导入把副本合并进当前目录，默认不覆盖同名文件。',
+			'settings.transfer.exportPath': '导出到（绝对路径）',
+			'settings.transfer.importPath': '从（绝对路径）导入',
+			'settings.transfer.force': '覆盖同名文件',
+			'settings.action.export': '导出',
+			'settings.action.import': '导入',
+			'settings.backup': '云端备份（OSS）',
+			'settings.backup.hint': '整个数据目录打成一个 tar 上传。密钥只存在本机设置文件（0600）里，不回传浏览器，也不会进备份。',
+			'settings.backup.enabled': '启用自动备份',
+			'settings.backup.endpoint': 'Endpoint',
+			'settings.backup.endpointHint': '例如 oss-cn-hangzhou.aliyuncs.com；填 http(s):// 开头的完整地址则按路径风格访问网关。',
+			'settings.backup.bucket': 'Bucket',
+			'settings.backup.keyId': 'AccessKey ID',
+			'settings.backup.keySecret': 'AccessKey Secret',
+			'settings.backup.keySecret.saved': '已保存；留空表示不修改',
+			'settings.backup.prefix': '对象前缀',
+			'settings.backup.keep': '云端保留份数',
+			'settings.backup.interval': '备份间隔（分钟）',
+			'settings.backup.intervalHint': '5–10080（最长 7 天）',
+			'settings.action.save': '保存备份设置',
+			'settings.action.backupNow': '立即备份',
+			'settings.action.test': '测试连接',
+			'settings.action.clearSecret': '清除密钥',
+			'settings.backup.status': '备份状态',
+			'settings.backup.lastBackup': '上次成功',
+			'settings.backup.lastAttempt': '上次尝试',
+			'settings.backup.size': '大小',
+			'settings.backup.files': '文件数',
+			'settings.backup.removed': '清理旧份数',
+			'settings.backup.object': '最近对象',
+			'settings.backup.never': '还没有备份',
+			'settings.backup.running': '正在备份…',
+			'settings.backup.error': '错误',
+			'settings.backup.settingsPath': '设置文件',
+			'settings.backup.testOk': '连接成功',
 		};
 
 		var en = {
@@ -111,6 +162,11 @@ window.__ModuleLoader__.load({
 			'tab.sight': 'Sight',
 			'tab.preferences': 'Preferences',
 			'tab.suggestions': 'Suggestions',
+			'tab.settings': 'Settings',
+			'state.migrated': 'Moved to the new folder',
+			'state.exported': 'Exported',
+			'state.imported': 'Imported',
+			'state.backed': 'Backup complete',
 			'action.refresh': 'Refresh',
 			'action.save': 'Save',
 			'action.delete': 'Delete',
@@ -181,6 +237,52 @@ window.__ModuleLoader__.load({
 			'kind.tool': 'Tools',
 			'kind.resource': 'Resources',
 			'kind.agent': 'Agents',
+			'settings.hint': 'The data folder holds the practice, sight and preferences; a cloud backup uploads the whole folder.',
+			'settings.data': 'Data folder',
+			'settings.data.current': 'Current folder',
+			'settings.data.new': 'New folder (absolute path)',
+			'settings.data.moveHint': 'The data is copied first and the switch happens only after the copy; the old folder stays as it was.',
+			'settings.data.force': 'Continue even when the target folder is not empty (overwrite files)',
+			'settings.data.source.settings': 'from this page',
+			'settings.data.source.config': 'from the composition config',
+			'settings.data.source.default': 'default folder',
+			'settings.action.migrate': 'Move and switch',
+			'settings.transfer': 'Import / export',
+			'settings.transfer.hint': 'Export a full copy; import merges a copy into the current folder without overwriting by default.',
+			'settings.transfer.exportPath': 'Export to (absolute path)',
+			'settings.transfer.importPath': 'Import from (absolute path)',
+			'settings.transfer.force': 'Overwrite existing files',
+			'settings.action.export': 'Export',
+			'settings.action.import': 'Import',
+			'settings.backup': 'Cloud backup (OSS)',
+			'settings.backup.hint': 'The whole data folder becomes one tar upload. The secret lives in the local settings file (0600), never returns to the browser and never enters a backup.',
+			'settings.backup.enabled': 'Automatic backup',
+			'settings.backup.endpoint': 'Endpoint',
+			'settings.backup.endpointHint': 'e.g. oss-cn-hangzhou.aliyuncs.com; a full http(s):// URL uses path-style access.',
+			'settings.backup.bucket': 'Bucket',
+			'settings.backup.keyId': 'AccessKey ID',
+			'settings.backup.keySecret': 'AccessKey Secret',
+			'settings.backup.keySecret.saved': 'saved; leave empty to keep it',
+			'settings.backup.prefix': 'Object prefix',
+			'settings.backup.keep': 'Copies to keep',
+			'settings.backup.interval': 'Interval (minutes)',
+			'settings.backup.intervalHint': '5–10080 (up to 7 days)',
+			'settings.action.save': 'Save backup settings',
+			'settings.action.backupNow': 'Back up now',
+			'settings.action.test': 'Test connection',
+			'settings.action.clearSecret': 'Clear the secret',
+			'settings.backup.status': 'Backup status',
+			'settings.backup.lastBackup': 'Last success',
+			'settings.backup.lastAttempt': 'Last attempt',
+			'settings.backup.size': 'Size',
+			'settings.backup.files': 'Files',
+			'settings.backup.removed': 'Old copies removed',
+			'settings.backup.object': 'Latest object',
+			'settings.backup.never': 'no backup yet',
+			'settings.backup.running': 'backing up…',
+			'settings.backup.error': 'Error',
+			'settings.backup.settingsPath': 'Settings file',
+			'settings.backup.testOk': 'Connection OK',
 		};
 
 		//#endregion
@@ -194,6 +296,7 @@ window.__ModuleLoader__.load({
 			{ id: 'sight', label: 'tab.sight' },
 			{ id: 'preferences', label: 'tab.preferences' },
 			{ id: 'suggestions', label: 'tab.suggestions' },
+			{ id: 'settings', label: 'tab.settings' },
 		];
 
 		/** The practice kinds, in index order. */
@@ -777,6 +880,248 @@ window.__ModuleLoader__.load({
 			}));
 		}
 
+		/**
+		 * The initial values of the backup form.
+		 *
+		 * @param {object | null | undefined} settings - The settings view.
+		 * @returns {object} The form values.
+		 */
+		function backupForm(settings) {
+			var backup = (settings && settings.backup) || {};
+			return {
+				enabled: backup.enabled === true,
+				endpoint: backup.endpoint || '',
+				bucket: backup.bucket || '',
+				accessKeyId: backup.accessKeyId || '',
+				accessKeySecret: '',
+				prefix: backup.prefix || 'dsh-evolver',
+				keep: String(backup.keep === undefined ? 7 : backup.keep),
+				intervalMinutes: String(backup.intervalMinutes === undefined ? 1440 : backup.intervalMinutes),
+			};
+		}
+
+		/**
+		 * The settings: the data folder, import/export and the OSS backup.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function SettingsTab(props) {
+			var t = props.t;
+			var settings = props.settings;
+			var busy = props.busy === true;
+			var [form, setForm] = useState(function () { return backupForm(settings); });
+			var [dataDir, setDataDir] = useState('');
+			var [dataForce, setDataForce] = useState(false);
+			var [exportDir, setExportDir] = useState('');
+			var [importDir, setImportDir] = useState('');
+			var [transferForce, setTransferForce] = useState(false);
+
+			useEffect(function () {
+				setForm(backupForm(settings));
+			}, [settings]);
+
+			if (settings === null || settings === undefined) return h(Spinner, null, t('state.loading'));
+
+			var backup = settings.backup || {};
+			var status = settings.status || {};
+			var sourceKey = 'settings.data.source.' + (settings.dataDirSource || 'settings');
+			var statusLine = props.status === null || props.status === undefined
+				? null
+				: h('div', { className: 'evrHint' + (props.status.error ? ' evrStatusError' : ' evrStatusOk'), style: { marginBottom: '10px' } }, props.status.message);
+			var statusLines = [
+				t('settings.backup.lastBackup') + ': ' + (status.lastBackupAt ? relativeTime(status.lastBackupAt, t) : t('settings.backup.never')),
+				t('settings.backup.lastAttempt') + ': ' + (status.lastAttemptAt ? relativeTime(status.lastAttemptAt, t) : '—'),
+				status.lastBytes ? t('settings.backup.size') + ': ' + formatBytes(status.lastBytes) : '',
+				status.lastFiles ? t('settings.backup.files') + ': ' + status.lastFiles : '',
+				status.lastRemoved ? t('settings.backup.removed') + ': ' + status.lastRemoved : '',
+				status.lastObjectKey ? t('settings.backup.object') + ': ' + status.lastObjectKey : '',
+				settings.backupRunning ? t('settings.backup.running') : '',
+				status.lastError ? t('settings.backup.error') + ': ' + status.lastError : '',
+			].filter(function (line) { return line !== ''; });
+
+			function patch(values) {
+				setForm(function (previous) {
+					var next = {};
+					for (var key in previous) next[key] = previous[key];
+					for (var name in values) next[name] = values[name];
+					return next;
+				});
+			}
+
+			function saveBackup() {
+				props.onSaveBackup({
+					enabled: form.enabled,
+					endpoint: form.endpoint,
+					bucket: form.bucket,
+					accessKeyId: form.accessKeyId,
+					accessKeySecret: form.accessKeySecret,
+					prefix: form.prefix,
+					keep: Number(form.keep),
+					intervalMinutes: Number(form.intervalMinutes),
+				});
+			}
+
+			return h('div', null,
+				statusLine,
+				h('div', { className: 'evrSection' }, t('settings.data')),
+				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.hint')),
+				settings.dataDirWarning
+					? h('div', { className: 'evrHint evrWarn', style: { marginBottom: '10px' } }, settings.dataDirWarning)
+					: null,
+				h('div', { className: 'evrCard' },
+					h('div', { className: 'evrCardHead' },
+						h('span', { className: 'evrCardTitle' }, t('settings.data.current')),
+						h('span', { className: 'evrCardCount' }, t(sourceKey))),
+					h('div', { className: 'evrCardHint evrMono' }, settings.dataDir || '')),
+				h('div', { style: { marginTop: '10px' } },
+					h(Field, { label: t('settings.data.new'), hint: t('settings.data.moveHint') },
+						h('input', {
+							className: 'evrInput',
+							value: dataDir,
+							placeholder: '/Users/you/data/dsh-evolver',
+							onChange: function (event) { setDataDir(event.target.value); },
+						}))),
+				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' } },
+					h('input', { type: 'checkbox', checked: dataForce, onChange: function (event) { setDataForce(event.target.checked); } }),
+					t('settings.data.force')),
+				h('div', { className: 'evrEditorFoot' },
+					h('button', {
+						type: 'button',
+						className: 'evrBtn evrBtnPrimary',
+						disabled: busy || dataDir.trim() === '',
+						onClick: function () { props.onMigrate(dataDir.trim(), dataForce); },
+					}, t('settings.action.migrate'))),
+
+				h('div', { className: 'evrSection' }, t('settings.transfer')),
+				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.transfer.hint')),
+				h('div', { className: 'evrFieldRow' },
+					h(Field, { label: t('settings.transfer.exportPath') },
+						h('input', {
+							className: 'evrInput',
+							value: exportDir,
+							placeholder: '/Users/you/backup/evolver',
+							onChange: function (event) { setExportDir(event.target.value); },
+						})),
+					h(Field, { label: t('settings.transfer.importPath') },
+						h('input', {
+							className: 'evrInput',
+							value: importDir,
+							placeholder: '/Users/you/backup/evolver',
+							onChange: function (event) { setImportDir(event.target.value); },
+						}))),
+				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' } },
+					h('input', { type: 'checkbox', checked: transferForce, onChange: function (event) { setTransferForce(event.target.checked); } }),
+					t('settings.transfer.force')),
+				h('div', { className: 'evrEditorFoot' },
+					h('button', {
+						type: 'button',
+						className: 'evrBtn',
+						disabled: busy || exportDir.trim() === '',
+						onClick: function () { props.onExport(exportDir.trim(), transferForce); },
+					}, t('settings.action.export')),
+					h('button', {
+						type: 'button',
+						className: 'evrBtn',
+						disabled: busy || importDir.trim() === '',
+						onClick: function () { props.onImport(importDir.trim(), transferForce); },
+					}, t('settings.action.import'))),
+
+				h('div', { className: 'evrSection' }, t('settings.backup')),
+				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.backup.hint')),
+				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' } },
+					h('input', { type: 'checkbox', checked: form.enabled, onChange: function (event) { patch({ enabled: event.target.checked }); } }),
+					t('settings.backup.enabled')),
+				h('div', { className: 'evrFieldRow' },
+					h(Field, { label: t('settings.backup.endpoint'), hint: t('settings.backup.endpointHint') },
+						h('input', {
+							className: 'evrInput',
+							value: form.endpoint,
+							placeholder: 'oss-cn-hangzhou.aliyuncs.com',
+							onChange: function (event) { patch({ endpoint: event.target.value }); },
+						})),
+					h(Field, { label: t('settings.backup.bucket') },
+						h('input', {
+							className: 'evrInput',
+							value: form.bucket,
+							onChange: function (event) { patch({ bucket: event.target.value }); },
+						}))),
+				h('div', { className: 'evrFieldRow' },
+					h(Field, { label: t('settings.backup.keyId') },
+						h('input', {
+							className: 'evrInput',
+							value: form.accessKeyId,
+							onChange: function (event) { patch({ accessKeyId: event.target.value }); },
+						})),
+					h(Field, {
+						label: t('settings.backup.keySecret'),
+						hint: backup.hasAccessKeySecret ? t('settings.backup.keySecret.saved') : '',
+					}, h('input', {
+						className: 'evrInput',
+						type: 'password',
+						value: form.accessKeySecret,
+						placeholder: backup.hasAccessKeySecret ? '••••••••' : '',
+						onChange: function (event) { patch({ accessKeySecret: event.target.value }); },
+					}))),
+				h('div', { className: 'evrFieldRow' },
+					h(Field, { label: t('settings.backup.prefix') },
+						h('input', {
+							className: 'evrInput',
+							value: form.prefix,
+							onChange: function (event) { patch({ prefix: event.target.value }); },
+						})),
+					h(Field, { label: t('settings.backup.keep') },
+						h('input', {
+							className: 'evrInput',
+							type: 'number',
+							min: 1,
+							max: 60,
+							value: form.keep,
+							onChange: function (event) { patch({ keep: event.target.value }); },
+						})),
+					h(Field, { label: t('settings.backup.interval'), hint: t('settings.backup.intervalHint') },
+						h('input', {
+							className: 'evrInput',
+							type: 'number',
+							min: 5,
+							max: 10080,
+							value: form.intervalMinutes,
+							onChange: function (event) { patch({ intervalMinutes: event.target.value }); },
+						}))),
+				h('div', { className: 'evrEditorFoot' },
+					h('button', {
+						type: 'button',
+						className: 'evrBtn evrBtnPrimary',
+						disabled: busy,
+						onClick: saveBackup,
+					}, t('settings.action.save')),
+					h('button', {
+						type: 'button',
+						className: 'evrBtn',
+						disabled: busy || backup.hasAccessKeySecret !== true,
+						onClick: function () { props.onTestBackup(); },
+					}, t('settings.action.test')),
+					h('button', {
+						type: 'button',
+						className: 'evrBtn',
+						disabled: busy || backup.hasAccessKeySecret !== true,
+						onClick: function () { props.onBackupNow(); },
+					}, t('settings.action.backupNow')),
+					backup.hasAccessKeySecret === true
+						? h('button', {
+							type: 'button',
+							className: 'evrBtn evrBtnDanger',
+							disabled: busy,
+							onClick: function () { props.onClearSecret(); },
+						}, t('settings.action.clearSecret'))
+						: null),
+				h('div', { className: 'evrSection' }, t('settings.backup.status')),
+				h('pre', { className: 'evrPre' }, statusLines.join('\n')),
+				h('div', { className: 'evrHint evrMono', style: { marginTop: '8px' } },
+					t('settings.backup.settingsPath') + ': ' + (settings.settingsPath || ''))
+			);
+		}
+
 		//#endregion
 
 		//#region panel
@@ -798,6 +1143,7 @@ window.__ModuleLoader__.load({
 			var [practice, setPractice] = useState(null);
 			var [soul, setSoul] = useState(null);
 			var [preferences, setPreferences] = useState(null);
+			var [settings, setSettings] = useState(null);
 			var [memories, setMemories] = useState([]);
 			var [kind, setKind] = useState('doc');
 			var [editor, setEditor] = useState(null);
@@ -818,6 +1164,7 @@ window.__ModuleLoader__.load({
 					call('soul'),
 					call('preferences'),
 					call('memory-list', { limit: 20 }),
+					call('settings'),
 				]).then(function (results) {
 					setOverview(results[0]);
 					setInjection(results[1]);
@@ -825,6 +1172,7 @@ window.__ModuleLoader__.load({
 					setSoul(results[3]);
 					setPreferences(results[4]);
 					setMemories(results[5]?.results ?? []);
+					setSettings(results[6]);
 					setError(null);
 				}).catch(function (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
@@ -975,6 +1323,75 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, query, report]);
 
+
+			var saveBackupSettings = useCallback(function (form) {
+				setBusy(true);
+				call('settings-save', { backup: form }).then(function (value) {
+					setSettings(value);
+					report(t('state.saved'), false);
+				}).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, report, t]);
+
+			var clearBackupSecret = useCallback(function () {
+				setBusy(true);
+				call('settings-save', { backup: { clearAccessKeySecret: true } }).then(function (value) {
+					setSettings(value);
+					report(t('state.saved'), false);
+				}).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, report, t]);
+
+			var migrateData = useCallback(function (dir, force) {
+				setBusy(true);
+				call('data-migrate', { dir: dir, force: force }).then(function () {
+					report(t('state.migrated'), false);
+					return loadAll();
+				}).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, loadAll, report, t]);
+
+			var exportData = useCallback(function (dir, force) {
+				setBusy(true);
+				call('data-export', { dir: dir, force: force }).then(function (value) {
+					report(t('state.exported') + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
+				}).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, report, t]);
+
+			var importData = useCallback(function (dir, force) {
+				setBusy(true);
+				call('data-import', { dir: dir, force: force }).then(function () {
+					report(t('state.imported'), false);
+					return loadAll();
+				}).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, loadAll, report, t]);
+
+			var backupNow = useCallback(function () {
+				setBusy(true);
+				call('backup-now', { force: true }).then(function (value) {
+					if (value && value.settings) setSettings(value.settings);
+					report(t('state.backed') + ' · ' + formatBytes(value.bytes ?? 0), false);
+				}).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, report, t]);
+
+			var testBackup = useCallback(function () {
+				setBusy(true);
+				call('backup-test', {}).then(function (value) {
+					report(t('settings.backup.testOk') + ' · ' + String(value.endpoint ?? ''), false);
+				}).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, report, t]);
+
 			var body = null;
 			if (error !== null) {
 				body = h('div', { className: 'evrEmpty' },
@@ -1029,6 +1446,20 @@ window.__ModuleLoader__.load({
 					onUnlink: unlinkGlobal,
 					busy: busy,
 					status: status,
+				});
+			} else if (tab === 'settings') {
+				body = h(SettingsTab, {
+					t: t,
+					settings: settings,
+					busy: busy,
+					status: status,
+					onSaveBackup: saveBackupSettings,
+					onClearSecret: clearBackupSecret,
+					onMigrate: migrateData,
+					onExport: exportData,
+					onImport: importData,
+					onBackupNow: backupNow,
+					onTestBackup: testBackup,
 				});
 			} else {
 				body = h(SuggestionsTab, { t: t, suggestions: overview?.suggestions ?? [] });

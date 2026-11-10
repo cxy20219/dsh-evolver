@@ -344,6 +344,60 @@ export class Evolver {
 	}
 
 	/**
+	 * Point the evolver at another data folder.
+	 *
+	 * The folder is expected to already hold a copy of the data; the evolver
+	 * only re-reads it, recreates anything missing and refreshes the injected
+	 * text. A migration that fails half-way therefore leaves the old folder
+	 * untouched and still usable.
+	 *
+	 * @param {string} root - The new data folder.
+	 * @returns {Promise<void>} Resolves once the new folder is in use.
+	 */
+	async switchRoot(root) {
+		const previous = this.root
+		this.root = root
+		try {
+			await this.ensure()
+			await this.refresh()
+		} catch (error) {
+			// A folder that cannot even be prepared must not leave the evolver
+			// half switched: go back and rebuild the old injection.
+			this.root = previous
+			await this.refresh().catch(() => {})
+			throw error
+		}
+		await this.relinkAfterMove(previous)
+	}
+
+	/**
+	 * Move the harness-home preferences link to the new data folder.
+	 *
+	 * The link is an absolute path into the old folder, so a migrated data
+	 * folder would otherwise keep being edited at its previous location. Only
+	 * a link this plugin itself created is moved; somebody else's link is left
+	 * alone, exactly like at startup.
+	 *
+	 * @param {string} previousRoot - The folder the evolver used before.
+	 * @returns {Promise<void>} Resolves once the link was checked.
+	 */
+	async relinkAfterMove(previousRoot) {
+		if (previousRoot === this.root) return
+		try {
+			const info = await lstat(this.globalPath)
+			if (!info.isSymbolicLink()) return
+			const target = resolve(dirname(this.globalPath), await readlink(this.globalPath))
+			const previousPreferences = resolve(join(previousRoot, 'preferences', 'AGENTS.md'))
+			if (target !== previousPreferences) return
+			await rm(this.globalPath, { force: true })
+			await symlink(this.preferencesPath, this.globalPath)
+			this.logger?.info?.('dsh-evolver: the global preferences link followed the data folder')
+		} catch {
+			// No link yet: nothing to move.
+		}
+	}
+
+	/**
 	 * Take over the harness home's global instruction file.
 	 *
 	 * The evolver owns the preferences file now, so the link has to point at
