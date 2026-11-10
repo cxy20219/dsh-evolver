@@ -353,14 +353,10 @@ function apiPayload(endpoint, payload) {
 				preferences: { text: 'prefs', bytes: 5, link: { kind: 'missing' } },
 				totalBytes: 19,
 			}
-		case 'practice':
-			return { kinds: [], entries: [], problems: [], projection: { text: '' } }
 		case 'soul':
 			return { content: '', bytes: 0 }
 		case 'preferences':
 			return { content: '', bytes: 0, link: { kind: 'missing' }, globalPath: '/home/AGENTS.md', path: '/data/evolver/preferences/AGENTS.md' }
-		case 'memory-list':
-			return { results: [] }
 		case 'settings':
 			return {
 				dataDir: '/data/evolver',

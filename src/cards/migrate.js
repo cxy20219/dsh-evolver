@@ -1,5 +1,5 @@
 /**
- * One-way migration from the two old stores into the card store.
+ * Incremental, one-way migration from the two old stores into the card store.
  *
  * Practice entries become permanent cards; their long body or script moves
  * into a resource and the card keeps a one-line summary. Memories become
@@ -13,7 +13,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { readPracticeEntry, scanPractice } from '../practice.js'
+import { readLegacyPractice } from '../legacy/practice.js'
 import { cardId } from './ids.js'
 import { labelOf, CARD_CATEGORIES, charCount } from './store.js'
 import { normalizeTag, normalizeTags } from './tags.js'
@@ -56,8 +56,7 @@ async function readOldMemories(dataDir) {
  */
 export async function migrateToCards({ dataDir, store, logger, now = () => Date.now() }) {
 	const markerPath = join(dataDir, 'knowledge', MARKER)
-	const marker = await readFile(markerPath, 'utf8').catch(() => null)
-	if (marker !== null) return { skipped: true, practice: 0, memory: 0 }
+	const markerExists = await readFile(markerPath, 'utf8').then(() => true, () => false)
 	await mkdir(join(dataDir, 'knowledge'), { recursive: true, mode: 0o700 })
 
 	const existing = new Map()
@@ -66,36 +65,27 @@ export async function migrateToCards({ dataDir, store, logger, now = () => Date.
 	}
 
 	const practiceRoot = join(dataDir, 'practice')
-	const scan = await scanPractice(practiceRoot).catch(() => ({ entries: [], problems: [] }))
+	const entries = await readLegacyPractice(practiceRoot).catch(() => [])
 	const stamp = now()
 	const ids = new Map()
 	const aliases = new Map()
 	let practiceCount = 0
-	for (const [index, meta] of scan.entries.entries()) {
+	for (const [index, meta] of entries.entries()) {
 		const sourceId = `practice:${meta.relPath}`
 		const known = existing.get(sourceId)
 		const id = known?.id ?? cardId(stamp + index)
 		ids.set(meta.relPath, id)
-		if (known === undefined) {
-			for (const alias of [meta.slug, meta.relPath, meta.relPath.replace(/\.[^.]+$/, ''), meta.name, meta.name.replace(/\.[^.]+$/, '')]) {
-				if (typeof alias === 'string' && alias !== '') aliases.set(alias, id)
-			}
+		for (const alias of [meta.slug, meta.relPath, meta.relPath.replace(/\.[^.]+$/, ''), meta.name, meta.name.replace(/\.[^.]+$/, '')]) {
+			if (typeof alias === 'string' && alias !== '') aliases.set(alias, id)
 		}
 	}
 
-	for (const meta of scan.entries) {
+	for (const meta of entries) {
 		const sourceId = `practice:${meta.relPath}`
 		if (existing.has(sourceId)) continue
-		let entry
-		try {
-			entry = await readPracticeEntry(practiceRoot, meta.relPath)
-		} catch (error) {
-			logger?.warn?.(`dsh-evolver: 迁移实践条目失败 ${meta.relPath}: ${error instanceof Error ? error.message : String(error)}`)
-			continue
-		}
 		const shape = ['doc', 'tool', 'resource'].includes(meta.kind) ? meta.kind : 'doc'
-		const content = String(entry.content ?? '')
-		const summary = String(meta.purpose || entry.title || labelOf(content)).slice(0, 200)
+		const content = String(meta.body ?? '')
+		const summary = String(meta.purpose || meta.title || labelOf(content)).slice(0, 200)
 		const resourceName = safeResourceName(meta.name) || safeResourceName(`${meta.slug}.md`) || 'body.md'
 		const card = {
 			id: ids.get(meta.relPath),
@@ -103,7 +93,7 @@ export async function migrateToCards({ dataDir, store, logger, now = () => Date.
 			shape,
 			status: 'verified',
 			category: '',
-			label: String(meta.title || entry.title || labelOf(content)).slice(0, 80),
+			label: String(meta.title || labelOf(content)).slice(0, 80),
 			summary,
 			// The card body is the one-line purpose; the full text is the resource.
 			body: summary,
@@ -127,7 +117,7 @@ export async function migrateToCards({ dataDir, store, logger, now = () => Date.
 	}
 
 	// Second pass: resolve old slug links to new card ids.
-	for (const meta of scan.entries) {
+	for (const meta of entries) {
 		if (!Array.isArray(meta.links) || meta.links.length === 0) continue
 		const id = ids.get(meta.relPath)
 		const card = store.get(id)
@@ -153,7 +143,7 @@ export async function migrateToCards({ dataDir, store, logger, now = () => Date.
 		const text = String(record.text ?? record.content ?? '')
 		const category = CARD_CATEGORIES.includes(record.kind) ? record.kind : 'fact'
 		const card = {
-			id: cardId(stamp + scan.entries.length + index),
+			id: cardId(stamp + entries.length + index),
 			type: 'fleeting',
 			shape: 'memo',
 			status: 'inbox',
@@ -179,10 +169,16 @@ export async function migrateToCards({ dataDir, store, logger, now = () => Date.
 		}
 	}
 
-	const result = { skipped: false, practice: practiceCount, memory: memoryCount }
-	const temp = `${markerPath}.${process.pid}.tmp`
-	await writeFile(temp, `${JSON.stringify({ version: 1, at: new Date(stamp).toISOString(), ...result }, null, 2)}\n`, { mode: 0o600 })
-	await rename(temp, markerPath)
-	logger?.info?.(`dsh-evolver: 已迁移 ${practiceCount} 条实践、${memoryCount} 条记忆到卡片库`)
+	const result = { skipped: practiceCount + memoryCount === 0, practice: practiceCount, memory: memoryCount }
+	// Catch-up runs are cheap and idempotent, but they should not rewrite the
+	// marker on a boot that found nothing new.
+	if (practiceCount + memoryCount > 0 || !markerExists) {
+		const temp = `${markerPath}.${process.pid}.tmp`
+		await writeFile(temp, `${JSON.stringify({ version: 1, at: new Date(stamp).toISOString(), ...result }, null, 2)}\n`, { mode: 0o600 })
+		await rename(temp, markerPath)
+	}
+	if (practiceCount + memoryCount > 0) {
+		logger?.info?.(`dsh-evolver: 已迁移 ${practiceCount} 条实践、${memoryCount} 条记忆到卡片库`)
+	}
 	return result
 }

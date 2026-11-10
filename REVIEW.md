@@ -1,3 +1,5 @@
+> 历史审查记录（0.9.0）。旧的 practice/memory 写入路径与旧 HTTP 接口已在 1.1 移除；下文的文件路径只用于追溯。
+
 # 代码审查报告（2026-11-10）
 
 审查对象：`dsh-evolver` 0.9.0（`index.js`、`src/**`、`client.js`、`test/**`）。

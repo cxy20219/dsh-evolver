@@ -9,7 +9,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
 import { isCardId } from './ids.js'

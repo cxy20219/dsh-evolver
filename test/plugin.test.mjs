@@ -111,7 +111,7 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 		try {
 			assert.equal(tools.length, 12)
 			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:practice', 'dsh-evolver:soul', 'dsh-evolver:proactive'])
-			assert.equal(routes.size, 44)
+			assert.equal(routes.size, 34)
 			assert.match(sections[0].text(), /\[实践\]/)
 			assert.match(sections[2].text(), /\[主动性\]/)
 
@@ -120,26 +120,20 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 			const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
 			assert.equal(overview.version, pkg.version)
 
-			const saved = await (await post(routes, 'practice-write', {
-				kind: 'doc',
-				name: 'api.md',
-				title: '来自接口',
-				purpose: '接口写入的条目',
-				topic: 'T',
-				body: '正文',
+			const saved = await (await post(routes, 'card-write', {
+				card: { type: 'permanent', shape: 'doc', label: '来自接口', summary: '接口写入的条目', body: '正文', topic: 'T' },
 			})).json()
-			assert.equal(saved.path, 'docs/t/api.md')
-			// The prompt section reads the same cache, so it must see the write.
+			// The prompt section reads the card projection, so it must see the write.
 			assert.match(sections[0].text(), /来自接口/)
 
-			const read = await (await post(routes, 'practice-read', { path: 'docs/t/api.md' })).json()
-			assert.equal(read.title, '来自接口')
+			const read = await (await post(routes, 'card-read', { id: saved.id })).json()
+			assert.equal(read.card.label, '来自接口')
 
-			const query = await (await post(routes, 'practice-query', { query: '来自接口', limit: 'many' })).json()
-			assert.equal(query.total, 1)
+			const query = await (await post(routes, 'card-list', { query: '来自接口' })).json()
+			assert.equal(query.cards.length, 1)
 
-			const filtered = await (await post(routes, 'practice-query', { query: '来自接口', limit: -3 })).json()
-			assert.equal(filtered.total, 1)
+			const filtered = await (await post(routes, 'card-list', { query: '来自接口', limit: -3 })).json()
+			assert.equal(filtered.cards.length, 1)
 
 			const temporary = await (await post(routes, 'card-write', {
 				card: { type: 'fleeting', shape: 'memo', body: '待提升为永久卡' },
@@ -235,24 +229,29 @@ test('导出、导入与迁移数据目录', async () => {
 			const rootDir = await post(routes, 'data-export', { file: '/' })
 			assert.equal(rootDir.status, 400)
 
-			// 导出的压缩包可以再导入：删一条，再从包里恢复
-			await post(routes, 'practice-write', {
-				kind: 'doc', name: 'restored.md', title: '会被恢复', purpose: 'p', topic: 'T', body: 'b',
+			// 导出的压缩包可以再导入：删一张卡，再从包里恢复（含附件）
+			const restorable = await (await post(routes, 'card-write', {
+				card: { type: 'permanent', shape: 'doc', label: '会被恢复', summary: 'p', body: 'b', topic: 'T' },
+			})).json()
+			await post(routes, 'card-attach', {
+				id: restorable.id,
+				name: 'restored.md',
+				data: Buffer.from('会被恢复的附件').toString('base64'),
 			})
 			const second = join(home, 'second.tar.gz')
 			await post(routes, 'data-export', { file: second, force: true })
-			await post(routes, 'practice-delete', { path: 'docs/t/restored.md' })
-			await assert.rejects(() => readFile(join(root, 'practice', 'docs', 't', 'restored.md'), 'utf8'))
+			await post(routes, 'card-remove', { id: restorable.id })
+			const gone = await (await post(routes, 'card-list', { query: '会被恢复' })).json()
+			assert.equal(gone.cards.length, 0)
 			const imported = await (await post(routes, 'data-import', { file: second, force: true })).json()
 			assert.equal(imported.root, root)
 			assert.ok(imported.files >= 1)
-			assert.match(await readFile(join(root, 'practice', 'docs', 't', 'restored.md'), 'utf8'), /会被恢复/)
 			// Cards and their resources travel with the archive too.
 			const restoredCards = await (await post(routes, 'card-list', { query: '会被恢复' })).json()
 			assert.ok(restoredCards.cards.length >= 1)
 			const restoredCard = await (await post(routes, 'card-read', { id: restoredCards.cards[0].id })).json()
 			assert.equal(restoredCard.card.label, '会被恢复')
-			assert.equal(restoredCard.card.resourceContents[0].text, 'b')
+			assert.match(restoredCard.card.resourceContents[0].text, /会被恢复的附件/)
 
 			// 未压缩的 tar（云端备份格式）也能导入
 			const plain = join(home, 'snapshot.tar')
@@ -262,7 +261,8 @@ test('导出、导入与迁移数据目录', async () => {
 			}]))
 			const fromTar = await (await post(routes, 'data-import', { file: plain })).json()
 			assert.ok(fromTar.files >= 1)
-			await readFile(join(root, 'practice', 'docs', 'plain.md'), 'utf8')
+			const migrated = await (await post(routes, 'card-list', { query: '来自 tar' })).json()
+			assert.ok(migrated.cards.length >= 1)
 
 			// 浏览压缩包：只列支持的三种后缀，并带上路径与大小
 			await writeFile(join(home, 'notes.txt'), 'x', 'utf8')
@@ -322,7 +322,7 @@ test('导出、导入与迁移数据目录', async () => {
 			assert.equal(same.status, 400)
 			assert.match((await same.json()).error.message, /这就是当前数据目录/)
 			assert.equal(moved.settings.dataDir, movedTo)
-			await readFile(join(movedTo, 'practice', 'INDEX.md'), 'utf8')
+			await readFile(join(movedTo, 'knowledge', 'cards', 'cards.jsonl'), 'utf8')
 
 			// 全局偏好链接跟着数据目录走
 			const link = await readlink(join(home, 'AGENTS.md'))
@@ -330,11 +330,13 @@ test('导出、导入与迁移数据目录', async () => {
 			assert.equal((await lstat(join(home, 'AGENTS.md'))).isSymbolicLink(), true)
 
 			// 之后的写入落进新目录，旧目录不动
-			await post(routes, 'practice-write', {
-				kind: 'doc', name: 'after.md', title: '迁移之后', purpose: 'p', topic: 'T', body: 'b',
+			await post(routes, 'card-write', {
+				card: { type: 'fleeting', shape: 'memo', body: '迁移之后' },
 			})
-			await readFile(join(movedTo, 'practice', 'docs', 't', 'after.md'), 'utf8')
-			await assert.rejects(() => readFile(join(root, 'practice', 'docs', 't', 'after.md'), 'utf8'))
+			const after = await (await post(routes, 'card-list', { query: '迁移之后' })).json()
+			assert.equal(after.cards.length, 1)
+			const oldLog = await readFile(join(root, 'knowledge', 'cards', 'cards.jsonl'), 'utf8')
+			assert.equal(oldLog.includes('迁移之后'), false)
 			assert.equal((await (await post(routes, 'overview', {})).json()).version.length > 0, true)
 		} finally {
 			await disposeEffects(effects)
@@ -522,7 +524,7 @@ test('立即备份走完整链路：上传 tar、按保留份数清理、记录�
 			assert.ok(first.bytes > 0)
 			assert.equal(oss.objects.size, 1)
 			const restored = readTar(oss.objects.get(first.key))
-			assert.ok(restored.some((file) => file.path === 'practice/INDEX.md'))
+			assert.ok(restored.some((file) => file.path === 'knowledge/cards/cards.jsonl'))
 
 			// 密钥到了服务端：请求带 OSS 签名头
 			const put = oss.requests.find((request) => request.method === 'PUT')

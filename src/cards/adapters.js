@@ -8,12 +8,10 @@
  * primary resource text, so existing muscle memory still works.
  */
 
-import { slugify } from '../evolver.js'
 import { classifyNoise } from '../memory/noise.js'
 import { textSimilarity } from '../importance.js'
 import { findSecret } from '../secrets.js'
-import { cardPrompt, CARD_DISCIPLINE } from './prompt.js'
-import { isCardId } from './ids.js'
+import { cardPrompt } from './prompt.js'
 import { normalizeTags } from './tags.js'
 import { safeResourceName } from './resources.js'
 
@@ -222,18 +220,6 @@ export function createPracticeAdapter(cards) {
 		},
 
 		/**
-		 * Delete a permanent card.
-		 *
-		 * @param {string} ref - Id, slug or legacy path.
-		 * @returns {Promise<object>} The result.
-		 */
-		async practiceDelete(ref) {
-			const card = resolve(cards, ref)
-			if (card !== undefined) await cards.remove(card.id)
-			return { ok: true, path: card?.id ?? String(ref) }
-		},
-
-		/**
 		 * A compact practice overview for evolve_review.
 		 *
 		 * @returns {Promise<object>} The overview.
@@ -382,4 +368,29 @@ export function createMemoryAdapter(cards) {
 	}
 }
 
-export { CARD_DISCIPLINE, cardPrompt, isCardId }
+/**
+ * Turn a topic title into the old practice directory slug.
+ *
+ * Kept here so compatibility writes keep matching migrated `sourceId`s
+ * without pulling in the document layer.
+ *
+ * @param {string} value - The topic title.
+ * @returns {string} The slug, or the original when it is already usable.
+ */
+function slugify(value) {
+	const trimmed = String(value ?? '').trim()
+	if (trimmed === '') return ''
+	if (/^[a-z0-9][a-z0-9._-]*$/.test(trimmed)) return trimmed
+	if (/[^\x00-\x7F]/.test(trimmed)) {
+		return trimmed
+			.replace(/[\\/:*?"<>|\u0000-\u001F]/g, '-')
+			.replace(/^\.+/, '')
+			.slice(0, 64)
+			.replace(/[. ]+$/, '')
+	}
+	return trimmed
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+}
+

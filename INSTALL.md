@@ -10,7 +10,7 @@
 
 ```bash
 # 1. 解压到一个长期保留的位置（不要放 /tmp；本地安装是 link，删了源码插件就坏）
-unzip dsh-evolver-1.0.0.zip -d ~/.dsh/plugins
+unzip dsh-evolver-1.1.0.zip -d ~/.dsh/plugins
 
 # 2. 装进 profile：会写依赖，并把 bundle patch 注册进 profile
 dsh plugin --profile web add ~/.dsh/plugins/dsh-evolver
@@ -36,20 +36,23 @@ dsh plugin --profile web add https://github.com/cxy20219/dsh-evolver.git
 
 ## 首次启动会发生什么
 
-1. 创建数据目录 `~/.dsh/evolver/`（`practice/`、`sight/`、`preferences/`）并写入种子文档。
+1. 创建数据目录 `~/.dsh/evolver/`（`knowledge/`、`sight/`、`preferences/`）：
+   写入灵魂与偏好种子，并在空卡片库中种下三张种子卡（长文进资源附件）。首次启动
+   不再创建旧的 `practice/` 目录。
 2. 把 `~/.dsh/AGENTS.md` 链接到 `~/.dsh/evolver/preferences/AGENTS.md`。
    如果原来是真实文件，内容会先备份为 `preferences/AGENTS.md.imported`。
    **如果它已经被别的工具链接到别处，插件不会自动接管**：面板「偏好」会显示
    「被其他来源占用」，确认后点「接管这个链接」（同样先备份再替换）。
    不想让插件管全局偏好时，点「移除全局链接」即可，偏好文件本身不会被删。
-3. 如果检测到旧的 `~/.dsh/panel/memory/` 与 `~/.dsh/panel/agent.md`，会**复制**到新目录（源文件保留）。
+3. 如果检测到旧的 `practice/`、`sight/memory/`（或更早的面板数据），会**复制/读取**并导入卡片库；
+   旧目录保留为只读迁移源，不再写入，也不再有旧的 HTTP 接口。
 
 > 在组合里配置 `dataDir` 时必须是绝对路径；相对路径会在启动时报错，而不是悄悄
 > 落到 Host 的工作目录。
 
 ## 设置与备份
 
-数据目录、OSS 备份配置和密钥保存在 `~/.dsh/evolver.config.json`（0600），
+数据目录、卡片正文上限、OSS 备份配置和密钥保存在 `~/.dsh/evolver.config.json`（0600），
 不在数据目录里。设置页里改过的数据目录优先于组合配置里的 `dataDir`；
 迁移、导入/导出与云端备份的细节见 [README](README.md#设置页数据目录与云端备份)。
 

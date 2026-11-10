@@ -3,14 +3,14 @@
  *
  * The plugin owns four things:
  *
- *   1. **the data** — one folder (`~/.dsh/evolver` by default) with the
- *      practice layer, the sight layer and the global preferences;
- *   2. **the injection** — two prompt sections: the practice index (a routing
- *      table, never the bodies) and the soul document;
- *   3. **the tools** — `practice_*` for the curated layer and `memory_*` for
- *      the sight layer;
- *   4. **the settings** — where the data folder lives, and how its whole
- *      content is backed up to OSS.
+ *   1. **the data** — one folder (`~/.dsh/evolver` by default) with the card
+ *      log and resources, the soul and the global preferences;
+ *   2. **the injection** — the 2 KB permanent-card projection, the soul and
+ *      the proactive protocol;
+ *   3. **the tools** — card-backed `practice_*` / `memory_*` compatibility
+ *      tools plus `card_promote`;
+ *   4. **the settings** — where the data folder lives, its card budget, and
+ *      how its whole content is backed up to OSS.
  *
  * Nothing is imported from the Harness installation: the storage engine only
  * uses Node's own file system, and the API the browser calls is registered on
@@ -27,14 +27,13 @@ import { Evolver, resolveDshHome } from './src/evolver.js'
 import { createIngestController } from './src/ingest.js'
 import { SessionLedger, digestSessions } from './src/sessions.js'
 import { createEmbedder } from './src/memory/embed.js'
-import { MemoryStore } from './src/memory/store.js'
-import { createMemoryActions } from './src/memory-actions.js'
 import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { createTools } from './src/tools.js'
 import { PROACTIVE_PROTOCOL } from './src/proactive.js'
 import { createMemoryAdapter, createPracticeAdapter } from './src/cards/adapters.js'
 import { migrateToCards } from './src/cards/migrate.js'
+import { seedStarterCards } from './src/cards/seed.js'
 import { cardPrompt } from './src/cards/prompt.js'
 import { CardStore } from './src/cards/store.js'
 import { copyTree, countEntries, isDirectory, isInsidePath, pathsOverlap } from './src/workspace.js'
@@ -186,14 +185,7 @@ export async function apply(ctx, config) {
 		root: resolved.root,
 		logger: ctx.logger,
 		dshHome,
-		indexBytes: typeof config?.indexBytes === 'number' ? config.indexBytes : undefined,
 		version: await readVersion(),
-		// The old practice files stay writable for one release; every write is
-		// mirrored into the card store so the injected projection follows.
-		hooks: {
-			afterPracticeWrite: (event) => syncPracticeCard(event),
-			afterPracticeDelete: (event) => removePracticeCard(event),
-		},
 	})
 	await evolver.ensure()
 	await evolver.migrate()
@@ -210,10 +202,8 @@ export async function apply(ctx, config) {
 		ctx.logger.info(`dsh-evolver: ${migratedWeights.migrated.length} model folder(s) moved into the data folder`)
 	}
 
-	// The memory store is replaced whenever the data folder changes, so the
-	// tools and the API talk to a small proxy rather than to one instance.
-	const storeRef = { current: undefined }
-	const memoryRef = { current: undefined }
+	// The card store is replaced whenever the data folder changes, so the
+	// tools and the API talk to small proxies rather than to one instance.
 	const cardStoreRef = { current: undefined }
 	const practiceCardRef = { current: undefined }
 	const memoryCardRef = { current: undefined }
@@ -228,45 +218,6 @@ export async function apply(ctx, config) {
 	}
 
 	/**
-	 * Build (and initialise) the memory store of one data folder.
-	 *
-	 * @param {string} root - The data folder.
-	 * @returns {Promise<object>} The opened store.
-	 */
-	async function createMemory(root) {
-		const store = new MemoryStore({
-			dataDir: join(root, 'sight'),
-			logger: ctx.logger,
-			embedding: createEmbedder(currentEmbeddingConfig()),
-		})
-		await store.init()
-		return store
-	}
-
-	/**
-	 * Make one store the one the tools and the API talk to.
-	 *
-	 * @param {object} store - The opened store.
-	 * @returns {void}
-	 */
-	function useMemory(store) {
-		storeRef.current = store
-		memoryRef.current = createMemoryActions(store)
-	}
-
-	/**
-	 * Open the memory store of one data folder.
-	 *
-	 * @param {string} root - The data folder.
-	 * @returns {Promise<object>} The opened store.
-	 */
-	async function openMemory(root) {
-		const store = await createMemory(root)
-		useMemory(store)
-		return store
-	}
-
-	/**
 	 * Rebuild the store after the embedding backend changed.
 	 *
 	 * The new store is opened before the old one is dropped, so a failing
@@ -275,15 +226,11 @@ export async function apply(ctx, config) {
 	 * @returns {Promise<void>} Resolves once the swap is done.
 	 */
 	async function reopenEmbedding() {
-		const next = await createMemory(evolver.root)
 		const nextCards = await createCards(evolver.root)
-		const previous = storeRef.current
 		const previousCards = cardStoreRef.current
-		useMemory(next)
 		useCards(nextCards)
-		await previous?.close().catch(() => {})
 		await previousCards?.close().catch(() => {})
-		ctx.logger.info(`dsh-evolver: embedding backend reopened (${next.status().embedder})`)
+		ctx.logger.info(`dsh-evolver: embedding backend reopened (${nextCards.status().embedder})`)
 	}
 
 	/**
@@ -308,6 +255,8 @@ export async function apply(ctx, config) {
 			if (migrated.skipped !== true) {
 				ctx.logger.info(`dsh-evolver: card migration practice=${migrated.practice} memory=${migrated.memory}`)
 			}
+			const seeded = await seedStarterCards(store)
+			if (seeded > 0) ctx.logger.info(`dsh-evolver: seeded ${seeded} starter card(s)`)
 		} catch (error) {
 			ctx.logger.warn(`dsh-evolver: card migration failed: ${error instanceof Error ? error.message : String(error)}`)
 		}
@@ -338,36 +287,6 @@ export async function apply(ctx, config) {
 		return store
 	}
 
-	/**
-	 * Mirror one old practice write into the card store.
-	 *
-	 * @param {object} event - The hook payload.
-	 * @returns {Promise<void>} Resolves after the card write.
-	 */
-	async function syncPracticeCard(event) {
-		const store = cardStoreRef.current
-		if (store === undefined) return
-		const input = event?.input
-		if (input === null || typeof input !== 'object') return
-		await createPracticeAdapter(store).practiceWrite(input)
-	}
-
-	/**
-	 * Mirror one old practice delete into the card store.
-	 *
-	 * @param {object} event - The hook payload.
-	 * @returns {Promise<void>} Resolves after the card is removed.
-	 */
-	async function removePracticeCard(event) {
-		const store = cardStoreRef.current
-		if (store === undefined) return
-		const path = String(event?.path ?? '')
-		const card = store.all().find((item) => item.sourceId === `practice:${path}`)
-			?? store.resolve(path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? '')
-		if (card !== undefined) await store.remove(card.id)
-	}
-
-	await openMemory(resolved.root)
 	await openCards(resolved.root)
 
 	// Tools and the ingest job talk to these proxies; a data-folder switch
@@ -377,7 +296,6 @@ export async function apply(ctx, config) {
 		practiceSearch: (...args) => practiceCardRef.current.practiceSearch(...args),
 		practiceRead: (...args) => practiceCardRef.current.practiceRead(...args),
 		practiceWrite: (...args) => practiceCardRef.current.practiceWrite(...args),
-		practiceDelete: (...args) => practiceCardRef.current.practiceDelete(...args),
 		promote: (...args) => practiceCardRef.current.promote(...args),
 		overview: (...args) => practiceCardRef.current.overview(...args),
 	}
@@ -517,14 +435,6 @@ export async function apply(ctx, config) {
 		},
 	}
 
-	const memory = {
-		recall: (...args) => memoryRef.current.recall(...args),
-		save: (...args) => memoryRef.current.save(...args),
-		forget: (...args) => memoryRef.current.forget(...args),
-		list: (...args) => memoryRef.current.list(...args),
-		stats: (...args) => memoryRef.current.stats(...args),
-	}
-
 	// The ledger lives inside the data folder, which may move. Every call
 	// opens the current location instead of holding a path captured at boot.
 	const ledger = () => new SessionLedger({ dataDir: evolver.root })
@@ -556,7 +466,12 @@ export async function apply(ctx, config) {
 		logger: ctx.logger,
 	})
 
-	const backup = new BackupService({ settings, root: () => evolver.root, logger: ctx.logger })
+	const backup = new BackupService({
+		settings,
+		root: () => evolver.root,
+		logger: ctx.logger,
+		flush: () => cardStoreRef.current?.flush(),
+	})
 	const rootState = { source: resolved.source, warning: resolved.warning }
 
 	const workspace = {
@@ -600,8 +515,7 @@ export async function apply(ctx, config) {
 			} else if (!(await isDirectory(dirname(requested)))) {
 				throw new Error(`目标目录的上级不存在：${dirname(requested)}`)
 			}
-			// Flush first: the copy has to see the newest memory and card writes.
-			await storeRef.current.close()
+			// Flush first: the copy has to see the newest card writes.
 			await cardStoreRef.current?.close().catch(() => {})
 			let copied
 			try {
@@ -609,7 +523,6 @@ export async function apply(ctx, config) {
 			} catch (error) {
 				// The old folder is untouched; reopen it so the plugin keeps
 				// answering with the data it had before the attempt.
-				await openMemory(evolver.root).catch(() => {})
 				await openCards(evolver.root).catch(() => {})
 				throw error
 			}
@@ -618,7 +531,6 @@ export async function apply(ctx, config) {
 			// copy, instead of silently drifting back to the old one.
 			await settings.update({ dataDir: requested })
 			await evolver.switchRoot(requested)
-			await openMemory(requested)
 			await openCards(requested)
 			rootState.source = 'settings'
 			rootState.warning = ''
@@ -663,10 +575,9 @@ export async function apply(ctx, config) {
 			} else if (!(await isDirectory(dirname(target)))) {
 				throw new Error(`导出目录的上级不存在：${dirname(target)}`)
 			}
-			// Flush first so the archive contains the newest memory and card
-			// writes. Both stores are reopened afterwards: an export must not
-			// leave the plugin without its read path.
-			await storeRef.current.close()
+			// Flush first so the archive contains the newest card writes. The
+			// store is reopened afterwards: an export must not leave the plugin
+			// without its read path.
 			await cardStoreRef.current?.close().catch(() => {})
 			try {
 				// Weights are part of the data folder now; the archive streams,
@@ -674,7 +585,6 @@ export async function apply(ctx, config) {
 				const packed = await writeArchiveFile(evolver.root, target)
 				return { file: target, bytes: packed.bytes, files: packed.files }
 			} finally {
-				await openMemory(evolver.root).catch(() => {})
 				await openCards(evolver.root).catch(() => {})
 			}
 		},
@@ -716,7 +626,6 @@ export async function apply(ctx, config) {
 			if (isInsidePath(current, await canonicalPath(source))) {
 				throw new Error('导入文件不能是数据目录里的文件。')
 			}
-			await storeRef.current.close()
 			await cardStoreRef.current?.close().catch(() => {})
 			let restored
 			try {
@@ -724,7 +633,6 @@ export async function apply(ctx, config) {
 			} catch (error) {
 				// A half-finished import must not leave the in-memory store out
 				// of sync with the files that did land.
-				await openMemory(evolver.root).catch(() => {})
 				await openCards(evolver.root).catch(() => {})
 				const message = error instanceof Error ? error.message : String(error)
 				throw new Error(message.includes('压缩包') ? message : `不能读取压缩包：${message}`)
@@ -732,11 +640,9 @@ export async function apply(ctx, config) {
 			try {
 				await evolver.switchRoot(evolver.root)
 			} catch (error) {
-				await openMemory(evolver.root).catch(() => {})
 				await openCards(evolver.root).catch(() => {})
 				throw error
 			}
-			await openMemory(evolver.root)
 			await openCards(evolver.root)
 			return restored
 		},
@@ -824,7 +730,7 @@ export async function apply(ctx, config) {
 			present,
 			legacy: await legacyModelState(dshHome),
 			download: downloader.state(),
-			store: storeRef.current.status(),
+			store: cardStoreRef.current.status(),
 		}
 	}
 
@@ -871,10 +777,7 @@ export async function apply(ctx, config) {
 			}
 		}
 		// Writing out the debounced saves is part of shutting down.
-		return Promise.allSettled([
-			storeRef.current?.close(),
-			cardStoreRef.current?.close(),
-		])
+		return cardStoreRef.current?.close().catch(() => {})
 	}, 'dsh-evolver: resources')
 
 	// Any session activity postpones the idle run; the scheduled ingest run
@@ -937,7 +840,7 @@ export async function apply(ctx, config) {
 		save: (patch) => ingest.save(patch),
 		run: () => ingest.run(),
 	}
-	const handler = createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding, ingest: ingestApi, cards: cardsApi })
+	const handler = createEvolverHandler({ evolver, settings, backup, workspace, view, embedding, ingest: ingestApi, cards: cardsApi })
 	for (const endpoint of ENDPOINTS) {
 		disposers.push(connection.fetch.register({
 			path: `${API_PREFIX}/${endpoint}`,

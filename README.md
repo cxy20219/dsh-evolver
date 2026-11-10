@@ -14,8 +14,8 @@
     sessions.json                ← 闲时整理的会话游标
   preferences/AGENTS.md          ← 全局偏好（链到 ~/.dsh/AGENTS.md）
   models/<模型>/                 ← 本地 embedding 权重（随备份/导出）
-  practice/                      ← 旧实践目录（迁移后保留，兼容旧接口）
-  sight/memory/                  ← 旧记忆目录（迁移后保留，兼容旧接口）
+  practice/                      ← 旧实践目录（只读迁移源，不再写入）
+  sight/memory/                  ← 旧记忆目录（只读迁移源，不再写入）
 ```
 
 ## 卡片模型
@@ -68,8 +68,9 @@
 | `session_digest` | 读取没整理过的会话摘录（手动整理用） |
 | `memory_recall` / `memory_save` / `memory_list` / `memory_forget` / `memory_stats` | 临时卡的按需记忆 |
 
-`practice_*` / `memory_*` 是兼容名称，底层已经是同一套卡片；旧 slug 仍可作为
-`practice_read` 的引用，迁移不会打断已有链接。
+`practice_*` / `memory_*` 是工具名兼容层，底层已经是同一套卡片；旧 slug 仍可作为
+`practice_read` 的引用，迁移不会打断已有链接。旧的 HTTP 接口（`practice-*`、`memory-*`）
+已在 1.1 移除，面板和 Agent 都只走卡片接口。
 
 ## 沉淀纪律（已内化）
 
@@ -186,13 +187,13 @@
 - `sourceId`（`practice:<path>` / `memory:<id>`）+ `knowledge/migration.json` 保证幂等：
   中途失败可重试，重复启动不会产生重复卡片。
 
-旧目录与旧接口保留一个版本，便于回滚；面板与注入已经只读卡片库。
+旧目录只作为迁移源保留，便于人工回滚或重新导入；插件不再写入旧目录，也不再提供旧 HTTP 接口。
 
 ## 文件与链接的边界
 
 - 卡片附件写在 `knowledge/resources/<card-id>/`，文件名压成单段，拒绝符号链接；
   单文件 10 MB 上限，读取超过 512 KB 的文本只返回截断内容。
-- 实践旧目录里的符号链接不会被索引；旧接口也不会写到数据目录之外。
+- 旧实践目录里的符号链接不会被迁移读取；迁移也不会写到数据目录之外。
 - `~/.dsh/AGENTS.md` 只在「不存在」或「是普通文件」时自动接管（原文件先备份为
   `preferences/AGENTS.md.imported`）；已被别的工具链接时不抢，面板里点「接管」才替换。
 - `dataDir` 必须是绝对路径。
@@ -219,6 +220,4 @@ dsh plugin --profile web why dsh-evolver
 
 ```bash
 npm test                              # 单元与集成测试（卡片、迁移、记忆、设置、备份）
-node scripts/build-index.mjs           # 重建旧实践索引（兼容层）
-node scripts/build-index.mjs --check   # 只校验，结构有问题时退出码 1
 ```

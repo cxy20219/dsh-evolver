@@ -5,9 +5,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { MemoryDatabase, tokenize } from '../src/memory/db.js'
-import { createMemoryActions } from '../src/memory-actions.js'
+import { createMemoryAdapter } from '../src/cards/adapters.js'
 import { hybridRetrieve, textOverlap } from '../src/memory/hybrid.js'
 import { MemoryStore } from '../src/memory/store.js'
+import { CardStore } from '../src/cards/store.js'
 
 /**
  * Build an empty database on a temporary folder.
@@ -334,13 +335,12 @@ test('关闭记忆库会等后台重建落盘', async () => {
 	}
 })
 
-test('记忆列表的 total 是过滤后的总数，不是当前页条数', async () => {
+test('卡片记忆列表的 total 是过滤后的总数，不是当前页条数', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-list-'))
 	try {
-		const store = new MemoryStore({ dataDir: dir, embedding: { id: 'none' } })
+		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
 		await store.init()
-		await store.ready
-		const memory = createMemoryActions(store)
+		const memory = createMemoryAdapter(store)
 		await memory.save({ content: '第一条记忆', kind: 'fact' })
 		await memory.save({ content: '第二条记忆', kind: 'fact' })
 		await memory.save({ content: '第三条记忆', kind: 'fact' })
@@ -353,27 +353,26 @@ test('记忆列表的 total 是过滤后的总数，不是当前页条数', asyn
 	}
 })
 
-test('记忆不保存密钥', async () => {
+test('卡片记忆不保存密钥', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-secret-'))
 	try {
-		const store = new MemoryStore({ dataDir: dir, embedding: { id: 'none' } })
+		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
 		await store.init()
-		await store.ready
-		const memory = createMemoryActions(store)
+		const memory = createMemoryAdapter(store)
 		const result = await memory.save({ content: 'API key 是 sk-abcdefghijklmnopqrstuvwx', kind: 'fact' })
 		assert.equal(result.success, false)
 		assert.match(result.message, /密钥/)
-		assert.equal(store.entries().length, 0)
+		assert.equal(store.all().length, 0)
 		await store.close()
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}
 })
 
-test('小记忆库的语义命中不会被统计门槛全部滤掉', async () => {
+test('小卡片库的语义命中不会被统计门槛全部滤掉', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-small-'))
 	try {
-		const store = new MemoryStore({
+		const store = new CardStore({
 			dataDir: dir,
 			embedding: {
 				id: 'fake',
@@ -383,38 +382,34 @@ test('小记忆库的语义命中不会被统计门槛全部滤掉', async () =>
 			},
 		})
 		await store.init()
-		await store.ready
-		const memory = createMemoryActions(store)
+		const memory = createMemoryAdapter(store)
 		await memory.save({ content: '甲：向量召回测试', kind: 'fact' })
 		await memory.save({ content: '乙：另一条无关记忆', kind: 'fact' })
-		assert.equal(store.vectorsReady(), true)
-		// 查询词与两条记忆都没有词面重叠；只有向量能命中“甲”。
-		const results = await store.retrieve({ query: '完全不同的说法', limit: 5 })
-		assert.ok(results.some((item) => item.memory.text.includes('甲')), '小库的语义命中被过滤了')
+		assert.equal(store.status().vectorsReady, true)
+		const results = await store.query({ text: '完全不同的说法', type: 'fleeting', limit: 5 })
+		assert.ok(results.some((card) => card.body.includes('甲')), '小库的语义命中被过滤了')
 		await store.close()
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}
 })
 
-test('相同内容在不同作用域各自成条，同作用域才合并', async () => {
+test('相同内容在不同作用域各自成卡，同作用域才合并', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-scope-'))
 	try {
-		const store = new MemoryStore({ dataDir: dir, embedding: { id: 'none' } })
+		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
 		await store.init()
-		await store.ready
-		const memory = createMemoryActions(store)
+		const memory = createMemoryAdapter(store)
 		const text = '插件改动是否生效要用槽查询确认'
 		const first = await memory.save({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/a' })
 		const second = await memory.save({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/b' })
 		assert.equal(first.success, true)
 		assert.equal(second.success, true)
 		assert.notEqual(first.id, second.id)
-		assert.equal(store.entries().length, 2)
+		assert.equal(store.all().length, 2)
 		const again = await memory.save({ content: text, kind: 'fact', scope: 'project', projectKey: '/work/a' })
-		assert.equal(again.merged, true)
 		assert.equal(again.id, first.id)
-		assert.equal(store.entries().length, 2)
+		assert.equal(store.all().length, 2)
 		await store.close()
 	} finally {
 		await rm(dir, { recursive: true, force: true })

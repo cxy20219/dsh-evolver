@@ -1,6 +1,6 @@
 {
   "name": "dsh-evolver",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Self-evolution console for the DeepSeek Harness: one append-only card store with hierarchical tags, bidirectional links, resources and a 2 KB permanent-card projection; the sinking discipline lives in the plugin, so no extra skill is needed.",
   "type": "module",
@@ -16,7 +16,6 @@
     "index.js",
     "client.js",
     "src",
-    "scripts",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
@@ -24,8 +23,7 @@
     "INSTALL.md"
   ],
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\"",
-    "index": "node scripts/build-index.mjs"
+    "test": "node --test \"test/*.test.mjs\""
   },
   "engines": {
     "node": ">=22"

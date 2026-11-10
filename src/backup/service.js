@@ -64,11 +64,12 @@ export class BackupService {
 	 * @param {() => Date} [deps.now] - Clock, injectable for tests.
 	 * @param {number} [deps.heartbeatMs] - Heartbeat interval.
 	 */
-	constructor({ settings, root, logger, client, now = () => new Date(), heartbeatMs = HEARTBEAT_MS }) {
+	constructor({ settings, root, logger, client, flush, now = () => new Date(), heartbeatMs = HEARTBEAT_MS }) {
 		this.settings = settings
 		this.root = typeof root === 'function' ? root : () => root
 		this.logger = logger
 		this.clientFactory = typeof client === 'function' ? client : undefined
+		this.flush = typeof flush === 'function' ? flush : undefined
 		this.now = now
 		this.heartbeatMs = heartbeatMs
 		this.timer = undefined
@@ -128,6 +129,9 @@ export class BackupService {
 		this.running = true
 		try {
 			await this.settings.updateStatus({ lastAttemptAt: startedAt.toISOString() })
+			// Flush the debounced card log before the snapshot, otherwise the
+			// newest cards can be missing from a backup taken right after a write.
+			await this.flush?.()
 			// Weights live in the data folder now, so a snapshot can be
 			// hundreds of megabytes: write the tar to disk and upload the file
 			// instead of holding the whole archive in memory.

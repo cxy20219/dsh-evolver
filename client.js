@@ -4,7 +4,7 @@
  * One sidebar entry opens one panel with five tabs:
  * 概览 / 实践 / 见闻 / 偏好 / 建议.
  *
- * The panel shows the same three things the agent gets: the practice index,
+ * The panel shows the same three things the agent gets: the card projection,
  * the soul and the global preferences — plus the health of the folder.
  */
 window.__ModuleLoader__.load({
@@ -28,8 +28,6 @@ window.__ModuleLoader__.load({
 		var zh = {
 			'panel': '演化器',
 			'tab.overview': '概览',
-			'tab.practice': '实践',
-			'tab.sight': '见闻',
 			'tab.cards': '卡片',
 			'tab.soul': '灵魂',
 			'cards.new': '新建卡片',
@@ -41,7 +39,6 @@ window.__ModuleLoader__.load({
 			'cards.filter.archived': '归档',
 			'cards.empty': '还没有卡片。',
 			'cards.tags': '标签',
-			'cards.noTags': '暂无标签',
 			'cards.tagReset': '全部标签',
 			'cards.editor.new': '新建卡片',
 			'cards.editor.edit': '编辑卡片',
@@ -68,8 +65,6 @@ window.__ModuleLoader__.load({
 			'cards.noAttachments': '暂无附件',
 			'cards.links': '链接到',
 			'cards.backlinks': '被引用',
-			'cards.missing': '（已删除）',
-			'cards.updated': '更新',
 			'cards.saved': '已保存',
 			'cards.removed': '已删除',
 			'cards.attachFailed': '附件读取失败',
@@ -91,11 +86,6 @@ window.__ModuleLoader__.load({
 			'cards.category.tool-quirk': '工具怪癖',
 			'settings.cardCap': '卡片正文上限',
 			'settings.cardCapHint': '200–4000 字；超长内容请放资源附件。',
-			'sight.section.soul': '灵魂',
-			'sight.section.memory': '记忆',
-			'sight.section.ingest': '整理',
-			'sight.ingest.title': '会话整理',
-			'sight.ingest.hint': '闲时自动新建一个整理会话，把没整理过的会话提炼成记忆；只读用户与助手的文本，不含工具输出，摘录会发给模型。',
 			'sight.ingest.auto': '闲时自动整理',
 			'sight.ingest.on': '开',
 			'sight.ingest.off': '关',
@@ -103,13 +93,11 @@ window.__ModuleLoader__.load({
 			'sight.ingest.idleUnit': '分钟无活动后',
 			'sight.ingest.pending': '待整理',
 			'sight.ingest.processed': '已处理',
-			'sight.ingest.last': '上次完成',
-			'sight.ingest.never': '还没有整理记录',
 			'sight.ingest.unavailable': '宿主没有提供会话读取或模型调用能力。',
-			'sight.ingest.sessionsUnit': '个会话',
-			'sight.ingest.memoriesUnit': '条记忆',
 			'sight.ingest.run': '立即整理',
 			'sight.ingest.done': '整理完成',
+			'sight.ingest.sessionsUnit': '个会话',
+			'sight.ingest.memoriesUnit': '条记忆',
 			'tab.preferences': '偏好',
 			'tab.suggestions': '建议',
 			'tab.settings': '设置',
@@ -121,19 +109,11 @@ window.__ModuleLoader__.load({
 			'state.skipped': '跳过',
 			'action.refresh': '刷新',
 			'action.save': '保存',
-			'action.delete': '删除',
 			'action.close': '关闭',
-			'action.new': '新建',
-			'action.link': '设为全局加载',
-			'action.takeover': '接管这个链接',
 			'action.unlink': '移除全局链接',
-			'action.recall': '召回',
 			'state.loading': '读取中…',
 			'state.error': '读取失败',
-			'state.empty': '这里还没有内容。',
 			'state.saved': '已保存',
-			'state.deleted': '已删除',
-			'state.created': '已创建',
 			'state.linked': '已建立全局链接',
 			'overview.injection': '注入的上下文',
 			'overview.injection.hint': 'Agent 每次请求都会拿到这三块，别的地方都不占它的上下文。',
@@ -144,24 +124,8 @@ window.__ModuleLoader__.load({
 			'overview.root': '数据目录',
 			'overview.version': '版本',
 			'overview.budget': '预算',
-			'overview.bytes': '字节',
-			'overview.entries': '条目',
 			'overview.dropped': '未进索引',
 			'practice.index': '注入的索引',
-			'practice.entries': '条目',
-			'practice.problems': '问题',
-			'practice.query': '检索实践…',
-			'practice.empty': '这一类还没有条目。',
-			'practice.problem': '这条有问题',
-			'practice.new.kind': '类型',
-			'practice.new.name': '文件名',
-			'practice.new.title': '标题',
-			'practice.new.purpose': '用途（会出现在索引里）',
-			'practice.new.topic': '主题（可留空）',
-			'practice.new.body': '正文（Markdown）',
-			'practice.new.verified': '最后验证日期',
-			'practice.new.links': '关联条目（逗号分隔）',
-			'practice.truncated': '文件太大，只读取了开头；请先拆分再编辑。',
 			'soul.hint': '灵魂是 Agent 的人格与边界，每个会话都会被读到；一次性的经历属于见闻。',
 			'soul.content': '灵魂（Markdown）',
 			'prefs.hint': '这里是全局偏好。保存后由 DSH 的 AGENTS.md 加载器注入给每个会话。',
@@ -169,26 +133,15 @@ window.__ModuleLoader__.load({
 			'prefs.global': '全局加载',
 			'prefs.link.linked': '已链接',
 			'prefs.link.foreign': '被其他来源占用',
-			'prefs.link.file': '被一个独立文件占用',
 			'prefs.link.missing': '未链接',
-			'prefs.link.other': '状态未知',
-			'memory.hint': '见闻是 Agent 自己的记忆，按需召回，不会自动塞进上下文。',
-			'memory.list': '记忆',
-			'memory.recall': '召回记忆',
-			'memory.query': '关键词…',
-			'memory.empty': '还没有记忆。',
-			'memory.kind': '类型',
-			'suggestion.empty': '没有待办：实践与记忆都是健康的。',
+			'suggestion.empty': '没有待办：卡片库是健康的。',
 			'suggestion.problem': '结构问题',
 			'suggestion.stale': '久未验证',
 			'time.justNow': '刚刚',
 			'time.minutes': '{n} 分钟前',
 			'time.hours': '{n} 小时前',
 			'time.days': '{n} 天前',
-			'kind.doc': '文档',
-			'kind.tool': '工具',
-			'kind.resource': '资源',
-			'settings.hint': '数据目录决定实践、见闻与偏好放在哪里；云端备份把整个目录打包上传。',
+			'settings.hint': '数据目录决定卡片、灵魂与偏好放在哪里；云端备份把整个目录打包上传。',
 			'settings.data': '数据目录',
 			'settings.data.current': '当前目录',
 			'settings.data.new': '新目录（绝对路径）',
@@ -241,7 +194,7 @@ window.__ModuleLoader__.load({
 			'settings.embedding.dimensions': '维度',
 			'settings.embedding.aligned': '向量已对齐',
 			'settings.embedding.rebuilding': '向量重建中',
-			'settings.embedding.entries': '记忆条数',
+			'settings.embedding.entries': '卡片条数',
 			'settings.embedding.provider': '后端类型',
 			'settings.embedding.providerLocal': '本地哈希（零配置）',
 			'settings.embedding.providerModel': '本地 ONNX 模型',
@@ -292,8 +245,6 @@ window.__ModuleLoader__.load({
 		var en = {
 			'panel': 'Evolver',
 			'tab.overview': 'Overview',
-			'tab.practice': 'Practice',
-			'tab.sight': 'Sight',
 			'tab.cards': 'Cards',
 			'tab.soul': 'Soul',
 			'cards.new': 'New card',
@@ -305,7 +256,6 @@ window.__ModuleLoader__.load({
 			'cards.filter.archived': 'Archived',
 			'cards.empty': 'No cards yet.',
 			'cards.tags': 'Tags',
-			'cards.noTags': 'No tags',
 			'cards.tagReset': 'All tags',
 			'cards.editor.new': 'New card',
 			'cards.editor.edit': 'Edit card',
@@ -332,8 +282,6 @@ window.__ModuleLoader__.load({
 			'cards.noAttachments': 'No attachments',
 			'cards.links': 'Links to',
 			'cards.backlinks': 'Linked from',
-			'cards.missing': '(deleted)',
-			'cards.updated': 'Updated',
 			'cards.saved': 'Saved',
 			'cards.removed': 'Removed',
 			'cards.attachFailed': 'Could not read the attachment',
@@ -355,11 +303,6 @@ window.__ModuleLoader__.load({
 			'cards.category.tool-quirk': 'Tool quirk',
 			'settings.cardCap': 'Card body limit',
 			'settings.cardCapHint': '200–4000 characters; long content should be an attachment.',
-			'sight.section.soul': 'Soul',
-			'sight.section.memory': 'Memories',
-			'sight.section.ingest': 'Ingest',
-			'sight.ingest.title': 'Session ingest',
-			'sight.ingest.hint': 'On idle, a small session extracts memories from sessions that were never digested; only user and assistant text is read, never tool output, and the excerpt goes to the model.',
 			'sight.ingest.auto': 'Automatic on idle',
 			'sight.ingest.on': 'On',
 			'sight.ingest.off': 'Off',
@@ -367,13 +310,11 @@ window.__ModuleLoader__.load({
 			'sight.ingest.idleUnit': 'minutes without activity',
 			'sight.ingest.pending': 'Pending',
 			'sight.ingest.processed': 'Processed',
-			'sight.ingest.last': 'Last finished',
-			'sight.ingest.never': 'Nothing ingested yet',
 			'sight.ingest.unavailable': 'This host does not expose session reading or model calls.',
-			'sight.ingest.sessionsUnit': 'sessions',
-			'sight.ingest.memoriesUnit': 'memories',
 			'sight.ingest.run': 'Run now',
 			'sight.ingest.done': 'Ingest finished',
+			'sight.ingest.sessionsUnit': 'sessions',
+			'sight.ingest.memoriesUnit': 'memories',
 			'tab.preferences': 'Preferences',
 			'tab.suggestions': 'Suggestions',
 			'tab.settings': 'Settings',
@@ -385,19 +326,11 @@ window.__ModuleLoader__.load({
 			'state.skipped': 'skipped',
 			'action.refresh': 'Refresh',
 			'action.save': 'Save',
-			'action.delete': 'Delete',
 			'action.close': 'Close',
-			'action.new': 'New',
-			'action.link': 'Load globally',
-			'action.takeover': 'Take over this link',
 			'action.unlink': 'Remove the global link',
-			'action.recall': 'Recall',
 			'state.loading': 'Loading…',
 			'state.error': 'Failed to read',
-			'state.empty': 'Nothing here yet.',
 			'state.saved': 'Saved',
-			'state.deleted': 'Deleted',
-			'state.created': 'Created',
 			'state.linked': 'The global link is in place',
 			'overview.injection': 'Injected context',
 			'overview.injection.hint': 'The agent gets exactly these three blocks in every request.',
@@ -408,24 +341,8 @@ window.__ModuleLoader__.load({
 			'overview.root': 'Data folder',
 			'overview.version': 'Version',
 			'overview.budget': 'Budget',
-			'overview.bytes': 'Bytes',
-			'overview.entries': 'Entries',
 			'overview.dropped': 'Left out of the index',
 			'practice.index': 'Injected index',
-			'practice.entries': 'Entries',
-			'practice.problems': 'Problems',
-			'practice.query': 'Search the practice…',
-			'practice.empty': 'This kind has no entry yet.',
-			'practice.problem': 'This one has a problem',
-			'practice.new.kind': 'Kind',
-			'practice.new.name': 'File name',
-			'practice.new.title': 'Title',
-			'practice.new.purpose': 'Purpose (it shows up in the index)',
-			'practice.new.topic': 'Topic (optional)',
-			'practice.new.body': 'Body (Markdown)',
-			'practice.new.verified': 'Last verified',
-			'practice.new.links': 'Related entries (comma separated)',
-			'practice.truncated': 'The file is too large and was only partially read; split it before editing.',
 			'soul.hint': 'The soul is the agent’s persona and boundaries; it is read in every session.',
 			'soul.content': 'Soul (Markdown)',
 			'prefs.hint': 'Global preferences. DSH injects this file through its AGENTS.md loader.',
@@ -433,26 +350,15 @@ window.__ModuleLoader__.load({
 			'prefs.global': 'Global load',
 			'prefs.link.linked': 'linked',
 			'prefs.link.foreign': 'linked elsewhere',
-			'prefs.link.file': 'taken by a separate file',
 			'prefs.link.missing': 'not linked',
-			'prefs.link.other': 'unknown',
-			'memory.hint': 'Sight is what the agent remembers; it is recalled on demand, never pushed.',
-			'memory.list': 'Memories',
-			'memory.recall': 'Recall',
-			'memory.query': 'Keywords…',
-			'memory.empty': 'No memory yet.',
-			'memory.kind': 'Kind',
-			'suggestion.empty': 'Nothing to do: the practice and the memory are healthy.',
+			'suggestion.empty': 'Nothing to do: the card store is healthy.',
 			'suggestion.problem': 'Structure problem',
 			'suggestion.stale': 'Not verified for a while',
 			'time.justNow': 'just now',
 			'time.minutes': '{n} min ago',
 			'time.hours': '{n} h ago',
 			'time.days': '{n} d ago',
-			'kind.doc': 'Documents',
-			'kind.tool': 'Tools',
-			'kind.resource': 'Resources',
-			'settings.hint': 'The data folder holds the practice, sight and preferences; a cloud backup uploads the whole folder.',
+			'settings.hint': 'The data folder holds the cards, the soul and the preferences; a cloud backup uploads the whole folder.',
 			'settings.data': 'Data folder',
 			'settings.data.current': 'Current folder',
 			'settings.data.new': 'New folder (absolute path)',
@@ -505,7 +411,7 @@ window.__ModuleLoader__.load({
 			'settings.embedding.dimensions': 'Dimensions',
 			'settings.embedding.aligned': 'Vectors aligned',
 			'settings.embedding.rebuilding': 'Rebuilding vectors',
-			'settings.embedding.entries': 'Memories',
+			'settings.embedding.entries': 'Cards',
 			'settings.embedding.provider': 'Backend type',
 			'settings.embedding.providerLocal': 'Local hashing (no setup)',
 			'settings.embedding.providerModel': 'Local ONNX model',
@@ -567,13 +473,6 @@ window.__ModuleLoader__.load({
 			{ id: 'settings', label: 'tab.settings' },
 		];
 
-		/** The practice kinds, in index order. */
-		var KINDS = [
-			{ id: 'doc', title: 'kind.doc' },
-			{ id: 'tool', title: 'kind.tool' },
-			{ id: 'resource', title: 'kind.resource' },
-		];
-
 		//#endregion
 
 		//#region styles
@@ -608,7 +507,6 @@ window.__ModuleLoader__.load({
 			'.evrSection::after{content:"";flex:1;height:1px;background:var(--dsw-alias-border-l2)}',
 			'.evrRow{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);margin-bottom:6px;cursor:pointer;transition:border-color .15s ease,background .15s ease}',
 			'.evrRow:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2)}',
-			'.evrRowActive{border-color:var(--dsw-alias-state-business-primary)}',
 			'.evrRowMain{flex:1;min-width:0}',
 			'.evrRowTitle{font-size:13px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 			'.evrRowMeta{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -617,8 +515,6 @@ window.__ModuleLoader__.load({
 			'.evrToolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}',
 			'.evrInput{flex:1;min-width:160px;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;box-sizing:border-box}',
 			'.evrInput:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}',
-			'.evrSelect{height:30px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;box-sizing:border-box}',
-			'.evrSelect:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}',
 			'.evrBtn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;transition:background .15s ease,border-color .15s ease}',
 			'.evrBtn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l3)}',
 			'.evrBtn:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}',
@@ -626,11 +522,7 @@ window.__ModuleLoader__.load({
 			'.evrBtnDanger{color:var(--dsw-alias-state-error-primary)}',
 			'.evrBtn[disabled]{opacity:.5;cursor:default}',
 			'.evrTextarea{width:100%;min-height:220px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:12.5px;line-height:1.7;resize:vertical;box-sizing:border-box;tab-size:2}',
-			'.evrTextareaShort{min-height:96px}',
 			'.evrTextarea:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}',
-			'.evrEditor{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:16px;margin-top:12px;box-shadow:var(--dsw-elevation-soft)}',
-			'.evrEditorHead{display:flex;align-items:center;gap:10px;margin-bottom:10px}',
-			'.evrEditorTitle{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 			'.evrEditorFoot{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}',
 			'.evrField{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}',
 			'.evrFieldRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}',
@@ -641,9 +533,6 @@ window.__ModuleLoader__.load({
 			'.evrStatus{font-size:12px;margin-left:auto;color:var(--dsw-alias-label-tertiary)}',
 			'.evrStatusError{color:var(--dsw-alias-state-error-primary)}',
 			'.evrStatusOk{color:var(--dsw-alias-state-success-primary)}',
-			'.evrSplit{display:grid;grid-template-columns:minmax(240px,330px) 1fr;gap:16px;align-items:start}',
-			'@media (max-width:960px){.evrSplit{grid-template-columns:1fr}}',
-			'.evrList{max-height:calc(100vh - 300px);overflow:auto}',
 			'.evrMono{font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px}',
 			'.evrPre{white-space:pre-wrap;word-break:break-word;font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px;line-height:1.65;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);padding:10px 12px;margin:0}',
 			'.evrWarn{border-left:3px solid var(--dsw-alias-state-warn-primary);padding-left:10px}',
@@ -880,270 +769,6 @@ window.__ModuleLoader__.load({
 							h('span', { className: 'evrTag' }, item.kind === 'stale' ? t('suggestion.stale') : t('suggestion.problem')));
 					}))
 			);
-		}
-
-		/**
-		 * The practice: the entries, their index and the query tool.
-		 *
-		 * @param {object} props - Component props.
-		 * @returns {object} The element tree.
-		 */
-		function PracticeTab(props) {
-			var t = props.t;
-			var state = props.state ?? {};
-			var kind = props.kind;
-			var entries = (state.entries ?? []).filter(function (entry) { return entry.kind === kind; });
-			var editor = props.editor;
-
-			return h('div', null,
-				h('div', { className: 'evrToolbar' },
-					KINDS.map(function (item) {
-						return h('button', {
-							key: item.id,
-							type: 'button',
-							className: 'evrTab' + (item.id === kind ? ' evrTabActive' : ''),
-							onClick: function () { props.onKind(item.id); },
-						}, t(item.title));
-					}),
-					h('span', { className: 'evrStatus' }, t('practice.entries') + ' ' + entries.length),
-					h('button', {
-						type: 'button',
-						className: 'evrBtn evrBtnPrimary',
-						onClick: function () { props.onNew(kind); },
-					}, t('action.new'))),
-				entries.length === 0
-					? h(Empty, null, t('practice.empty'))
-					: h('div', { className: 'evrSplit' },
-						h('div', { className: 'evrList' }, entries.map(function (entry) {
-							return h('div', {
-								key: entry.path,
-								className: 'evrRow' + (props.selectedPath === entry.path ? ' evrRowActive' : ''),
-								onClick: function () { props.onOpen(entry.path); },
-							},
-								h('div', { className: 'evrRowMain' },
-									h('div', { className: 'evrRowTitle' }, entry.title),
-									h('div', { className: 'evrRowMeta' },
-										h('span', { className: 'evrTag' }, entry.topic),
-										h('span', null, entry.path + ' · ' + formatBytes(entry.bytes)))),
-								h('div', { className: 'evrRowTime' }, relativeTime(entry.updatedAt, t)));
-						})),
-						h('div', null, editor)),
-				h('div', { className: 'evrSection' }, t('practice.index')),
-				h('pre', { className: 'evrPre' }, (state.projection ?? {}).text ?? ''));
-		}
-
-		/**
-		 * The editor of one practice entry.
-		 *
-		 * @param {object} props - Component props.
-		 * @returns {object} The element tree.
-		 */
-		function PracticeEditor(props) {
-			var t = props.t;
-			var draft = props.draft;
-			if (draft === null || draft === undefined) {
-				return h('div', { className: 'evrEditor' }, h(Empty, null, t('state.empty')));
-			}
-			return h('div', { className: 'evrEditor' },
-				h('div', { className: 'evrEditorHead' },
-					h('span', { className: 'evrTag' }, draft.topic || t('practice.new.topic')),
-					h('span', { className: 'evrEditorTitle' }, draft.title || t('practice.new.title')),
-					h('span', { className: 'evrStatus' }, draft.path ?? '')),
-				draft.truncated === true
-					? h('div', { className: 'evrHint evrWarn', style: { marginBottom: '10px' } }, t('practice.truncated'))
-					: null,
-				h('div', { className: 'evrFieldRow' },
-					h(Field, { label: t('practice.new.title') },
-						h('input', {
-							className: 'evrInput',
-							value: draft.title ?? '',
-							onChange: function (event) { props.onChange({ title: event.target.value }); },
-						})),
-					h(Field, { label: t('practice.new.purpose') },
-						h('input', {
-							className: 'evrInput',
-							value: draft.purpose ?? '',
-							onChange: function (event) { props.onChange({ purpose: event.target.value }); },
-						}))),
-				h('div', { className: 'evrFieldRow' },
-					h(Field, { label: t('practice.new.topic') },
-						h('input', {
-							className: 'evrInput',
-							value: draft.topic ?? '',
-							onChange: function (event) { props.onChange({ topic: event.target.value }); },
-						})),
-					h(Field, { label: t('practice.new.verified') },
-						h('input', {
-							className: 'evrInput',
-							value: draft.verified ?? '',
-							placeholder: 'YYYY-MM-DD',
-							onChange: function (event) { props.onChange({ verified: event.target.value }); },
-						}))),
-				h(Field, { label: t('practice.new.links') },
-					h('input', {
-						className: 'evrInput',
-						value: (draft.links ?? []).join(', '),
-						placeholder: 'slug-a, slug-b',
-						onChange: function (event) { props.onChange({ links: event.target.value.split(',').map(function (item) { return item.trim(); }).filter(function (item) { return item !== ''; }) }); },
-					})),
-				h(Field, { label: t('practice.new.body') },
-					h('textarea', {
-						className: 'evrTextarea',
-						value: draft.body ?? '',
-						onChange: function (event) { props.onChange({ body: event.target.value }); },
-					})),
-				h('div', { className: 'evrEditorFoot' },
-					h('button', {
-						type: 'button',
-						className: 'evrBtn evrBtnPrimary',
-						disabled: props.busy,
-						onClick: function () { props.onSave(); },
-					}, t('action.save')),
-					draft.path === undefined || draft.path === ''
-						? null
-						: h('button', {
-							type: 'button',
-							className: 'evrBtn evrBtnDanger',
-							disabled: props.busy,
-							onClick: function () { props.onDelete(); },
-						}, t('action.delete')),
-					h('button', {
-						type: 'button',
-						className: 'evrBtn',
-						disabled: props.busy,
-						onClick: function () { props.onClose(); },
-					}, t('action.close')),
-					props.status === undefined || props.status === null
-						? null
-						: h('span', { className: 'evrStatus' + (props.status.error ? ' evrStatusError' : ' evrStatusOk') }, props.status.message)));
-		}
-
-		/**
-		 * The sight: the soul and the memories.
-		 *
-		 * @param {object} props - Component props.
-		 * @returns {object} The element tree.
-		 */
-		function SightTab(props) {
-			var t = props.t;
-			var soul = props.soul;
-			var memories = props.memories ?? [];
-			var [section, setSection] = useState('soul');
-			var ingestForm = props.ingestDraft || ingestFormOf(props.ingest);
-			var setIngest = function (patch) { props.onIngestDraft(patch); };
-			var sections = [
-				{ id: 'soul', label: t('sight.section.soul') },
-				{ id: 'memory', label: t('sight.section.memory') },
-				{ id: 'ingest', label: t('sight.section.ingest') },
-			];
-			return h('div', null,
-				h('div', { className: 'evrToolbar', role: 'tablist' }, sections.map(function (item) {
-					return h('button', {
-						key: item.id,
-						type: 'button',
-						role: 'tab',
-						'aria-selected': section === item.id,
-						className: 'evrTab' + (section === item.id ? ' evrTabActive' : ''),
-						onClick: function () { setSection(item.id); },
-					}, item.label);
-				})),
-				section === 'soul' ? h('div', null,
-					h('div', { className: 'evrSection' }, t('soul.content')),
-					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('soul.hint')),
-					h('textarea', {
-						className: 'evrTextarea',
-						value: soul?.content ?? '',
-						onChange: function (event) { props.onSoulChange(event.target.value); },
-					}),
-					h('div', { className: 'evrEditorFoot' },
-						h('button', {
-							type: 'button',
-							className: 'evrBtn evrBtnPrimary',
-							disabled: props.busy,
-							onClick: function () { props.onSoulSave(); },
-						}, t('action.save')),
-						props.status === undefined || props.status === null
-							? null
-							: h('span', { className: 'evrStatus' + (props.status.error ? ' evrStatusError' : ' evrStatusOk') }, props.status.message))) : null,
-				section === 'memory' ? h('div', null,
-					h('div', { className: 'evrSection' }, t('memory.list')),
-					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('memory.hint')),
-					h('div', { className: 'evrToolbar' },
-						h('input', {
-							className: 'evrInput',
-							type: 'search',
-							value: props.query ?? '',
-							placeholder: t('memory.query'),
-							onChange: function (event) { props.onQuery(event.target.value); },
-						}),
-						h('button', {
-							type: 'button',
-							className: 'evrBtn',
-							disabled: props.busy,
-							onClick: function () { props.onRecall(); },
-						}, t('action.recall'))),
-					memories.length === 0
-						? h(Empty, null, t('memory.empty'))
-						: h('div', null, memories.map(function (item) {
-							return h('div', {
-								key: item.id,
-								className: 'evrRow',
-								style: { cursor: 'default' },
-							},
-								h('div', { className: 'evrRowMain' },
-									h('div', { className: 'evrRowTitle' }, item.text ?? ''),
-									h('div', { className: 'evrRowMeta' },
-										h('span', { className: 'evrTag' }, item.kind),
-										h('span', null, item.scope ?? ''))),
-								h('div', { className: 'evrRowTime' }, item.score === undefined ? '' : String(item.score)));
-						}))) : null,
-				section === 'ingest' ? h('div', null,
-					h('div', { className: 'evrSection' }, t('sight.ingest.title')),
-					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('sight.ingest.hint')),
-					props.ingest === null || props.ingest === undefined
-						? h(Empty, null, t('state.loading'))
-						: h('div', null,
-							h('div', { className: 'evrCard' },
-								h('div', { className: 'evrCardHead' },
-									h('span', { className: 'evrCardTitle' }, t('sight.ingest.auto')),
-									h('span', { className: 'evrCardCount' }, props.ingest.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
-								h('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' } },
-									h('input', {
-										type: 'checkbox',
-										checked: ingestForm.enabled,
-										onChange: function (event) { setIngest({ enabled: event.target.checked }); },
-									}),
-									t('sight.ingest.enable')),
-								h('div', { className: 'evrToolbar' },
-									h('input', {
-										className: 'evrInput',
-										type: 'number',
-										min: 5,
-										max: 240,
-										value: ingestForm.idleMinutes,
-										onChange: function (event) { setIngest({ idleMinutes: Number(event.target.value) }); },
-									}),
-									h('span', { className: 'evrHint' }, t('sight.ingest.idleUnit')),
-									h('button', {
-										type: 'button',
-										className: 'evrBtn',
-										disabled: props.busy,
-										onClick: function () { props.onIngestSave(ingestForm); },
-									}, t('action.save')))),
-							h('div', { className: 'evrHint' },
-								props.ingest.available
-									? t('sight.ingest.pending') + ': ' + (props.ingest.pending ?? 0) + ' · ' + t('sight.ingest.processed') + ': ' + (props.ingest.ledger?.processed ?? 0)
-									: t('sight.ingest.unavailable')),
-							h('div', { className: 'evrHint evrMono' },
-								props.ingest.ledger?.lastCommitAt
-									? t('sight.ingest.last') + ': ' + String(props.ingest.ledger.lastCommitAt).replace('T', ' ').slice(0, 16)
-									: t('sight.ingest.never')),
-							h('button', {
-								type: 'button',
-								className: 'evrBtn evrBtnPrimary',
-								disabled: props.busy || !props.ingest.available,
-								onClick: props.onIngestRun,
-							}, t('sight.ingest.run')))) : null);
 		}
 
 		/**
@@ -1827,7 +1452,7 @@ window.__ModuleLoader__.load({
 							t('settings.embedding.backend') + ': ' + (store.embedder || '—')
 							+ ' · ' + t('settings.embedding.dimensions') + ': ' + (store.dimensions || '—')
 							+ ' · ' + (store.aligned ? t('settings.embedding.aligned') : t('settings.embedding.rebuilding'))
-							+ ' · ' + t('settings.embedding.entries') + ': ' + (store.entries ?? 0))),
+							+ ' · ' + t('settings.embedding.entries') + ': ' + (store.cards ?? store.entries ?? 0))),
 					status.legacy && status.legacy.bytes > 0
 						? h('div', { className: 'evrCard' },
 							h('div', { className: 'evrCardHead' },
@@ -2180,7 +1805,6 @@ window.__ModuleLoader__.load({
 			var [tab, setTab] = useState('overview');
 			var [overview, setOverview] = useState(null);
 			var [injection, setInjection] = useState(null);
-			var [practice, setPractice] = useState(null);
 			var [soul, setSoul] = useState(null);
 			var [preferences, setPreferences] = useState(null);
 			var [settings, setSettings] = useState(null);
@@ -2193,14 +1817,10 @@ window.__ModuleLoader__.load({
 			var [cardFilter, setCardFilter] = useState({ type: '', status: '', tag: '', query: '' });
 			var [cardDetail, setCardDetail] = useState(null);
 			var [cardEditor, setCardEditor] = useState(null);
-			var [memories, setMemories] = useState([]);
-			var [kind, setKind] = useState('doc');
-			var [editor, setEditor] = useState(null);
 			var [status, setStatus] = useState(null);
 			var [toast, setToast] = useState(null);
 			var [busy, setBusy] = useState(false);
 			var [error, setError] = useState(null);
-			var [query, setQuery] = useState('');
 
 			var report = useCallback(function (message, isError) {
 				setStatus({ message: message, error: isError === true });
@@ -2220,10 +1840,8 @@ window.__ModuleLoader__.load({
 				return Promise.all([
 					call('overview'),
 					call('injection'),
-					call('practice'),
 					call('soul'),
 					call('preferences'),
-					call('memory-list', { limit: 20 }),
 					call('settings'),
 					call('embedding-status'),
 					call('ingest-status'),
@@ -2231,16 +1849,14 @@ window.__ModuleLoader__.load({
 				]).then(function (results) {
 					setOverview(results[0]);
 					setInjection(results[1]);
-					setPractice(results[2]);
-					setSoul(results[3]);
-					setPreferences(results[4]);
-					setMemories(results[5]?.results ?? []);
-					setSettings(results[6]);
-					setEmbedding(results[7]);
-					setEmbeddingDraft(function (current) { return current === null || current === undefined ? embeddingFormOf(results[7]) : current; });
-					setIngest(results[8]);
-					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(results[8]) : current; });
-					setCards(results[9]);
+					setSoul(results[2]);
+					setPreferences(results[3]);
+					setSettings(results[4]);
+					setEmbedding(results[5]);
+					setEmbeddingDraft(function (current) { return current === null || current === undefined ? embeddingFormOf(results[5]) : current; });
+					setIngest(results[6]);
+					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(results[6]) : current; });
+					setCards(results[7]);
 					setError(null);
 				}).catch(function (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
@@ -2250,90 +1866,6 @@ window.__ModuleLoader__.load({
 			useEffect(function () {
 				void loadAll();
 			}, [loadAll]);
-
-			var refreshPractice = useCallback(function () {
-				return call('practice').then(function (value) {
-					setPractice(value);
-					return value;
-				});
-			}, [call]);
-
-			var openEntry = useCallback(function (path) {
-				setBusy(true);
-				return call('practice-read', { path: path }).then(function (entry) {
-					setEditor({
-						path: entry.path,
-						kind: entry.kind,
-						name: entry.path.split('/').pop(),
-						topic: entry.topic,
-						title: entry.title,
-						purpose: entry.purpose,
-						verified: entry.verified,
-						links: entry.links ?? [],
-						body: entry.content ?? '',
-						truncated: entry.truncated === true,
-					});
-					setStatus(null);
-				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
-				}).finally(function () { setBusy(false); });
-			}, [call, report]);
-
-			var newEntry = useCallback(function (entryKind) {
-				setEditor({
-					path: '',
-					kind: entryKind,
-					name: 'new-note.md',
-					topic: '',
-					title: '',
-					purpose: '',
-					verified: new Date().toISOString().slice(0, 10),
-					links: [],
-					body: '',
-					truncated: false,
-				});
-				setStatus(null);
-			}, []);
-
-			var saveEntry = useCallback(function () {
-				if (editor === null) return;
-				setBusy(true);
-				var payload = {
-					kind: editor.kind,
-					name: editor.name,
-					title: editor.title,
-					purpose: editor.purpose,
-					topic: editor.topic,
-					body: editor.body,
-					verified: editor.verified,
-					links: editor.links ?? [],
-				};
-				call('practice-write', payload).then(function (saved) {
-					report(t('state.saved'), false);
-					setEditor(function (previous) {
-						return previous === null ? null : { ...previous, path: saved.path };
-					});
-					return Promise.all([refreshPractice(), call('injection')]).then(function (results) {
-						setInjection(results[1]);
-					});
-				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
-				}).finally(function () { setBusy(false); });
-			}, [call, editor, refreshPractice, report, t]);
-
-			var deleteEntry = useCallback(function () {
-				if (editor === null || editor.path === '') return;
-				setBusy(true);
-				call('practice-delete', { path: editor.path }).then(function () {
-					setEditor(null);
-					report(t('state.deleted'), false);
-					return Promise.all([refreshPractice(), call('injection')]).then(function (results) {
-						setInjection(results[1]);
-					});
-				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
-				}).finally(function () { setBusy(false); });
-			}, [call, editor, refreshPractice, report, t]);
 
 			var saveSoul = useCallback(function () {
 				setBusy(true);
@@ -2381,16 +1913,6 @@ window.__ModuleLoader__.load({
 					report(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
 			}, [call, report, t]);
-
-			var recall = useCallback(function () {
-				setBusy(true);
-				call('memory-recall', { query: query, limit: 20 }).then(function (value) {
-					setMemories(value?.results ?? []);
-				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
-				}).finally(function () { setBusy(false); });
-			}, [call, query, report]);
-
 
 			var saveCardCap = useCallback(function (value) {
 				setBusy(true);

@@ -13,7 +13,7 @@ import { fakeOss } from './support/fake-oss.mjs'
 
 test('tar 往返：普通、二进制、中文与长路径', () => {
 	const files = [
-		{ path: 'practice/INDEX.md', content: '# 索引\n' },
+		{ path: 'knowledge/cards/cards.jsonl', content: '{}\n' },
 		{ path: 'sight/memory/memories.jsonl', content: '{"id":"m1","text":"x"}\n' },
 		{ path: 'practice/docs/演化器/审计.md', content: '中文正文' },
 		{ path: 'binary.bin', content: Buffer.from([0, 1, 2, 255, 0, 7]) },
@@ -137,9 +137,9 @@ test('OSS 错误响应转成可读信息', async () => {
 async function serviceFixture({ keep = 2, enabled = true, now } = {}) {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-backup-'))
 	const dataDir = join(dir, 'data')
-	await mkdir(join(dataDir, 'practice'), { recursive: true })
+	await mkdir(join(dataDir, 'knowledge', 'cards'), { recursive: true })
 	await mkdir(join(dataDir, 'sight', 'memory'), { recursive: true })
-	await writeFile(join(dataDir, 'practice', 'INDEX.md'), '# 索引\n', 'utf8')
+	await writeFile(join(dataDir, 'knowledge', 'cards', 'cards.jsonl'), '{}\n', 'utf8')
 	await writeFile(join(dataDir, 'sight', 'memory', 'memories.jsonl'), '{"id":"m1"}\n', 'utf8')
 
 	const settings = new SettingsStore({ path: join(dir, 'settings.json') })
@@ -208,7 +208,7 @@ test('备份上传一个 tar，并按保留份数删除最旧的', async () => {
 
 		const restored = readTar(fixture.objects.get(result.key))
 		assert.deepEqual(restored.map((file) => file.path).sort(), [
-			'practice/INDEX.md',
+			'knowledge/cards/cards.jsonl',
 			'sight/memory/memories.jsonl',
 		])
 		const status = fixture.settings.get().status

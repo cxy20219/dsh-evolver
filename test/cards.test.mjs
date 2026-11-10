@@ -9,6 +9,7 @@ import { normalizeTag, normalizeTags, buildTagTree } from '../src/cards/tags.js'
 import { safeResourceName } from '../src/cards/resources.js'
 import { CardStore, labelOf } from '../src/cards/store.js'
 import { migrateToCards } from '../src/cards/migrate.js'
+import { seedStarterCards } from '../src/cards/seed.js'
 
 /**
  * A card store on a temporary folder.
@@ -124,6 +125,25 @@ test('卡片上限拒绝超长正文，迁移留下的超限卡可保留', async
 	}
 })
 
+test('新数据目录直接种下三张种子卡，而不是先建旧实践树', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const seeded = await seedStarterCards(store)
+		assert.equal(seeded, 3)
+		const cards = store.all()
+		assert.equal(cards.length, 3)
+		assert.equal(cards.every((card) => card.type === 'permanent' && card.status === 'verified'), true)
+		const effective = cards.find((card) => card.label === '确认插件改动是否生效')
+		assert.ok(effective)
+		const read = await store.read(effective.id)
+		assert.match(read.resourceContents[0].text, /## 现象/)
+		assert.equal(await seedStarterCards(store), 0)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
 test('迁移实践和记忆：长文进资源、链接映射、重复运行跳过', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-migrate-'))
 	const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
@@ -203,6 +223,19 @@ test('迁移实践和记忆：长文进资源、链接映射、重复运行跳�
 		assert.equal(marker.practice, 3)
 		const second = await migrateToCards({ dataDir: dir, store })
 		assert.equal(second.skipped, true)
+		assert.equal(second.practice, 0)
+		assert.equal(second.memory, 0)
+		assert.equal(store.all().length, 4)
+
+		// A late write to the old tree is caught on the next start without
+		// duplicating the cards that were already imported.
+		await writeFile(join(dir, 'practice', 'docs', '验证', 'c.md'), '---\ntitle: 丙文档\npurpose: 后来补的\nkind: doc\ntopic: 验证\nverified: 2026-11-10\nlinks: [b]\n---\n\n丙正文\n')
+		const third = await migrateToCards({ dataDir: dir, store })
+		assert.equal(third.practice, 1)
+		assert.equal(store.all().length, 5)
+		const c = store.all().find((card) => card.label === '丙文档')
+		assert.ok(c)
+		assert.deepEqual(c.links, [b.id])
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
