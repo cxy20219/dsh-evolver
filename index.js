@@ -17,7 +17,7 @@
  * the Connection service the Host already provides.
  */
 
-import { lstat, readFile, realpath } from 'node:fs/promises'
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { MAX_ARCHIVE_BYTES, packDataDir, restoreEntries, unpackArchive, writeArchive } from './src/backup/archive.js'
@@ -286,8 +286,25 @@ export async function apply(ctx, config) {
 		 * @param {{force?: boolean}} [options] - Overwrite behaviour.
 		 * @returns {Promise<object>} What happened.
 		 */
-		async exportTo(file, { force = false } = {}) {
-			const target = requestPath(file)
+		async exportTo({ file = '', dir = '', name = '', force = false } = {}) {
+			let target
+			const explicit = String(file ?? '').trim()
+			if (explicit !== '') {
+				target = requestPath(explicit)
+			} else {
+				// The panel offers a folder picker plus a name field; the two
+				// are joined here so the client never has to know the separator.
+				const folder = requestPath(dir)
+				if (!(await isDirectory(folder))) throw new Error(`导出目录不存在：${folder}`)
+				let fileName = String(name ?? '').trim()
+				if (fileName === '' || fileName.length > 128 || /[\\/\u0000\r\n]/.test(fileName) || /^\.+$/.test(fileName)) {
+					throw new Error(`文件名不合法：${fileName === '' ? '（空）' : fileName}`)
+				}
+				// Always end with an archive suffix, otherwise the import
+				// browser would not find the file it just wrote.
+				if (!/\.(tar\.gz|tgz|tar)$/i.test(fileName)) fileName += '.tar.gz'
+				target = join(folder, fileName)
+			}
 			const current = await canonicalPath(evolver.root)
 			if (isInsidePath(current, await canonicalPath(target))) {
 				throw new Error('导出文件不能放在数据目录里面。')
@@ -313,6 +330,32 @@ export async function apply(ctx, config) {
 		 * @param {{force?: boolean}} [options] - Overwrite behaviour.
 		 * @returns {Promise<object>} What happened.
 		 */
+		/**
+		 * List the archives in one folder.
+		 *
+		 * The client has a folder picker but no file picker, so the flow is
+		 * "pick a folder, choose one of its archives"; this is that second
+		 * step. Only our three archive suffixes are returned.
+		 *
+		 * @param {unknown} dir - The folder.
+		 * @returns {Promise<object>} The folder and its archives, newest first.
+		 */
+		async listArchives(dir) {
+			const folder = requestPath(dir)
+			if (!(await isDirectory(folder))) throw new Error(`目录不存在：${folder}`)
+			const names = await readdir(folder).catch(() => [])
+			const files = []
+			for (const name of names) {
+				if (!/\.(tar\.gz|tgz|tar)$/i.test(name)) continue
+				const path = join(folder, name)
+				const info = await lstat(path).catch(() => undefined)
+				if (info === undefined || !info.isFile()) continue
+				files.push({ name, path, size: info.size, updatedAt: info.mtime.toISOString() })
+			}
+			files.sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)) || left.name.localeCompare(right.name))
+			return { dir: folder, files: files.slice(0, 200) }
+		},
+
 		async importFrom(file, { force = false } = {}) {
 			const source = requestPath(file)
 			const info = await lstat(source).catch(() => undefined)

@@ -111,7 +111,7 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 		try {
 			assert.equal(tools.length, 9)
 			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:practice', 'dsh-evolver:soul'])
-			assert.equal(routes.size, 25)
+			assert.equal(routes.size, 26)
 			assert.match(sections[0].text(), /\[实践\]/)
 
 			const overview = await (await post(routes, 'overview', {})).json()
@@ -212,7 +212,7 @@ test('导出、导入与迁移数据目录', async () => {
 		await apply(ctx, { dataDir: root })
 		try {
 			const archive = join(home, 'evolver-backup.tar.gz')
-			const exported = await (await post(routes, 'data-export', { file: archive })).json()
+			const exported = await (await post(routes, 'data-export', { dir: home, name: 'evolver-backup.tar.gz' })).json()
 			assert.equal(exported.file, archive)
 			assert.ok(exported.bytes > 0)
 			assert.ok(exported.files >= 2)
@@ -247,6 +247,27 @@ test('导出、导入与迁移数据目录', async () => {
 			const fromTar = await (await post(routes, 'data-import', { file: plain })).json()
 			assert.ok(fromTar.files >= 1)
 			await readFile(join(root, 'practice', 'docs', 'plain.md'), 'utf8')
+
+			// 浏览压缩包：只列支持的三种后缀，并带上路径与大小
+			await writeFile(join(home, 'notes.txt'), 'x', 'utf8')
+			const listing = await (await post(routes, 'data-archives', { dir: home })).json()
+			assert.equal(listing.dir, home)
+			const names = listing.files.map((item) => item.name)
+			assert.ok(names.includes('evolver-backup.tar.gz'))
+			assert.ok(names.includes('second.tar.gz'))
+			assert.ok(names.includes('snapshot.tar'))
+			assert.equal(names.includes('notes.txt'), false)
+			assert.ok(listing.files.every((item) => typeof item.path === 'string' && item.path.startsWith(home)))
+			assert.ok(listing.files.every((item) => item.size > 0))
+
+			// 文件名里带路径分隔符或纯点号会被拒绝
+			const badName = await post(routes, 'data-export', { dir: home, name: '../evil.tar.gz' })
+			assert.equal(badName.status, 400)
+
+			// 中文文件名可用；没有后缀时自动补 .tar.gz
+			const chinese = await (await post(routes, 'data-export', { dir: home, name: '备份' })).json()
+			assert.equal(chinese.file, join(home, '备份.tar.gz'))
+			assert.ok(chinese.bytes > 0)
 
 			// 不是压缩包的内容给出明确错误
 			const junk = join(home, 'junk.tar.gz')

@@ -124,7 +124,10 @@ window.__ModuleLoader__.load({
 			'settings.pick.unavailable': '系统目录选择不可用，请手动输入绝对路径。',
 			'settings.transfer': '导入 / 导出',
 			'settings.transfer.hint': '导出会生成一个 .tar.gz 压缩包（整份数据目录）；导入支持 .tar.gz / .tgz / .tar，默认不覆盖同名文件。',
-			'settings.transfer.exportPath': '导出到（.tar.gz 文件）',
+			'settings.transfer.exportPath': '导出目录',
+			'settings.transfer.exportName': '文件名',
+			'settings.transfer.archives': '这个目录里的压缩包',
+			'settings.transfer.noArchives': '这个目录里没有 .tar.gz / .tgz / .tar 文件。',
 			'settings.transfer.importPath': '从压缩包导入（.tar.gz / .tgz / .tar）',
 			'settings.transfer.force': '覆盖同名文件',
 			'settings.action.export': '导出',
@@ -259,7 +262,10 @@ window.__ModuleLoader__.load({
 			'settings.pick.unavailable': 'The system folder picker is unavailable; type an absolute path.',
 			'settings.transfer': 'Import / export',
 			'settings.transfer.hint': 'Export writes one .tar.gz archive of the whole data folder; import accepts .tar.gz / .tgz / .tar and does not overwrite by default.',
-			'settings.transfer.exportPath': 'Export to (.tar.gz file)',
+			'settings.transfer.exportPath': 'Export folder',
+			'settings.transfer.exportName': 'File name',
+			'settings.transfer.archives': 'Archives in that folder',
+			'settings.transfer.noArchives': 'No .tar.gz / .tgz / .tar files in that folder.',
 			'settings.transfer.importPath': 'Import from an archive (.tar.gz / .tgz / .tar)',
 			'settings.transfer.force': 'Overwrite existing files',
 			'settings.action.export': 'Export',
@@ -927,6 +933,8 @@ window.__ModuleLoader__.load({
 			var [dataDir, setDataDir] = useState('');
 			var [dataForce, setDataForce] = useState(false);
 			var [exportDir, setExportDir] = useState('');
+			var [exportName, setExportName] = useState('');
+			var [archiveList, setArchiveList] = useState(null);
 			var [importDir, setImportDir] = useState('');
 			var [transferForce, setTransferForce] = useState(false);
 
@@ -935,10 +943,14 @@ window.__ModuleLoader__.load({
 			}, [settings]);
 
 			useEffect(function () {
-				if (exportDir === '' && settings && typeof settings.suggestedArchive === 'string' && settings.suggestedArchive !== '') {
-					setExportDir(settings.suggestedArchive);
+				if (!settings) return;
+				if (exportDir === '' && typeof settings.suggestedArchiveDir === 'string') {
+					setExportDir(settings.suggestedArchiveDir);
 				}
-			}, [settings, exportDir]);
+				if (exportName === '' && typeof settings.suggestedArchiveName === 'string') {
+					setExportName(settings.suggestedArchiveName);
+				}
+			}, [settings, exportDir, exportName]);
 
 			if (settings === null || settings === undefined) return h(Spinner, null, t('state.loading'));
 
@@ -987,6 +999,44 @@ window.__ModuleLoader__.load({
 					keep: Number(form.keep),
 					intervalMinutes: Number(form.intervalMinutes),
 				});
+			}
+
+			/**
+			 * Pick a folder and list the archives inside it.
+			 *
+			 * @returns {void}
+			 */
+			function browseArchives() {
+				if (typeof props.onBrowseArchives !== 'function') return;
+				props.onBrowseArchives().then(function (value) {
+					if (value && Array.isArray(value.files)) setArchiveList(value);
+				});
+			}
+
+			/**
+			 * The archives the folder picker found.
+			 *
+			 * @returns {object | null} The list card.
+			 */
+			function renderArchiveList() {
+				if (archiveList === null) return null;
+				var files = Array.isArray(archiveList.files) ? archiveList.files : [];
+				return h('div', { className: 'evrCard', style: { marginTop: '8px' } },
+					h('div', { className: 'evrCardHead' },
+						h('span', { className: 'evrCardTitle' }, t('settings.transfer.archives')),
+						h('span', { className: 'evrCardCount' }, String(files.length))),
+					files.length === 0
+						? h('div', { className: 'evrCardHint' }, t('settings.transfer.noArchives'))
+						: h('div', null, files.map(function (item) {
+							return h('div', {
+								key: item.path,
+								className: 'evrRow',
+								onClick: function () { setImportDir(item.path); },
+							},
+								h('div', { className: 'evrRowMain' },
+									h('div', { className: 'evrRowTitle' }, item.name),
+									h('div', { className: 'evrRowMeta' }, formatBytes(item.size) + ' · ' + relativeTime(item.updatedAt, t))));
+						})));
 			}
 
 			/**
@@ -1059,19 +1109,29 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.transfer.hint')),
 				h('div', { className: 'evrFieldRow' },
 					h(Field, { label: t('settings.transfer.exportPath') },
+						pathField(setExportDir, exportDir, '/Users/you/Desktop')),
+					h(Field, { label: t('settings.transfer.exportName') },
 						h('input', {
 							className: 'evrInput',
-							value: exportDir,
-							placeholder: '/Users/you/Desktop/dsh-evolver-20260101-120000.tar.gz',
-							onChange: function (event) { setExportDir(event.target.value); },
-						})),
-					h(Field, { label: t('settings.transfer.importPath') },
+							value: exportName,
+							placeholder: 'dsh-evolver-20260101-120000.tar.gz',
+							onChange: function (event) { setExportName(event.target.value); },
+						}))),
+				h(Field, { label: t('settings.transfer.importPath') },
+					h('div', { style: { display: 'flex', gap: '6px' } },
 						h('input', {
 							className: 'evrInput',
 							value: importDir,
 							placeholder: '/Users/you/Desktop/dsh-evolver-20260101-120000.tar.gz',
 							onChange: function (event) { setImportDir(event.target.value); },
-						}))),
+						}),
+						h('button', {
+							type: 'button',
+							className: 'evrBtn',
+							disabled: busy,
+							onClick: browseArchives,
+						}, t('settings.action.pick')))),
+				renderArchiveList(),
 				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' } },
 					h('input', { type: 'checkbox', checked: transferForce, onChange: function (event) { setTransferForce(event.target.checked); } }),
 					t('settings.transfer.force')),
@@ -1079,8 +1139,8 @@ window.__ModuleLoader__.load({
 					h('button', {
 						type: 'button',
 						className: 'evrBtn',
-						disabled: busy || exportDir.trim() === '',
-						onClick: function () { props.onExport(exportDir.trim(), transferForce); },
+						disabled: busy || exportDir.trim() === '' || exportName.trim() === '',
+						onClick: function () { props.onExport(exportDir.trim(), exportName.trim(), transferForce); },
 					}, t('settings.action.export')),
 					h('button', {
 						type: 'button',
@@ -1419,10 +1479,10 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, loadAll, report, t]);
 
-			var exportData = useCallback(function (dir, force) {
+			var exportData = useCallback(function (dir, name, force) {
 				setBusy(true);
 				report(t('state.working'), false);
-				call('data-export', { file: dir, force: force }).then(function (value) {
+				call('data-export', { dir: dir, name: name, force: force }).then(function (value) {
 					report(t('state.exported') + ' → ' + String(value.file ?? dir) + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
 				}).catch(function (reason) {
 					report(reason instanceof Error ? reason.message : String(reason), true);
@@ -1472,6 +1532,24 @@ window.__ModuleLoader__.load({
 					return null;
 				});
 			}, [ctx, report, t]);
+
+			var browseArchives = useCallback(function () {
+				var service = ctx.get('uiWorkspace');
+				if (service === undefined || typeof service.pickDirectory !== 'function') {
+					report(t('settings.pick.unavailable'), true);
+					return Promise.resolve(null);
+				}
+				return Promise.resolve(service.pickDirectory()).then(function (dir) {
+					if (typeof dir !== 'string' || dir === '') return null;
+					return call('data-archives', { dir: dir }).catch(function (reason) {
+						report(reason instanceof Error ? reason.message : String(reason), true);
+						return null;
+					});
+				}).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+					return null;
+				});
+			}, [call, ctx, report, t]);
 
 			var body = null;
 			if (error !== null) {
@@ -1543,6 +1621,7 @@ window.__ModuleLoader__.load({
 					onBackupNow: backupNow,
 					onTestBackup: testBackup,
 					onPickDirectory: pickDirectory,
+					onBrowseArchives: browseArchives,
 				});
 			} else {
 				body = h(SuggestionsTab, { t: t, suggestions: overview?.suggestions ?? [] });

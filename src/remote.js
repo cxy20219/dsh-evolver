@@ -37,6 +37,7 @@ export const ENDPOINTS = [
 	'data-migrate',
 	'data-export',
 	'data-import',
+	'data-archives',
 	'backup-now',
 	'backup-test',
 ]
@@ -200,7 +201,18 @@ export function createEvolverHandler({ evolver, memory, settings, backup, worksp
 					return { ok: true, value: { ...moved, settings: view() } }
 				}
 				case 'data-export': {
-					return { ok: true, value: await workspace.exportTo(text(payload, 'file'), { force: payload?.force === true }) }
+					return {
+						ok: true,
+						value: await workspace.exportTo({
+							file: text(payload, 'file'),
+							dir: text(payload, 'dir'),
+							name: text(payload, 'name'),
+							force: payload?.force === true,
+						}),
+					}
+				}
+				case 'data-archives': {
+					return { ok: true, value: await workspace.listArchives(text(payload, 'dir')) }
 				}
 				case 'data-import': {
 					const imported = await workspace.importFrom(text(payload, 'file'), { force: payload?.force === true })

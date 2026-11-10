@@ -82,6 +82,16 @@ function archiveStamp(date = new Date()) {
 }
 
 /**
+ * The filename the export field starts with.
+ *
+ * @param {Date} [date] - The time.
+ * @returns {string} The suggested name.
+ */
+function suggestedArchiveName(date = new Date()) {
+	return `dsh-evolver-${archiveStamp(date)}.tar.gz`
+}
+
+/**
  * Read a string, trimmed and clamped.
  *
  * @param {unknown} value - The raw value.
@@ -285,8 +295,11 @@ export class SettingsStore {
 			storedDataDir: this.data.dataDir,
 			settingsPath: this.path,
 			// Next to the data folder, not inside it: a local export must not
-			// end up in the next export.
-			suggestedArchive: join(dirname(rootInfo.root), `dsh-evolver-${archiveStamp()}.tar.gz`),
+			// end up in the next export. The folder and the name are separate
+			// so the panel can offer a directory picker plus a name field.
+			suggestedArchive: join(dirname(rootInfo.root), suggestedArchiveName()),
+			suggestedArchiveDir: dirname(rootInfo.root),
+			suggestedArchiveName: suggestedArchiveName(),
 			backup: {
 				enabled: backup.enabled,
 				endpoint: backup.endpoint,
