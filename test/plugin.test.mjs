@@ -243,10 +243,16 @@ test('导出、导入与迁移数据目录', async () => {
 			await post(routes, 'data-export', { file: second, force: true })
 			await post(routes, 'practice-delete', { path: 'docs/t/restored.md' })
 			await assert.rejects(() => readFile(join(root, 'practice', 'docs', 't', 'restored.md'), 'utf8'))
-			const imported = await (await post(routes, 'data-import', { file: second })).json()
+			const imported = await (await post(routes, 'data-import', { file: second, force: true })).json()
 			assert.equal(imported.root, root)
 			assert.ok(imported.files >= 1)
 			assert.match(await readFile(join(root, 'practice', 'docs', 't', 'restored.md'), 'utf8'), /会被恢复/)
+			// Cards and their resources travel with the archive too.
+			const restoredCards = await (await post(routes, 'card-list', { query: '会被恢复' })).json()
+			assert.ok(restoredCards.cards.length >= 1)
+			const restoredCard = await (await post(routes, 'card-read', { id: restoredCards.cards[0].id })).json()
+			assert.equal(restoredCard.card.label, '会被恢复')
+			assert.equal(restoredCard.card.resourceContents[0].text, 'b')
 
 			// 未压缩的 tar（云端备份格式）也能导入
 			const plain = join(home, 'snapshot.tar')
