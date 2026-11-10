@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -100,6 +100,8 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 
 			const overview = await (await post(routes, 'overview', {})).json()
 			assert.ok(overview.practice.entries >= 2)
+			const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+			assert.equal(overview.version, pkg.version)
 
 			const saved = await (await post(routes, 'practice-write', {
 				kind: 'doc',

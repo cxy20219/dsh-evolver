@@ -249,12 +249,15 @@ function entryLinks(value) {
  */
 export class Evolver {
 	/**
-	 * @param {{root: string, logger?: object, dshHome?: string, indexBytes?: number}} deps - The options.
+	 * @param {{root: string, logger?: object, dshHome?: string, indexBytes?: number, version?: string}} deps - The options.
 	 */
-	constructor({ root, logger, dshHome, indexBytes }) {
+	constructor({ root, logger, dshHome, indexBytes, version }) {
 		this.root = root
 		this.logger = logger
 		this.dshHome = dshHome ?? resolveDshHome()
+		// The version is read from package.json by the caller; the evolver
+		// itself must not reach for its own package.
+		this.version = typeof version === 'string' ? version : ''
 		this.indexBytes = Number.isFinite(indexBytes) && indexBytes >= 512
 			? Math.trunc(indexBytes)
 			: DEFAULT_INDEX_BYTES
@@ -805,6 +808,7 @@ export class Evolver {
 		})
 		const suggestions = await this.suggestions(practice)
 		return {
+			version: this.version,
 			root: this.root,
 			practice: {
 				entries: practice.entries.length,

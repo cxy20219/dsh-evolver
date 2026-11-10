@@ -15,6 +15,7 @@
  * the Connection service the Host already provides.
  */
 
+import { readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 import { Evolver, resolveDshHome } from './src/evolver.js'
@@ -55,6 +56,24 @@ function resolveRoot(configured) {
 }
 
 /**
+ * The plugin's own version, read from the package it ships in.
+ *
+ * The panel shows it, so it has to come from the installed copy rather than
+ * from anything hard-coded here.
+ *
+ * @returns {Promise<string>} The version, or an empty string when unreadable.
+ */
+async function readVersion() {
+	try {
+		const text = await readFile(new URL('./package.json', import.meta.url), 'utf8')
+		const parsed = JSON.parse(text)
+		return typeof parsed?.version === 'string' ? parsed.version : ''
+	} catch {
+		return ''
+	}
+}
+
+/**
  * Start the evolver: prepare the folder, publish the injection, register the
  * tools and the API.
  *
@@ -75,6 +94,7 @@ export async function apply(ctx, config) {
 		logger: ctx.logger,
 		dshHome: resolveDshHome(),
 		indexBytes: typeof config?.indexBytes === 'number' ? config.indexBytes : undefined,
+		version: await readVersion(),
 	})
 	await evolver.ensure()
 	await evolver.migrate()

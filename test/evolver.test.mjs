@@ -298,3 +298,16 @@ test('超大条目只读前 2 MB 并标记 truncated', async () => {
 		await rm(home, { recursive: true, force: true })
 	}
 })
+
+test('overview 带出插件版本', async () => {
+	const home = await mkdtemp(join(tmpdir(), 'evr-version-'))
+	try {
+		const evolver = new Evolver({ root: join(home, 'evolver'), dshHome: home, version: '9.9.9' })
+		await evolver.ensure()
+		assert.equal((await evolver.overview()).version, '9.9.9')
+		const bare = new Evolver({ root: join(home, 'evolver'), dshHome: home })
+		assert.equal((await bare.overview()).version, '')
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
+})
