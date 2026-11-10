@@ -122,6 +122,10 @@ window.__ModuleLoader__.load({
 			'settings.action.migrate': '迁移并切换',
 			'settings.action.pick': '浏览…',
 			'settings.pick.unavailable': '系统目录选择不可用，请手动输入绝对路径。',
+			'settings.needDir': '先选一个导出目录。',
+			'settings.needName': '给导出的压缩包起个文件名。',
+			'settings.needArchive': '先选择或填写压缩包路径。',
+			'settings.needDataDir': '先选择或填写新的数据目录。',
 			'settings.transfer': '导入 / 导出',
 			'settings.transfer.hint': '导出会生成一个 .tar.gz 压缩包（整份数据目录）；导入支持 .tar.gz / .tgz / .tar，默认不覆盖同名文件。',
 			'settings.transfer.exportPath': '导出目录',
@@ -260,6 +264,10 @@ window.__ModuleLoader__.load({
 			'settings.action.migrate': 'Move and switch',
 			'settings.action.pick': 'Browse…',
 			'settings.pick.unavailable': 'The system folder picker is unavailable; type an absolute path.',
+			'settings.needDir': 'Choose an export folder first.',
+			'settings.needName': 'Give the archive a file name.',
+			'settings.needArchive': 'Choose or type an archive path first.',
+			'settings.needDataDir': 'Choose or type the new data folder first.',
 			'settings.transfer': 'Import / export',
 			'settings.transfer.hint': 'Export writes one .tar.gz archive of the whole data folder; import accepts .tar.gz / .tgz / .tar and does not overwrite by default.',
 			'settings.transfer.exportPath': 'Export folder',
@@ -328,7 +336,7 @@ window.__ModuleLoader__.load({
 		//#region styles
 
 		var css = [
-			'.evrRoot{height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}',
+			'.evrRoot{position:relative;height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}',
 			'.evrHead{display:flex;align-items:flex-start;gap:16px;padding:22px 28px 0;flex:none}',
 			'.evrHeadMain{flex:1;min-width:0}',
 			'.evrTitle{margin:0;font-size:18px;font-weight:600;line-height:26px;letter-spacing:-.01em}',
@@ -396,9 +404,11 @@ window.__ModuleLoader__.load({
 			'.evrMono{font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px}',
 			'.evrPre{white-space:pre-wrap;word-break:break-word;font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px;line-height:1.65;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);padding:10px 12px;margin:0}',
 			'.evrWarn{border-left:3px solid var(--dsw-alias-state-warn-primary);padding-left:10px}',
-			'.evrStickyStatus{position:sticky;top:0;z-index:3;margin:0 0 12px;padding:8px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2);font-size:12.5px;box-shadow:var(--dsw-elevation-soft)}',
-			'.evrStickyStatusOk{color:var(--dsw-alias-state-success-primary)}',
-			'.evrStickyStatusError{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}',
+			'.evrToast{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:30;display:flex;align-items:center;gap:10px;max-width:min(620px,84%);padding:9px 11px 9px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-soft);font-size:12.5px;line-height:1.5}',
+			'.evrToastOk{color:var(--dsw-alias-state-success-primary)}',
+			'.evrToastError{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}',
+			'.evrToastText{white-space:pre-wrap;word-break:break-word}',
+			'.evrToastClose{flex:none;border:0;background:transparent;color:inherit;cursor:pointer;font-size:16px;line-height:1;padding:0 2px}',
 			'.evrError{border-left:3px solid var(--dsw-alias-state-error-primary);padding-left:10px}',
 		].join('\n');
 
@@ -962,12 +972,6 @@ window.__ModuleLoader__.load({
 				return clean(left) !== '' && clean(left) === clean(right);
 			};
 			var targetIsCurrent = samePath(dataDir, settings.dataDir);
-			var statusLine = props.status === null || props.status === undefined
-				? null
-				: h('div', {
-					className: 'evrStickyStatus ' + (props.status.error ? 'evrStickyStatusError' : 'evrStickyStatusOk'),
-					role: 'status',
-				}, props.status.message);
 			var statusLines = [
 				t('settings.backup.lastBackup') + ': ' + (status.lastBackupAt ? relativeTime(status.lastBackupAt, t) : t('settings.backup.never')),
 				t('settings.backup.lastAttempt') + ': ' + (status.lastAttemptAt ? relativeTime(status.lastAttemptAt, t) : '—'),
@@ -986,6 +990,35 @@ window.__ModuleLoader__.load({
 					for (var name in values) next[name] = values[name];
 					return next;
 				});
+			}
+
+			function migrateNow() {
+				if (dataDir.trim() === '') {
+					props.onNotify(t('settings.needDataDir'), true);
+					return;
+				}
+				if (targetIsCurrent) return;
+				props.onMigrate(dataDir.trim(), dataForce);
+			}
+
+			function exportNow() {
+				if (exportDir.trim() === '') {
+					props.onNotify(t('settings.needDir'), true);
+					return;
+				}
+				if (exportName.trim() === '') {
+					props.onNotify(t('settings.needName'), true);
+					return;
+				}
+				props.onExport(exportDir.trim(), exportName.trim(), transferForce);
+			}
+
+			function importNow() {
+				if (importDir.trim() === '') {
+					props.onNotify(t('settings.needArchive'), true);
+					return;
+				}
+				props.onImport(importDir.trim(), transferForce);
 			}
 
 			function saveBackup() {
@@ -1077,7 +1110,6 @@ window.__ModuleLoader__.load({
 			}
 
 			return h('div', null,
-				statusLine,
 				h('div', { className: 'evrSection' }, t('settings.data')),
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.hint')),
 				settings.dataDirWarning
@@ -1101,8 +1133,8 @@ window.__ModuleLoader__.load({
 					h('button', {
 						type: 'button',
 						className: 'evrBtn evrBtnPrimary',
-						disabled: busy || dataDir.trim() === '' || targetIsCurrent,
-						onClick: function () { props.onMigrate(dataDir.trim(), dataForce); },
+						disabled: busy || targetIsCurrent,
+						onClick: migrateNow,
 					}, t('settings.action.migrate'))),
 
 				h('div', { className: 'evrSection' }, t('settings.transfer')),
@@ -1139,14 +1171,14 @@ window.__ModuleLoader__.load({
 					h('button', {
 						type: 'button',
 						className: 'evrBtn',
-						disabled: busy || exportDir.trim() === '' || exportName.trim() === '',
-						onClick: function () { props.onExport(exportDir.trim(), exportName.trim(), transferForce); },
+						disabled: busy,
+						onClick: exportNow,
 					}, t('settings.action.export')),
 					h('button', {
 						type: 'button',
 						className: 'evrBtn',
-						disabled: busy || importDir.trim() === '',
-						onClick: function () { props.onImport(importDir.trim(), transferForce); },
+						disabled: busy,
+						onClick: importNow,
 					}, t('settings.action.import'))),
 
 				h('div', { className: 'evrSection' }, t('settings.backup')),
@@ -1271,6 +1303,7 @@ window.__ModuleLoader__.load({
 			var [kind, setKind] = useState('doc');
 			var [editor, setEditor] = useState(null);
 			var [status, setStatus] = useState(null);
+			var [toast, setToast] = useState(null);
 			var [busy, setBusy] = useState(false);
 			var [error, setError] = useState(null);
 			var [query, setQuery] = useState('');
@@ -1278,6 +1311,16 @@ window.__ModuleLoader__.load({
 			var report = useCallback(function (message, isError) {
 				setStatus({ message: message, error: isError === true });
 			}, []);
+
+			var notify = useCallback(function (message, isError) {
+				setToast({ message: message, error: isError === true });
+			}, []);
+
+			useEffect(function () {
+				if (toast === null || toast.error === true) return undefined;
+				var timer = setTimeout(function () { setToast(null); }, 4500);
+				return function () { clearTimeout(timer); };
+			}, [toast]);
 
 			var loadAll = useCallback(function () {
 				return Promise.all([
@@ -1451,9 +1494,9 @@ window.__ModuleLoader__.load({
 				setBusy(true);
 				call('settings-save', { backup: form }).then(function (value) {
 					setSettings(value);
-					report(t('state.saved'), false);
+					notify(t('state.saved'), false);
 				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
+					notify(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
 			}, [call, report, t]);
 
@@ -1461,74 +1504,74 @@ window.__ModuleLoader__.load({
 				setBusy(true);
 				call('settings-save', { backup: { clearAccessKeySecret: true } }).then(function (value) {
 					setSettings(value);
-					report(t('state.saved'), false);
+					notify(t('state.saved'), false);
 				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
+					notify(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
 			}, [call, report, t]);
 
 			var migrateData = useCallback(function (dir, force) {
 				setBusy(true);
-				report(t('state.working'), false);
+				notify(t('state.working'), false);
 				call('data-migrate', { dir: dir, force: force }).then(function (value) {
-					report(t('state.migrated') + ' → ' + String(value.root ?? dir), false);
+					notify(t('state.migrated') + ' → ' + String(value.root ?? dir), false);
 					setSettingsEpoch(function (value) { return value + 1; });
 					return loadAll();
 				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
+					notify(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
 			}, [call, loadAll, report, t]);
 
 			var exportData = useCallback(function (dir, name, force) {
 				setBusy(true);
-				report(t('state.working'), false);
+				notify(t('state.working'), false);
 				call('data-export', { dir: dir, name: name, force: force }).then(function (value) {
-					report(t('state.exported') + ' → ' + String(value.file ?? dir) + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
+					notify(t('state.exported') + ' → ' + String(value.file ?? dir) + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0), false);
 				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
+					notify(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
 			}, [call, report, t]);
 
 			var importData = useCallback(function (dir, force) {
 				setBusy(true);
-				report(t('state.working'), false);
+				notify(t('state.working'), false);
 				call('data-import', { file: dir, force: force }).then(function (value) {
-					report(t('state.imported') + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0) + (value.skipped > 0 ? ' · ' + t('state.skipped') + ' ' + value.skipped : ''), false);
+					notify(t('state.imported') + ' · ' + String(value.files ?? 0) + ' · ' + formatBytes(value.bytes ?? 0) + (value.skipped > 0 ? ' · ' + t('state.skipped') + ' ' + value.skipped : ''), false);
 					return loadAll();
 				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
+					notify(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
 			}, [call, loadAll, report, t]);
 
 			var backupNow = useCallback(function () {
 				setBusy(true);
-				report(t('state.working'), false);
+				notify(t('state.working'), false);
 				call('backup-now', { force: true }).then(function (value) {
 					if (value && value.settings) setSettings(value.settings);
-					report(t('state.backed') + ' · ' + formatBytes(value.bytes ?? 0), false);
+					notify(t('state.backed') + ' · ' + formatBytes(value.bytes ?? 0), false);
 				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
+					notify(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
 			}, [call, report, t]);
 
 			var testBackup = useCallback(function () {
 				setBusy(true);
-				report(t('state.working'), false);
+				notify(t('state.working'), false);
 				call('backup-test', {}).then(function (value) {
-					report(t('settings.backup.testOk') + ' · ' + String(value.endpoint ?? ''), false);
+					notify(t('settings.backup.testOk') + ' · ' + String(value.endpoint ?? ''), false);
 				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
+					notify(reason instanceof Error ? reason.message : String(reason), true);
 				}).finally(function () { setBusy(false); });
 			}, [call, report, t]);
 
 			var pickDirectory = useCallback(function () {
 				var service = ctx.get('uiWorkspace');
 				if (service === undefined || typeof service.pickDirectory !== 'function') {
-					report(t('settings.pick.unavailable'), true);
+					notify(t('settings.pick.unavailable'), true);
 					return Promise.resolve(null);
 				}
 				return Promise.resolve(service.pickDirectory()).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
+					notify(reason instanceof Error ? reason.message : String(reason), true);
 					return null;
 				});
 			}, [ctx, report, t]);
@@ -1536,17 +1579,17 @@ window.__ModuleLoader__.load({
 			var browseArchives = useCallback(function () {
 				var service = ctx.get('uiWorkspace');
 				if (service === undefined || typeof service.pickDirectory !== 'function') {
-					report(t('settings.pick.unavailable'), true);
+					notify(t('settings.pick.unavailable'), true);
 					return Promise.resolve(null);
 				}
 				return Promise.resolve(service.pickDirectory()).then(function (dir) {
 					if (typeof dir !== 'string' || dir === '') return null;
 					return call('data-archives', { dir: dir }).catch(function (reason) {
-						report(reason instanceof Error ? reason.message : String(reason), true);
+						notify(reason instanceof Error ? reason.message : String(reason), true);
 						return null;
 					});
 				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
+					notify(reason instanceof Error ? reason.message : String(reason), true);
 					return null;
 				});
 			}, [call, ctx, report, t]);
@@ -1612,7 +1655,7 @@ window.__ModuleLoader__.load({
 					t: t,
 					settings: settings,
 					busy: busy,
-					status: status,
+					onNotify: notify,
 					onSaveBackup: saveBackupSettings,
 					onClearSecret: clearBackupSecret,
 					onMigrate: migrateData,
@@ -1653,7 +1696,21 @@ window.__ModuleLoader__.load({
 						onClick: function () { setTab(item.id); },
 					}, t(item.label));
 				})),
-				h('div', { className: 'evrBody' }, h('div', { className: 'evrEnter', key: tab }, body)));
+				h('div', { className: 'evrBody' }, h('div', { className: 'evrEnter', key: tab }, body)),
+				toast === null
+					? null
+					: h('div', {
+						className: 'evrToast ' + (toast.error ? 'evrToastError' : 'evrToastOk'),
+						role: 'status',
+						'aria-live': 'polite',
+					},
+						h('span', { className: 'evrToastText' }, toast.message),
+						h('button', {
+							type: 'button',
+							className: 'evrToastClose',
+							'aria-label': t('action.close'),
+							onClick: function () { setToast(null); },
+						}, '×')));
 		}
 
 		//#endregion
