@@ -30,6 +30,7 @@ import { createMemoryActions } from './src/memory-actions.js'
 import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { createTools } from './src/tools.js'
+import { PROACTIVE_PROTOCOL } from './src/proactive.js'
 import { copyTree, countEntries, isDirectory, isInsidePath, pathsOverlap } from './src/workspace.js'
 
 /** The plugin's row name. */
@@ -582,6 +583,14 @@ export async function apply(ctx, config) {
 		order: 910,
 		interpolate: false,
 		text: () => evolver.cache.soul,
+	}))
+	// The data is already injected; this tells the model when to act on it
+	// without being asked. Kept small: it rides on every request.
+	disposers.push(ctx.systemPrompt.section({
+		name: 'dsh-evolver:proactive',
+		order: 920,
+		interpolate: false,
+		text: () => PROACTIVE_PROTOCOL,
 	}))
 
 	// The panel edits the same data, so the injected text has to follow it.

@@ -19,12 +19,13 @@
   models/<模型>/                ← 本地 embedding 权重（可选，随备份/导出）
 ```
 
-## 注入的三个来源
+## 注入的四个来源
 
 | 部分 | 内容 | 载体 | 预算 |
 | --- | --- | --- | --- |
 | 实践 | 纪律 + `practice/INDEX.md` 的预算内投影 | `systemPrompt.section`（order 900） | 2 KB |
 | 见闻 | `sight/soul.md` | `systemPrompt.section`（order 910） | 1 KB |
+| 主动性 | 固定的触发协议：何时召回、何时沉淀、收尾给下一步 | `systemPrompt.section`（order 920） | 744 B |
 | 偏好 | `preferences/AGENTS.md` | DSH 的 `dsh-agent-instructions` | 用户自控 |
 
 记忆**不自动注入**：Agent 需要时用 `memory_recall` 自己取。
@@ -46,6 +47,7 @@
 | `practice_read` | 读一条实践全文 |
 | `practice_write` | 沉淀一条实践，重建索引并返回 `problems` |
 | `practice_index` | 完整索引 + 校验问题 |
+| `evolve_review` | 一次拿到实践/记忆状态、结构问题、久未验证与可执行的提示 |
 | `memory_recall` / `memory_save` / `memory_list` / `memory_forget` / `memory_stats` | 见闻的按需记忆 |
 
 ## 沉淀纪律（已内化）
@@ -63,6 +65,27 @@
 细节留在种子文档里，需要时 `practice_read`。
 
 规则全文作为种子文档写在 `practice/docs/evolver/sinking.md`，首次启动自动生成。
+
+## 主动性
+
+数据在不在上下文里是一回事，Agent 会不会主动用是另一回事。注入的 `[主动性]` 段落
+规定触发点，不靠临场发挥：
+
+- 任务前有明确相关词，先 `practice_query` / `memory_recall`；
+- 任务后可复用的写 `practice_write`（先查重），偏好/纠正写 `memory_save`；
+- 收尾给一条具体、可执行的下一步（命令 / 文件 / 验证方式），不只问“还需要什么”；
+- 同一流程第二次出现，提议沉淀或脚本化；
+- 盘点用 `evolve_review`，有结构问题或久未验证时用一句话提醒，不打断当前任务；
+- 不确定时先做可逆部分，只问那个会改变结果的决策。
+
+`evolve_review` 返回有界的摘要：实践条目数/预算/结构问题、记忆数量与代表条目、
+建议动作，以及 `hints`。没有高信号时 `hints` 会明说“不用为了主动而主动”，
+避免 Agent 为了表现主动而硬找事。
+
+想让它定期自我检查，可以挂一个定时任务（用 DSH 的 `schedule` 工具创建，插件不替你建）：
+
+> 每天 21:00：调用 `evolve_review`，从 `hints` 里挑一条最值得做的，执行并给出结论；
+> 没有高信号就明确说“今天没有需要沉淀的”。
 
 ## 面板
 

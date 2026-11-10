@@ -109,10 +109,11 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 		const { ctx, routes, tools, sections, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
-			assert.equal(tools.length, 9)
-			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:practice', 'dsh-evolver:soul'])
+			assert.equal(tools.length, 10)
+			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:practice', 'dsh-evolver:soul', 'dsh-evolver:proactive'])
 			assert.equal(routes.size, 31)
 			assert.match(sections[0].text(), /\[实践\]/)
+			assert.match(sections[2].text(), /\[主动性\]/)
 
 			const overview = await (await post(routes, 'overview', {})).json()
 			assert.ok(overview.practice.entries >= 2)

@@ -139,6 +139,51 @@ export function createTools({ practice, memory }) {
 			},
 		},
 		{
+			name: 'evolve_review',
+			description: '一次拿到演化器的状态与可执行的改进提示：实践的条目数/预算/结构问题、记忆数量与代表条目、建议动作。返回的 hints 是想让你主动做的事；没有高信号时也会说明。',
+			parameters: { type: 'object', properties: {} },
+			output: OBJECT_OUTPUT,
+			async execute() {
+				const overview = await practice.overview()
+				const stats = memory.stats()
+				const listed = memory.list({ limit: 5 })
+				const problems = overview.practice?.problems ?? []
+				const suggestions = overview.suggestions ?? []
+				const hints = []
+				if (problems.length > 0) {
+					hints.push(`实践有 ${problems.length} 个结构问题；先用 practice_index 看路径，再修正。`)
+				}
+				const stale = suggestions.filter((item) => item.kind === 'stale').length
+				if (stale > 0) hints.push(`${stale} 条实践超过半年未验证；优先复查最近用到的。`)
+				if ((stats.entries ?? 0) === 0) {
+					hints.push('记忆库为空；本次任务结束写一条确认过的判断或用户偏好。')
+				} else if (hints.length === 0) {
+					hints.push('没有结构问题；按需召回即可，不用为了主动而主动。')
+				}
+				return sanitize({
+					practice: {
+						entries: overview.practice?.entries ?? 0,
+						injectedBytes: overview.practice?.injectedBytes ?? 0,
+						injectedBudget: overview.practice?.injectedBudget ?? 0,
+						dropped: overview.practice?.dropped ?? 0,
+						problems: problems.slice(0, 8),
+					},
+					memory: {
+						entries: stats.entries ?? 0,
+						byKind: stats.entriesByKind ?? {},
+						top: (listed.results ?? []).map((entry) => ({
+							id: entry.id,
+							kind: entry.kind,
+							scope: entry.scope,
+							text: String(entry.text ?? '').slice(0, 160),
+						})),
+					},
+					suggestions: suggestions.slice(0, 8),
+					hints,
+				})
+			},
+		},
+		{
 			name: 'memory_recall',
 			description: '召回「见闻」里与问题相关的记忆：过往经历、踩过的坑、确认过的判断。记忆不会被自动塞进上下文，需要你自己来取；召回为空时说明没有相关记忆，不要编造。',
 			parameters: {
