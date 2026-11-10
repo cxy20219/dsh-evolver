@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
 			'action.close': '关闭',
 			'action.new': '新建',
 			'action.link': '设为全局加载',
+			'action.takeover': '接管这个链接',
 			'action.unlink': '移除全局链接',
 			'action.recall': '召回',
 			'state.loading': '读取中…',
@@ -72,12 +73,14 @@ window.__ModuleLoader__.load({
 			'practice.new.body': '正文（Markdown）',
 			'practice.new.verified': '最后验证日期',
 			'practice.new.links': '关联条目（逗号分隔）',
+			'practice.truncated': '文件太大，只读取了开头；请先拆分再编辑。',
 			'soul.hint': '灵魂是 Agent 的人格与边界，每个会话都会被读到；一次性的经历属于见闻。',
 			'soul.content': '灵魂（Markdown）',
 			'prefs.hint': '这里是全局偏好。保存后由 DSH 的 AGENTS.md 加载器注入给每个会话。',
 			'prefs.content': '全局偏好（Markdown）',
 			'prefs.global': '全局加载',
 			'prefs.link.linked': '已链接',
+			'prefs.link.foreign': '被其他来源占用',
 			'prefs.link.file': '被一个独立文件占用',
 			'prefs.link.missing': '未链接',
 			'prefs.link.other': '状态未知',
@@ -113,6 +116,7 @@ window.__ModuleLoader__.load({
 			'action.close': 'Close',
 			'action.new': 'New',
 			'action.link': 'Load globally',
+			'action.takeover': 'Take over this link',
 			'action.unlink': 'Remove the global link',
 			'action.recall': 'Recall',
 			'state.loading': 'Loading…',
@@ -147,12 +151,14 @@ window.__ModuleLoader__.load({
 			'practice.new.body': 'Body (Markdown)',
 			'practice.new.verified': 'Last verified',
 			'practice.new.links': 'Related entries (comma separated)',
+			'practice.truncated': 'The file is too large and was only partially read; split it before editing.',
 			'soul.hint': 'The soul is the agent’s persona and boundaries; it is read in every session.',
 			'soul.content': 'Soul (Markdown)',
 			'prefs.hint': 'Global preferences. DSH injects this file through its AGENTS.md loader.',
 			'prefs.content': 'Global preferences (Markdown)',
 			'prefs.global': 'Global load',
 			'prefs.link.linked': 'linked',
+			'prefs.link.foreign': 'linked elsewhere',
 			'prefs.link.file': 'taken by a separate file',
 			'prefs.link.missing': 'not linked',
 			'prefs.link.other': 'unknown',
@@ -286,12 +292,18 @@ window.__ModuleLoader__.load({
 		 */
 		function callHost(ctx, endpoint, payload) {
 			if (ctx.get('connection') === undefined) return Promise.reject(new Error('连接不可用'));
-			return fetch(API_PREFIX + '/' + endpoint, {
+			var options = {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(payload ?? {}),
 				credentials: 'same-origin',
-			}).then(function (response) {
+			};
+			// A hung Host must not leave every button disabled for the rest of the
+			// session: the panel gives the request a deadline.
+			if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+				options.signal = AbortSignal.timeout(30000);
+			}
+			return fetch(API_PREFIX + '/' + endpoint, options).then(function (response) {
 				return response.json().then(function (value) {
 					var error = value !== null && typeof value === 'object' ? value.error : undefined;
 					if (!response.ok || error !== undefined) {
@@ -299,6 +311,11 @@ window.__ModuleLoader__.load({
 					}
 					return value;
 				});
+			}).catch(function (reason) {
+				if (reason && (reason.name === 'TimeoutError' || reason.name === 'AbortError')) {
+					throw new Error('请求超时（30 秒）');
+				}
+				throw reason;
 			});
 		}
 
@@ -450,9 +467,9 @@ window.__ModuleLoader__.load({
 					h(StatCard, {
 						title: t('overview.preferences'),
 						value: formatBytes(injection.preferences.bytes),
-						hint: injection.preferences.link.kind === 'link'
-							? t('prefs.link.linked')
-							: t('prefs.link.missing'),
+						hint: injection.preferences.link.kind !== 'link'
+							? t('prefs.link.missing')
+							: (injection.preferences.link.ours === false ? t('prefs.link.foreign') : t('prefs.link.linked')),
 					}),
 					h(StatCard, {
 						title: t('overview.root'),
@@ -545,6 +562,9 @@ window.__ModuleLoader__.load({
 					h('span', { className: 'evrTag' }, draft.topic || t('practice.new.topic')),
 					h('span', { className: 'evrEditorTitle' }, draft.title || t('practice.new.title')),
 					h('span', { className: 'evrStatus' }, draft.path ?? '')),
+				draft.truncated === true
+					? h('div', { className: 'evrHint evrWarn', style: { marginBottom: '10px' } }, t('practice.truncated'))
+					: null,
 				h('div', { className: 'evrFieldRow' },
 					h(Field, { label: t('practice.new.title') },
 						h('input', {
@@ -682,7 +702,10 @@ window.__ModuleLoader__.load({
 			var t = props.t;
 			var preferences = props.preferences;
 			var link = preferences?.link ?? { kind: 'missing' };
-			var linkLabel = t('prefs.link.' + link.kind);
+			// A link the plugin did not create belongs to somebody else: it is
+			// shown as such, and replacing it stays a deliberate takeover.
+			var foreign = link.kind === 'link' && link.ours === false;
+			var linkLabel = t(foreign ? 'prefs.link.foreign' : 'prefs.link.' + link.kind);
 			return h('div', null,
 				h('div', { className: 'evrSection' }, t('prefs.content')),
 				h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('prefs.hint')),
@@ -698,7 +721,7 @@ window.__ModuleLoader__.load({
 						disabled: props.busy,
 						onClick: function () { props.onSave(); },
 					}, t('action.save')),
-					link.kind === 'link'
+					link.kind === 'link' && !foreign
 						? h('button', {
 							type: 'button',
 							className: 'evrBtn',
@@ -710,7 +733,7 @@ window.__ModuleLoader__.load({
 							className: 'evrBtn',
 							disabled: props.busy,
 							onClick: function () { props.onLink(); },
-						}, t('action.link')),
+						}, t(foreign ? 'action.takeover' : 'action.link')),
 					props.status === undefined || props.status === null
 						? null
 						: h('span', { className: 'evrStatus' + (props.status.error ? ' evrStatusError' : ' evrStatusOk') }, props.status.message)),
@@ -720,6 +743,7 @@ window.__ModuleLoader__.load({
 						h('span', { className: 'evrCardTitle' }, linkLabel),
 						h('span', { className: 'evrCardCount' }, formatBytes(preferences?.bytes ?? 0))),
 					h('div', { className: 'evrCardHint evrMono' }, preferences?.globalPath ?? ''),
+					foreign ? h('div', { className: 'evrCardHint evrMono' }, '→ ' + (link.target ?? '')) : null,
 					h('div', { className: 'evrCardHint evrMono' }, preferences?.path ?? '')));
 		}
 
@@ -824,6 +848,7 @@ window.__ModuleLoader__.load({
 						verified: entry.verified,
 						links: entry.links ?? [],
 						body: entry.content ?? '',
+						truncated: entry.truncated === true,
 					});
 					setStatus(null);
 				}).catch(function (reason) {
@@ -842,6 +867,7 @@ window.__ModuleLoader__.load({
 					verified: new Date().toISOString().slice(0, 10),
 					links: [],
 					body: '',
+					truncated: false,
 				});
 				setStatus(null);
 			}, []);

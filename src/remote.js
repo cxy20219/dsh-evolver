@@ -59,6 +59,26 @@ function text(payload, field, fallback = '') {
 }
 
 /**
+ * Read one bounded count from a request payload.
+ *
+ * A missing or non-numeric field falls back to the default instead of turning
+ * into `NaN`, which `slice` reads as zero and silently answers with nothing.
+ *
+ * @param {unknown} payload - The request payload.
+ * @param {string} field - Field name.
+ * @param {number} fallback - Value used when the field is absent or invalid.
+ * @param {number} max - The largest accepted value.
+ * @returns {number} The count.
+ */
+function count(payload, field, fallback, max) {
+	const value = payload?.[field]
+	if (value === undefined || value === null || value === '') return fallback
+	const number = Number(value)
+	if (!Number.isFinite(number)) return fallback
+	return Math.min(Math.max(Math.trunc(number), 1), max)
+}
+
+/**
  * Build the endpoint handler for the evolver.
  *
  * @param {{evolver: object, memory: object}} deps - The evolver and the memory actions.
@@ -122,7 +142,7 @@ export function createEvolverHandler({ evolver, memory }) {
 				case 'practice-query': {
 					const results = await evolver.practiceSearch(text(payload, 'query'), {
 						kind: text(payload, 'kind'),
-						limit: Number(payload?.limit ?? 8),
+						limit: count(payload, 'limit', 8, 50),
 					})
 					return { ok: true, value: { total: results.length, results } }
 				}

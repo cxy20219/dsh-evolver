@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -9,6 +9,7 @@ import {
 	parseFrontmatter,
 	regenerate,
 	readPracticeEntry,
+	safeRelativePath,
 	scanPractice,
 	searchPractice,
 	splitEntry,
@@ -206,5 +207,81 @@ test('readPracticeEntry 读取条目并挡住路径穿越', async () => {
 		await assert.rejects(() => readPracticeEntry(root, 'docs/missing.md'))
 	} finally {
 		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('CRLF 保存的条目前言照常解析', () => {
+	const entry = '---\r\ntitle: 行尾是回车\r\npurpose: 来自 Windows\r\nkind: doc\r\nverified: 2026-11-10\r\n---\r\n\r\n正文\r\n'
+	const { data, body } = splitEntry(entry)
+	assert.equal(data.title, '行尾是回车')
+	assert.equal(data.purpose, '来自 Windows')
+	assert.equal(data.kind, 'doc')
+	assert.equal(data.verified, '2026-11-10')
+	assert.equal(body, '正文\n')
+})
+
+test('scanPractice 读得懂 CRLF 条目，索引行不再是空的', async () => {
+	const root = await tree({
+		'docs/win/entry.md': '---\r\ntitle: 来自 Windows\r\npurpose: 也要能索引\r\nkind: doc\r\nverified: 2026-11-10\r\n---\r\n\r\n正文。\r\n',
+	})
+	try {
+		const { entries, problems } = await scanPractice(root)
+		assert.equal(entries.length, 1)
+		assert.equal(entries[0].title, '来自 Windows')
+		assert.equal(problems.length, 0)
+		const projection = buildProjection(entries)
+		assert.match(projection.text, /来自 Windows/)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('scanPractice 不索引符号链接，readPracticeEntry 也拒绝读取', async () => {
+	const root = await tree({ 'docs/ok.md': '---\ntitle: 正常条目\npurpose: x\n---\n' })
+	try {
+		await writeFile(join(root, 'secret.txt'), 'TOP-SECRET\n', 'utf8')
+		await symlink(join(root, 'secret.txt'), join(root, 'docs', 'leak.md'))
+		const { entries, problems } = await scanPractice(root)
+		assert.deepEqual(entries.map((entry) => entry.relPath), ['docs/ok.md'])
+		assert.ok(problems.some((problem) => problem.code === 'entry/symlink'))
+		await assert.rejects(() => readPracticeEntry(root, 'docs/leak.md'))
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('safeRelativePath 按路径段校验，合法名字里的点不算穿越', () => {
+	assert.equal(safeRelativePath('docs/verify/a..b.md'), 'docs/verify/a..b.md')
+	for (const bad of ['', '/etc/passwd', '../x', 'docs/../../x', 'docs/./x', 'docs//x', 'C:/x', 'docs/a\u0000b']) {
+		assert.throws(() => safeRelativePath(bad), `应拒绝 ${JSON.stringify(bad)}`)
+	}
+})
+
+test('大文件条目只读头部，预览仍是一小段', async () => {
+	const big = `---\ntitle: 大文件\npurpose: 只取头部\nkind: resource\nverified: 2026-11-10\n---\n\n${'x'.repeat(1024 * 1024)}`
+	const root = await tree({ 'resources/big/dataset.bin': big })
+	try {
+		const { entries } = await scanPractice(root)
+		assert.equal(entries.length, 1)
+		assert.equal(entries[0].title, '大文件')
+		assert.equal(entries[0].bodyPreview.length, 400)
+		assert.ok(entries[0].bytes > 1024 * 1024)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('buildProjection 溢出时不动已计入的条目，也不重复归档', () => {
+	const make = (title, purpose) => ({ kind: 'doc', kindTitle: '文档', topic: 'T', title, purpose, relPath: `docs/${title}.md` })
+	const entries = [make('A', 'a'.repeat(100)), make('B', 'b'.repeat(400)), make('C', 'c')]
+	const base = Buffer.byteLength(buildProjection([], { budget: 100_000 }).text, 'utf8')
+	for (const budget of [base + 80, base + 300, base + 700, 2048]) {
+		const projection = buildProjection(entries, { budget })
+		const included = new Set(projection.included.map((entry) => entry.relPath))
+		const dropped = new Set(projection.dropped.map((entry) => entry.relPath))
+		assert.equal(dropped.size, projection.dropped.length, `归档里有重复：budget ${budget}`)
+		for (const path of included) assert.equal(dropped.has(path), false, `同一条既进索引又进归档：${path}`)
+		assert.equal(included.size + dropped.size, entries.length)
+		assert.ok(Buffer.byteLength(projection.text, 'utf8') <= budget, `budget ${budget} 仍然超了`)
 	}
 })

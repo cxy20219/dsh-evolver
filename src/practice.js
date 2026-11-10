@@ -33,8 +33,8 @@
  * must keep working when everything else moves.
  */
 
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, relative } from 'node:path'
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, relative, sep } from 'node:path'
 
 /** The kinds of practice, in the order the index lists them. */
 export const KINDS = [
@@ -64,9 +64,9 @@ export const DEFAULT_INDEX_BYTES = 2048
  * The text is fixed on purpose: the injected prefix must stay byte-stable.
  */
 export const PRACTICE_DISCIPLINE = [
-	'[纪律] 完成多步工具调用（≥3 步）的任务后，如果出现已验证且可复用的判断、稳定流程、验证方法或工具，先 practice_query 查重、practice_read 读相关条目，再 practice_write 落一条；能脚本化的流程写成 kind=tool（脚本要真能跑），不要只写文档。',
-	'只写能减少未来误判、重复劳动或验证成本的内容：不写流水账、一次性命令、临时猜测、废弃方案、密钥、令牌、完整日志和对话转录。没有高信号内容就安静跳过，不要硬凑。',
-	'写完看返回的 problems，链接要闭环；用户说「沉淀经验」「复盘流程」「记录项目经验」时按同样规则执行。',
+	'[纪律] 多步任务（≥3 步）后若有已验证、可复用的判断/流程/工具，先 practice_query 查重、practice_read 读相关条目，再 practice_write 落一条；能脚本化的写成 kind=tool（要真能跑）。',
+	'只写能减少未来误判、重复劳动或验证成本的内容；不写流水账、一次性命令、猜测、废弃方案、密钥、日志和对话转录。没有高信号就跳过。',
+	'写完读返回的 problems，链接要闭环。用户说「沉淀经验」「复盘流程」时同样适用。',
 ].join('\n')
 
 /** Patterns that must never reach the practice layer. */
@@ -96,8 +96,17 @@ export function findSecret(text) {
 	return undefined
 }
 
-/** The deepest path an entry may live at: `<kind>/<topic>/<file>`. */
-const MAX_DEPTH = 2
+/** How much of an entry is read just to describe it. */
+const ENTRY_HEAD_BYTES = 8 * 1024
+
+/** The largest entry `practice_read` returns in full. */
+const MAX_ENTRY_READ_BYTES = 2 * 1024 * 1024
+
+/** How many parsed entries the scan cache keeps. */
+const MAX_CACHED_ENTRIES = 4096
+
+/** Counts the temporary files the atomic writer creates. */
+let writeSequence = 0
 
 const KEY_LINE = /^([A-Za-z0-9_.-]+)[ \t]*:(.*)$/
 const LIST_ITEM = /^[ \t]*-[ \t]+(.*)$/
@@ -115,7 +124,7 @@ export function parseFrontmatter(text) {
 	const source = typeof text === 'string' ? text : ''
 	const data = {}
 	let currentKey = undefined
-	for (const line of source.split('\n')) {
+	for (const line of source.split(/\r?\n/)) {
 		if (line.trim() === '' || line.trimStart().startsWith('#')) continue
 		const item = LIST_ITEM.exec(line)
 		if (item !== null && currentKey !== undefined) {
@@ -170,7 +179,11 @@ function stripQuotes(value) {
  * @returns {{data: Record<string, unknown>, body: string}} The parsed entry.
  */
 export function splitEntry(text) {
-	const source = typeof text === 'string' ? text : ''
+	// Entries written on Windows (or saved by an editor that keeps CRLF) end
+	// every line with a carriage return. The frontmatter parser anchors on
+	// `$`, which a trailing `\r` defeats, so one such file used to lose its
+	// entire frontmatter. Normalise once, here, for every reader.
+	const source = (typeof text === 'string' ? text : '').replace(/\r\n?/g, '\n')
 	const firstLineEnd = source.indexOf('\n')
 	if (firstLineEnd < 0) return { data: {}, body: source }
 	if (source.slice(0, firstLineEnd).trim() !== '---') return { data: {}, body: source }
@@ -190,6 +203,128 @@ export function splitEntry(text) {
  */
 export function isEntryName(name) {
 	return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)
+}
+
+/**
+ * Normalise a practice-relative path and refuse anything that could leave the
+ * tree.
+ *
+ * The check is on path *segments*, not on the raw string: `a..b.md` is a
+ * perfectly good file name, while `.`, `..`, an absolute path and an empty
+ * segment are not.
+ *
+ * @param {unknown} relPath - The path the caller asked for.
+ * @returns {string} The normalised path.
+ */
+export function safeRelativePath(relPath) {
+	const clean = String(relPath ?? '').trim().split('\\').join('/')
+	if (clean === '') throw new Error('路径不能为空。')
+	if (clean.startsWith('/') || /^[A-Za-z]:/.test(clean)) throw new Error(`路径不合法：${clean}`)
+	const segments = clean.split('/')
+	if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+		throw new Error(`路径不合法：${clean}`)
+	}
+	if (clean.includes('\u0000')) throw new Error(`路径不合法：${clean}`)
+	return clean
+}
+
+/**
+ * Whether a path resolves to something inside `root`.
+ *
+ * Symbolic links are followed before the comparison, so a link that points
+ * outside the practice folder is caught even when its name looks innocent.
+ * The target may be missing (a write); its parent directory is what decides.
+ *
+ * @param {string} root - The folder that must contain the target.
+ * @param {string} target - The path to test.
+ * @returns {Promise<boolean>} True when the target stays inside.
+ */
+export async function isInside(root, target) {
+	const base = await realpath(root).catch(() => undefined)
+	if (base === undefined) return false
+	const probe = await realpath(target).catch(async () => {
+		const parent = await realpath(dirname(target)).catch(() => undefined)
+		if (parent === undefined) return undefined
+		return join(parent, basename(target))
+	})
+	if (probe === undefined) return false
+	return probe === base || probe.startsWith(base + sep)
+}
+
+/**
+ * Read a file's metadata without following a symbolic link.
+ *
+ * @param {string} path - Absolute path.
+ * @returns {Promise<import('node:fs').Stats | undefined>} The metadata, or undefined.
+ */
+async function lstatOrUndefined(path) {
+	try {
+		return await lstat(path)
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * Read at most `bytes` from the start of a file.
+ *
+ * @param {string} path - Absolute path.
+ * @param {number} bytes - The byte budget.
+ * @returns {Promise<string>} The decoded head.
+ */
+async function readUpTo(path, bytes) {
+	const handle = await open(path, 'r')
+	try {
+		const buffer = Buffer.alloc(bytes)
+		const { bytesRead } = await handle.read(buffer, 0, bytes, 0)
+		return buffer.subarray(0, bytesRead).toString('utf8')
+	} finally {
+		await handle.close()
+	}
+}
+
+/**
+ * Read the part of an entry file that describes it.
+ *
+ * Entries are read to build the index, and the index only ever uses the
+ * frontmatter plus 400 characters of body. Reading a multi-megabyte resource
+ * in full to throw it away was the single most expensive part of a scan, so
+ * large files contribute only their head.
+ *
+ * @param {string} path - Absolute path.
+ * @param {number} size - The file size in bytes.
+ * @returns {Promise<string>} The text to parse.
+ */
+async function readEntryText(path, size) {
+	if (size <= ENTRY_HEAD_BYTES) return readFile(path, 'utf8')
+	return readUpTo(path, ENTRY_HEAD_BYTES)
+}
+
+/**
+ * The parsed entries, keyed by absolute path and validated by mtime + size.
+ *
+ * Scanning is done on every refresh, on every panel request and after every
+ * write; parsing only the files that actually changed is what keeps that
+ * cheap. The cache is approximate LRU, so a long-lived Host does not grow it
+ * without bound.
+ *
+ * @type {Map<string, {mtimeMs: number, size: number, entry: object}>}
+ */
+const entryCache = new Map()
+
+/**
+ * Remember one parsed entry, evicting the least recently used one.
+ *
+ * @param {string} path - Absolute path.
+ * @param {import('node:fs').Stats} info - The metadata the entry was built from.
+ * @param {object} entry - The parsed entry.
+ */
+function rememberEntry(path, info, entry) {
+	entryCache.delete(path)
+	entryCache.set(path, { mtimeMs: info.mtimeMs, size: info.size, entry })
+	if (entryCache.size <= MAX_CACHED_ENTRIES) return
+	const oldest = entryCache.keys().next()
+	if (!oldest.done) entryCache.delete(oldest.value)
 }
 
 /**
@@ -231,8 +366,17 @@ export async function scanPractice(practiceRoot) {
 		for (const name of names.sort()) {
 			if (name.startsWith('.')) continue
 			const path = join(kindDir, name)
-			const info = await statOrUndefined(path)
+			const info = await lstatOrUndefined(path)
 			if (info === undefined) continue
+			if (info.isSymbolicLink()) {
+				problems.push({
+					level: 'warning',
+					code: 'entry/symlink',
+					path: relative(practiceRoot, path),
+					message: '实践条目必须是普通文件，符号链接不会被索引。',
+				})
+				continue
+			}
 			if (info.isDirectory()) {
 				const collected = await collectTopic(practiceRoot, kind, name, path, problems)
 				entries.push(...collected)
@@ -240,7 +384,7 @@ export async function scanPractice(practiceRoot) {
 			}
 			if (!info.isFile()) continue
 			if (name === 'INDEX.md') continue
-			const entry = await readEntry(practiceRoot, kind, '', name, path)
+			const entry = await readEntry(practiceRoot, kind, '', name, path, info)
 			if (entry === undefined) continue
 			entries.push(entry)
 		}
@@ -259,14 +403,21 @@ export async function scanPractice(practiceRoot) {
  * @param {string} path - Absolute path of the file.
  * @returns {Promise<object | undefined>} The entry, or undefined when the name is invalid.
  */
-async function readEntry(practiceRoot, kind, topicSlug, name, path) {
+async function readEntry(practiceRoot, kind, topicSlug, name, path, info) {
 	if (!isEntryName(name)) return undefined
-	const info = await statOrUndefined(path)
-	if (info === undefined || !info.isFile()) return undefined
-	const text = await readFile(path, 'utf8')
+	const meta = info ?? (await lstatOrUndefined(path))
+	if (meta === undefined || !meta.isFile()) return undefined
+	const cached = entryCache.get(path)
+	if (cached !== undefined && cached.mtimeMs === meta.mtimeMs && cached.size === meta.size) {
+		// Re-insert so the eviction order tracks usage, not age.
+		entryCache.delete(path)
+		entryCache.set(path, cached)
+		return cached.entry
+	}
+	const text = await readEntryText(path, meta.size)
 	const { data, body } = splitEntry(text)
 	const relPath = relative(practiceRoot, path).split('\\').join('/')
-	return {
+	const entry = {
 		kind: kind.id,
 		kindTitle: kind.title,
 		topicSlug,
@@ -283,10 +434,12 @@ async function readEntry(practiceRoot, kind, topicSlug, name, path) {
 		links: Array.isArray(data.links) ? data.links.map((item) => String(item)) : [],
 		tags: Array.isArray(data.tags) ? data.tags.map((item) => String(item)) : [],
 		declaredKind: typeof data.kind === 'string' ? data.kind : '',
-		bytes: info.size,
-		updatedAt: info.mtime.toISOString(),
+		bytes: meta.size,
+		updatedAt: meta.mtime.toISOString(),
 		bodyPreview: body.slice(0, 400),
 	}
+	rememberEntry(path, meta, entry)
+	return entry
 }
 
 /**
@@ -310,8 +463,17 @@ async function collectTopic(practiceRoot, kind, topicSlug, topicDir, problems) {
 	for (const name of names.sort()) {
 		if (name.startsWith('.')) continue
 		const path = join(topicDir, name)
-		const info = await statOrUndefined(path)
+		const info = await lstatOrUndefined(path)
 		if (info === undefined) continue
+		if (info.isSymbolicLink()) {
+			problems.push({
+				level: 'warning',
+				code: 'entry/symlink',
+				path: relative(practiceRoot, path),
+				message: '实践条目必须是普通文件，符号链接不会被索引。',
+			})
+			continue
+		}
 		if (info.isDirectory()) {
 			problems.push({
 				level: 'error',
@@ -332,7 +494,7 @@ async function collectTopic(practiceRoot, kind, topicSlug, topicDir, problems) {
 			})
 			continue
 		}
-		const entry = await readEntry(practiceRoot, kind, topicSlug, name, path)
+		const entry = await readEntry(practiceRoot, kind, topicSlug, name, path, info)
 		if (entry === undefined) continue
 		entries.push(entry)
 	}
@@ -353,20 +515,6 @@ function compareEntries(left, right) {
 	if (left.topicSlug !== right.topicSlug) return left.topicSlug < right.topicSlug ? -1 : 1
 	if (left.name !== right.name) return left.name < right.name ? -1 : 1
 	return 0
-}
-
-/**
- * Read a file's metadata, tolerating a missing file.
- *
- * @param {string} path - Absolute file path.
- * @returns {Promise<object | undefined>} The metadata, or undefined.
- */
-async function statOrUndefined(path) {
-	try {
-		return await stat(path)
-	} catch {
-		return undefined
-	}
 }
 
 /**
@@ -394,33 +542,41 @@ export function entryLine(entry) {
 export function buildProjection(entries, { budget = DEFAULT_INDEX_BYTES } = {}) {
 	const header = '[实践] 下面是可复用实践的索引，只列路由。需要细节时用 practice_read / practice_query 自己去查，不要凭猜测。'
 	const ordered = [...entries].sort(compareEntries)
-	const included = []
-	const dropped = []
-	let used = Buffer.byteLength(header, 'utf8') + 1
-	// The discipline is part of the injected block, so it counts against the
-	// budget: the agent always sees the rules and the routing table together.
-	used += Buffer.byteLength(PRACTICE_DISCIPLINE, 'utf8') + 1
-	for (const entry of ordered) {
-		const line = entryLine(entry)
-		const cost = Buffer.byteLength(line, 'utf8') + 1
-		if (used + cost <= budget) {
-			included.push(entry)
-			used += cost
-			continue
+	const lines = ordered.map((entry) => entryLine(entry))
+	const costs = lines.map((line) => Buffer.byteLength(line, 'utf8') + 1)
+	const fixedBytes = Buffer.byteLength(header, 'utf8') + 1
+		+ Buffer.byteLength(PRACTICE_DISCIPLINE, 'utf8') + 1
+	const tailFor = (count) => `（另有 ${count} 条未展示，见 practice/ARCHIVE.md）`
+	// Why a reserve instead of a correction step: the tail line changes length
+	// with the number of dropped entries, so a projection that fits first and
+	// is corrected afterwards can drop an entry that had already been counted
+	// twice. Reserving the widest tail up front keeps `included` and `dropped`
+	// disjoint and the total inside the budget.
+	const fit = (reserve) => {
+		const included = []
+		const dropped = []
+		let used = fixedBytes + reserve
+		for (let index = 0; index < ordered.length; index += 1) {
+			if (used + costs[index] <= budget) {
+				included.push(index)
+				used += costs[index]
+				continue
+			}
+			dropped.push(index)
 		}
-		dropped.push(entry)
+		return { included, dropped }
 	}
-	if (dropped.length === 0) {
-		return { text: [header, PRACTICE_DISCIPLINE, ...ordered.map((entry) => entryLine(entry))].join('\n'), included, dropped }
+	const full = fit(0)
+	if (full.dropped.length === 0) {
+		return { text: [header, PRACTICE_DISCIPLINE, ...lines].join('\n'), included: ordered, dropped: [] }
 	}
-	const tail = `（另有 ${dropped.length} 条未展示，见 practice/ARCHIVE.md）`
-	const usedWithTail = used + Buffer.byteLength(tail, 'utf8') + 1
-	if (usedWithTail > budget && included.length > 0) {
-		included.pop()
-		dropped.push(ordered[included.length])
-	}
+	const reserve = Buffer.byteLength(tailFor(ordered.length), 'utf8') + 1
+	const fitted = fit(reserve)
+	const included = fitted.included.map((index) => ordered[index])
+	const dropped = fitted.dropped.map((index) => ordered[index])
+	const tail = tailFor(dropped.length)
 	return {
-		text: [header, PRACTICE_DISCIPLINE, ...included.map((entry) => entryLine(entry)), tail].join('\n'),
+		text: [header, PRACTICE_DISCIPLINE, ...fitted.included.map((index) => lines[index]), tail].join('\n'),
 		included,
 		dropped,
 	}
@@ -515,11 +671,13 @@ function groupByTopic(entries) {
  */
 export function validatePractice(entries, scanProblems = []) {
 	const problems = [...scanProblems]
-	const bySlug = new Map()
+	// A link resolves when the slug exists anywhere. Keeping a set (instead of
+	// a slug → entry map) means two topics may reuse a slug without the second
+	// silently shadowing the first.
+	const known = new Set()
 	for (const entry of entries) {
-		const key = `${entry.kind}/${entry.topicSlug}/${entry.slug}`
-		bySlug.set(key, entry)
-		bySlug.set(entry.slug, entry)
+		known.add(`${entry.kind}/${entry.topicSlug}/${entry.slug}`)
+		known.add(entry.slug)
 	}
 	const titles = new Map()
 	for (const entry of entries) {
@@ -550,15 +708,14 @@ export function validatePractice(entries, scanProblems = []) {
 			})
 		}
 		for (const link of entry.links) {
-			const target = bySlug.get(link) ?? bySlug.get(link.replace(/\.md$/, ''))
-			if (target === undefined) {
-				problems.push({
-					level: 'warning',
-					code: 'entry/broken-link',
-					path: entry.relPath,
-					message: `链接 ${link} 找不到对应条目。`,
-				})
-			}
+			const target = link.replace(/\.md$/, '')
+			if (known.has(link) || known.has(target)) continue
+			problems.push({
+				level: 'warning',
+				code: 'entry/broken-link',
+				path: entry.relPath,
+				message: `链接 ${link} 找不到对应条目。`,
+			})
 		}
 		const titleKey = `${entry.kind}/${entry.title}`
 		if (titles.has(titleKey)) {
@@ -585,35 +742,45 @@ export function validatePractice(entries, scanProblems = []) {
  */
 export async function writeIndexes(practiceRoot, entries, dropped = []) {
 	const written = []
-	const indexPath = join(practiceRoot, 'INDEX.md')
-	await writeFile(indexPath, buildFullIndex(entries), 'utf8')
-	written.push(indexPath)
+	// Only files whose content actually changed are replaced: a write used to
+	// bump the mtime of every topic index even when the entry was unrelated.
+	const write = async (path, text) => {
+		const previous = await readFile(path, 'utf8').catch(() => undefined)
+		if (previous === text) return
+		await writeTextAtomic(path, text)
+		written.push(path)
+	}
+
+	await write(join(practiceRoot, 'INDEX.md'), buildFullIndex(entries))
 
 	for (const kind of KINDS) {
 		const kindEntries = entries.filter((entry) => entry.kind === kind.id)
 		const rootEntries = kindEntries.filter((entry) => entry.topicSlug === '')
 		if (rootEntries.length > 0) {
-			const rootPath = join(practiceRoot, kind.dir, 'INDEX.md')
-			await writeFile(rootPath, buildTopicIndex(rootEntries, kind, ''), 'utf8')
-			written.push(rootPath)
+			await write(join(practiceRoot, kind.dir, 'INDEX.md'), buildTopicIndex(rootEntries, kind, ''))
 		}
 		const topics = groupByTopic(kindEntries.filter((entry) => entry.topicSlug !== ''))
 		for (const topic of topics) {
-			const topicPath = join(practiceRoot, kind.dir, topic.slug, 'INDEX.md')
-			await writeFile(topicPath, buildTopicIndex(topic.entries, kind, topic.slug), 'utf8')
-			written.push(topicPath)
+			await write(join(practiceRoot, kind.dir, topic.slug, 'INDEX.md'), buildTopicIndex(topic.entries, kind, topic.slug))
 		}
 	}
 
-	const archivePath = join(practiceRoot, 'ARCHIVE.md')
-	if (dropped.length > 0) {
-		await writeFile(archivePath, buildArchive(dropped), 'utf8')
-		written.push(archivePath)
-	} else {
-		await writeFile(archivePath, buildArchive([]), 'utf8')
-		written.push(archivePath)
-	}
+	await write(join(practiceRoot, 'ARCHIVE.md'), buildArchive(dropped))
 	return written
+}
+
+/**
+ * Write a text file through a uniquely named temporary file.
+ *
+ * @param {string} path - Absolute target path.
+ * @param {string} text - File content.
+ * @returns {Promise<void>} Resolves once the rename is committed.
+ */
+async function writeTextAtomic(path, text) {
+	writeSequence += 1
+	const temp = `${path}.${process.pid}.${writeSequence}.tmp`
+	await writeFile(temp, text, { encoding: 'utf8', mode: 0o600 })
+	await rename(temp, path)
 }
 
 /**
@@ -646,6 +813,7 @@ export async function regenerate(practiceRoot, { budget = DEFAULT_INDEX_BYTES } 
  */
 export async function searchPractice(practiceRoot, entries, query, { kind = '', limit = 8 } = {}) {
 	const needle = String(query ?? '').trim().toLowerCase()
+	const size = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 50) : 8
 	const pool = kind === '' ? entries : entries.filter((entry) => entry.kind === kind)
 	const toResult = (entry, snippet) => ({
 		kind: entry.kind,
@@ -655,7 +823,7 @@ export async function searchPractice(practiceRoot, entries, query, { kind = '', 
 		snippet,
 	})
 	if (needle === '') {
-		return pool.slice(0, limit).map((entry) => toResult(entry, entry.purpose))
+		return pool.slice(0, size).map((entry) => toResult(entry, entry.purpose))
 	}
 	const scored = []
 	for (const entry of pool) {
@@ -668,7 +836,7 @@ export async function searchPractice(practiceRoot, entries, query, { kind = '', 
 		scored.push({ entry, score, snippet: snippetOf(entry, needle) })
 	}
 	scored.sort((left, right) => right.score - left.score || compareEntries(left.entry, right.entry))
-	return scored.slice(0, limit).map((item) => toResult(item.entry, item.snippet))
+	return scored.slice(0, size).map((item) => toResult(item.entry, item.snippet))
 }
 
 /**
@@ -694,14 +862,16 @@ function snippetOf(entry, needle) {
  * @returns {Promise<object>} The entry's content and metadata.
  */
 export async function readPracticeEntry(practiceRoot, relPath) {
-	const clean = String(relPath ?? '').trim().split('\\').join('/')
-	if (clean === '' || clean.includes('..') || clean.startsWith('/')) {
-		throw new Error(`路径不合法：${relPath}`)
-	}
+	const clean = safeRelativePath(relPath)
 	const path = join(practiceRoot, clean)
-	const info = await statOrUndefined(path)
+	const info = await lstatOrUndefined(path)
+	// `lstat` refuses a link where the entry should be, and `isInside` catches
+	// a link further up the tree, so a practice folder can no longer be used
+	// as a window onto files the plugin was never given.
 	if (info === undefined || !info.isFile()) throw new Error(`条目不存在：${clean}`)
-	const text = await readFile(path, 'utf8')
+	if (!(await isInside(practiceRoot, path))) throw new Error(`路径逃出了实践目录：${clean}`)
+	const truncated = info.size > MAX_ENTRY_READ_BYTES
+	const text = truncated ? await readUpTo(path, MAX_ENTRY_READ_BYTES) : await readFile(path, 'utf8')
 	const { data, body } = splitEntry(text)
 	return {
 		path: clean,
@@ -713,6 +883,7 @@ export async function readPracticeEntry(practiceRoot, relPath) {
 		links: Array.isArray(data.links) ? data.links : [],
 		content: body,
 		bytes: info.size,
+		truncated: truncated || undefined,
 		updatedAt: info.mtime.toISOString(),
 	}
 }

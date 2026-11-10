@@ -20,6 +20,25 @@ import { parseScope } from './memory/scopes.js'
 /** Two memories this alike say the same thing; the newer one replaces the older. */
 const MERGE_THRESHOLD = 0.85
 
+/** One memory is a statement, not a document. */
+const MAX_MEMORY_CHARS = 4000
+
+/**
+ * Read a bounded count, falling back when the caller sent something that is
+ * not a number.
+ *
+ * @param {unknown} value - The requested count.
+ * @param {number} fallback - The default.
+ * @param {number} max - The largest accepted value.
+ * @returns {number} The count.
+ */
+function boundedCount(value, fallback, max) {
+	if (value === undefined || value === null || value === '') return fallback
+	const number = Number(value)
+	if (!Number.isFinite(number)) return fallback
+	return Math.min(Math.max(Math.trunc(number), 1), max)
+}
+
 /**
  * Create the memory operations for one store.
  *
@@ -54,6 +73,9 @@ export function createMemoryActions(store, { now = () => new Date() } = {}) {
 	async function save({ kind, content, scope, tags, projectKey, replaceOf, supersedes } = {}) {
 		const text = String(content ?? '').trim()
 		if (text === '') return { success: false, message: 'content 不能为空。' }
+		if (text.length > MAX_MEMORY_CHARS) {
+			return { success: false, message: `一条记忆最多 ${MAX_MEMORY_CHARS} 字，写长请拆成多条或用 practice_write。` }
+		}
 		const noise = classifyNoise(text)
 		if (noise.noise) {
 			return { success: false, message: `这条内容像噪声（${noise.category}），没有保存。` }
@@ -71,9 +93,12 @@ export function createMemoryActions(store, { now = () => new Date() } = {}) {
 		const entryKind = ENTRY_KINDS.includes(kind) ? kind : 'fact'
 		const entryScope = resolveScope(scope, projectKey)
 
+		// The whole scope has to match, not just its kind: two projects saying
+		// the same sentence are two memories, and merging them used to keep the
+		// first project's scope while replacing its text.
 		const twin = store.entries().find((entry) =>
 			entry.kind === entryKind
-			&& parseScope(entry.scope).kind === parseScope(entryScope).kind
+			&& entry.scope === entryScope
 			&& textSimilarity(entry.text, text) >= MERGE_THRESHOLD)
 		if (twin !== undefined) {
 			const merged = { ...twin, text, content: text, updatedAt: timestamp }
@@ -89,7 +114,7 @@ export function createMemoryActions(store, { now = () => new Date() } = {}) {
 		}
 
 		const entry = {
-			id: `mem-${randomUUID().slice(0, 8)}`,
+			id: `mem-${randomUUID()}`,
 			kind: entryKind,
 			scope: entryScope,
 			content: text,
@@ -128,7 +153,7 @@ export function createMemoryActions(store, { now = () => new Date() } = {}) {
 	async function recall({ query, kinds, scopes, projectKey, limit } = {}) {
 		const results = await store.retrieve({
 			query: String(query ?? ''),
-			limit: Math.min(Math.max(Number(limit ?? 8), 1), 40),
+			limit: boundedCount(limit, 8, 40),
 			scope: { cwd: projectKey },
 		})
 		const filtered = results.filter((result) => {
@@ -181,7 +206,7 @@ export function createMemoryActions(store, { now = () => new Date() } = {}) {
 			.filter((entry) => (kind === undefined || entry.kind === kind))
 			.filter((entry) => (scope === undefined || parseScope(entry.scope).kind === scope || entry.scope === scope))
 			.sort((left, right) => (right.importance ?? 0) - (left.importance ?? 0) || String(right.updatedAt).localeCompare(String(left.updatedAt)))
-			.slice(0, Math.min(Math.max(Number(limit ?? 20), 1), 200))
+			.slice(0, boundedCount(limit, 20, 200))
 		return { success: true, total: all.length, results: all }
 	}
 

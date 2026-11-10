@@ -22,15 +22,18 @@
 
 import { cp, lstat, mkdir, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import {
 	DEFAULT_INDEX_BYTES,
 	KINDS,
 	buildProjection,
 	findSecret,
+	isEntryName,
+	isInside,
 	readPracticeEntry,
 	regenerate,
+	safeRelativePath,
 	scanPractice,
 	searchPractice,
 	splitEntry,
@@ -184,6 +187,63 @@ export function resolveDshHome(env = process.env) {
 	return join(homedir(), '.dsh')
 }
 
+/** The largest soul document the plugin injects. */
+export const MAX_SOUL_BYTES = 16 * 1024
+
+/** The largest global preferences file (matches the loader's 64 KB cap). */
+export const MAX_PREFERENCES_BYTES = 64 * 1024
+
+/** The largest body a single practice entry may carry. */
+export const MAX_BODY_BYTES = 256 * 1024
+
+/** A title long enough to be a paragraph is not a title. */
+const MAX_TITLE_CHARS = 200
+
+/** A purpose is one sentence; anything longer belongs in the body. */
+const MAX_PURPOSE_CHARS = 300
+
+/** The generated files a practice entry may not take over. */
+const RESERVED_NAMES = new Set(['INDEX.md', 'ARCHIVE.md'])
+
+/**
+ * Validate one single-line frontmatter field.
+ *
+ * A newline is refused rather than escaped: the writer builds YAML by string
+ * concatenation, and a newline is exactly how a title could inject `links:`
+ * or close the frontmatter early.
+ *
+ * @param {unknown} value - The field value.
+ * @param {string} label - The field name, for the error message.
+ * @param {number} maxChars - The length limit.
+ * @returns {string} The trimmed value.
+ */
+function scalarField(value, label, maxChars) {
+	const text = String(value ?? '').trim()
+	if (/[\r\n]/.test(text)) throw new Error(`${label}不能包含换行。`)
+	if (text.length > maxChars) throw new Error(`${label}太长（上限 ${maxChars} 字）。`)
+	return text
+}
+
+/**
+ * Validate the links an entry declares.
+ *
+ * @param {unknown} value - The requested links.
+ * @returns {string[]} The usable links.
+ */
+function entryLinks(value) {
+	if (!Array.isArray(value)) return []
+	const links = []
+	for (const raw of value) {
+		const link = String(raw ?? '').trim()
+		if (link === '') continue
+		if (!isEntryName(link.replace(/\.md$/, '')) || link.includes('/')) {
+			throw new Error(`链接不合法：${link}`)
+		}
+		links.push(link)
+	}
+	return links.slice(0, 24)
+}
+
 /**
  * The evolver's data layer.
  */
@@ -195,7 +255,9 @@ export class Evolver {
 		this.root = root
 		this.logger = logger
 		this.dshHome = dshHome ?? resolveDshHome()
-		this.indexBytes = indexBytes ?? DEFAULT_INDEX_BYTES
+		this.indexBytes = Number.isFinite(indexBytes) && indexBytes >= 512
+			? Math.trunc(indexBytes)
+			: DEFAULT_INDEX_BYTES
 		this.panelDir = join(this.dshHome, 'panel')
 		/**
 		 * The injected text, cached.
@@ -262,12 +324,14 @@ export class Evolver {
 	 * Existing files are never overwritten.
 	 */
 	async ensure() {
-		await mkdir(this.root, { recursive: true })
+		// The practice layer holds the agent's own notes; it should not be
+		// world-readable just because the ambient umask allows it.
+		await mkdir(this.root, { recursive: true, mode: 0o700 })
 		for (const kind of KINDS) {
-			await mkdir(join(this.practiceDir, kind.dir), { recursive: true })
+			await mkdir(join(this.practiceDir, kind.dir), { recursive: true, mode: 0o700 })
 		}
-		await mkdir(join(this.root, 'sight'), { recursive: true })
-		await mkdir(join(this.root, 'preferences'), { recursive: true })
+		await mkdir(join(this.root, 'sight'), { recursive: true, mode: 0o700 })
+		await mkdir(join(this.root, 'preferences'), { recursive: true, mode: 0o700 })
 		await this.writeIfMissing(this.soulPath, STARTER_SOUL)
 		await this.writeIfMissing(this.preferencesPath, STARTER_PREFS)
 		for (const entry of STARTER_ENTRIES) {
@@ -287,7 +351,17 @@ export class Evolver {
 	 */
 	async linkGlobalIfNeeded() {
 		const state = await this.globalLinkState()
-		if (state.kind === 'link' && state.target === this.preferencesPath) return
+		if (state.kind === 'link' && state.ours) return
+		if (state.kind === 'link') {
+			// Someone else's link. Replacing it silently would break whatever
+			// dotfiles setup put it there, so the takeover stays a user action.
+			this.logger?.warn?.(`dsh-evolver: ${this.globalPath} 已链接到 ${state.target}，不是本插件建立的，未自动接管；需要在面板「偏好」里显式点「设为全局加载」。`)
+			return
+		}
+		if (state.kind === 'other') {
+			this.logger?.warn?.(`dsh-evolver: ${this.globalPath} 存在但不是普通文件，未接管。`)
+			return
+		}
 		try {
 			await this.linkGlobal()
 			this.logger?.info?.(`dsh-evolver: ${this.globalPath} now points at the evolver's preferences`)
@@ -324,8 +398,8 @@ export class Evolver {
 		} catch {
 			// The file is absent; write it.
 		}
-		await mkdir(dirname(path), { recursive: true })
-		await writeFile(path, content, 'utf8')
+		await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+		await writeFile(path, content, { encoding: 'utf8', mode: 0o600 })
 	}
 
 	/**
@@ -434,16 +508,29 @@ export class Evolver {
 	async practiceWrite(input = {}) {
 		const kind = KINDS.find((item) => item.id === input.kind)
 		if (kind === undefined) throw new Error(`未知类型：${String(input.kind)}`)
-		const topic = String(input.topic ?? '').trim()
-		const topicSlug = topic === '' ? '' : slugify(topic)
 		const name = String(input.name ?? '').trim()
-		if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) {
-			throw new Error(`文件名不合法：${name}`)
-		}
-		const title = String(input.title ?? '').trim()
-		const purpose = String(input.purpose ?? '').trim()
+		if (!isEntryName(name)) throw new Error(`文件名不合法：${name}`)
+		if (RESERVED_NAMES.has(name)) throw new Error(`${name} 由索引生成器维护，换一个文件名。`)
+		const title = scalarField(input.title, '标题', MAX_TITLE_CHARS)
+		const purpose = scalarField(input.purpose, '用途', MAX_PURPOSE_CHARS)
 		if (title === '') throw new Error('标题不能为空。')
 		if (purpose === '') throw new Error('用途不能为空。')
+		const topic = scalarField(input.topic, '主题', MAX_PURPOSE_CHARS)
+		const verified = scalarField(
+			input.verified ?? new Date().toISOString().slice(0, 10),
+			'验证日期',
+			32,
+		)
+		const links = entryLinks(input.links)
+		const body = String(input.body ?? '').replace(/^\n+/, '')
+		if (Buffer.byteLength(body, 'utf8') > MAX_BODY_BYTES) {
+			throw new Error(`正文超过 ${MAX_BODY_BYTES / 1024} KB，请拆成多条条目。`)
+		}
+		const secret = findSecret(`${title}\n${purpose}\n${body}`)
+		if (secret !== undefined) {
+			throw new Error(`正文里像是${secret}：实践层不保存密钥，请删掉后重写。`)
+		}
+		const topicSlug = topic === '' ? '' : slugify(topic)
 		const relPath = topicSlug === ''
 			? `${kind.dir}/${name}`
 			: `${kind.dir}/${topicSlug}/${name}`
@@ -453,23 +540,32 @@ export class Evolver {
 			`purpose: ${purpose}`,
 			`kind: ${kind.id}`,
 			...(topic === '' ? [] : [`topic: ${topic}`]),
-			`verified: ${String(input.verified ?? new Date().toISOString().slice(0, 10))}`,
-			...(Array.isArray(input.links) && input.links.length > 0
-				? [`links: [${input.links.map((link) => String(link)).join(', ')}]`]
-				: []),
+			`verified: ${verified}`,
+			...(links.length > 0 ? [`links: [${links.join(', ')}]`] : []),
 			'---',
 			'',
 		].join('\n')
-		const body = String(input.body ?? '').replace(/^\n+/, '')
-		const secret = findSecret(`${title}\n${purpose}\n${body}`)
-		if (secret !== undefined) {
-			throw new Error(`正文里像是${secret}：实践层不保存密钥，请删掉后重写。`)
-		}
 		const path = join(this.practiceDir, relPath)
-		await mkdir(dirname(path), { recursive: true })
+		const dir = dirname(path)
+		await mkdir(dir, { recursive: true, mode: 0o700 })
+		// A topic directory is a name the caller influences, so the write has to
+		// prove it landed inside the practice folder before touching the file.
+		if (!(await isInside(this.practiceDir, dir))) {
+			throw new Error(`路径逃出了实践目录：${relPath}`)
+		}
+		const existing = await lstat(path).catch(() => undefined)
+		if (existing?.isSymbolicLink()) {
+			throw new Error(`目标是符号链接，拒绝写入：${relPath}`)
+		}
+		if (existing !== undefined && !existing.isFile()) {
+			throw new Error(`目标不是普通文件：${relPath}`)
+		}
 		const content = `${frontmatter}${body}\n`
-		await writeFile(path, content, 'utf8')
+		await writeFile(path, content, { encoding: 'utf8', mode: 0o600 })
 		const rebuilt = await this.regenerateIndex()
+		// The prompt sections read this cache, so a write has to refresh it:
+		// otherwise the agent cannot see what it just sank until the timer runs.
+		this.cache.practice = rebuilt.projection.text
 		return {
 			path: relPath,
 			title,
@@ -491,12 +587,18 @@ export class Evolver {
 	 * @returns {Promise<object>} A short receipt.
 	 */
 	async practiceDelete(path) {
-		const clean = String(path ?? '').trim()
-		if (clean === '' || clean.includes('..') || clean.startsWith('/')) {
-			throw new Error(`路径不合法：${path}`)
+		const clean = safeRelativePath(path)
+		const target = join(this.practiceDir, clean)
+		const info = await lstat(target).catch(() => undefined)
+		if (info !== undefined) {
+			if (!info.isFile()) throw new Error(`只能删除条目文件：${clean}`)
+			if (!(await isInside(this.practiceDir, target))) {
+				throw new Error(`路径逃出了实践目录：${clean}`)
+			}
+			await rm(target, { force: true })
 		}
-		await rm(join(this.practiceDir, clean), { force: true })
-		await this.regenerateIndex()
+		const rebuilt = await this.regenerateIndex()
+		this.cache.practice = rebuilt.projection.text
 		return { ok: true, path: clean }
 	}
 
@@ -530,8 +632,13 @@ export class Evolver {
 	 * @returns {Promise<object>} The document's metadata.
 	 */
 	async soulWrite(content) {
-		await mkdir(dirname(this.soulPath), { recursive: true })
-		await writeFile(this.soulPath, String(content ?? ''), 'utf8')
+		const text = String(content ?? '')
+		if (Buffer.byteLength(text, 'utf8') > MAX_SOUL_BYTES) {
+			throw new Error(`灵魂超过 ${MAX_SOUL_BYTES} 字节：它每次请求都会被注入，请精简或把细节写进实践。`)
+		}
+		await mkdir(dirname(this.soulPath), { recursive: true, mode: 0o700 })
+		await writeFile(this.soulPath, text, { encoding: 'utf8', mode: 0o600 })
+		this.cache.soul = text
 		const info = await lstat(this.soulPath)
 		return { path: 'sight/soul.md', bytes: info.size, updatedAt: info.mtime.toISOString() }
 	}
@@ -564,8 +671,12 @@ export class Evolver {
 	 * @returns {Promise<object>} The preferences state.
 	 */
 	async preferencesWrite(content) {
-		await mkdir(dirname(this.preferencesPath), { recursive: true })
-		await writeFile(this.preferencesPath, String(content ?? ''), 'utf8')
+		const text = String(content ?? '')
+		if (Buffer.byteLength(text, 'utf8') > MAX_PREFERENCES_BYTES) {
+			throw new Error(`全局偏好超过 ${MAX_PREFERENCES_BYTES} 字节，DSH 的加载器会截断，请精简。`)
+		}
+		await mkdir(dirname(this.preferencesPath), { recursive: true, mode: 0o700 })
+		await writeFile(this.preferencesPath, text, { encoding: 'utf8', mode: 0o600 })
 		return this.preferencesRead()
 	}
 
@@ -577,7 +688,12 @@ export class Evolver {
 	async globalLinkState() {
 		try {
 			const info = await lstat(this.globalPath)
-			if (info.isSymbolicLink()) return { kind: 'link', target: await readlink(this.globalPath) }
+			if (info.isSymbolicLink()) {
+				const target = await readlink(this.globalPath)
+				// A relative link is read against the link's own folder.
+				const resolved = resolve(dirname(this.globalPath), target)
+				return { kind: 'link', target, ours: resolved === resolve(this.preferencesPath) }
+			}
 			if (info.isFile()) return { kind: 'file' }
 			return { kind: 'other' }
 		} catch {
@@ -595,14 +711,23 @@ export class Evolver {
 	 */
 	async linkGlobal() {
 		const state = await this.globalLinkState()
-		if (state.kind === 'link' && state.target === this.preferencesPath) {
+		if (state.kind === 'link' && state.ours) {
 			return { linked: true, message: `已链接，DSH 全局加载 ${this.globalPath}。` }
 		}
-		if (state.kind === 'file') {
-			const original = await readFile(this.globalPath, 'utf8')
-			await writeFile(join(this.root, 'preferences', 'AGENTS.md.imported'), original, 'utf8')
+		if (state.kind === 'other') {
+			throw new Error(`${this.globalPath} 存在但不是普通文件，无法替换，请先手动处理。`)
+		}
+		if (state.kind === 'file' || state.kind === 'link') {
+			// Whatever occupied the path is imported next to the preferences
+			// file first — and only when that copy does not exist yet, so a
+			// second takeover never overwrites the user's earlier backup.
+			const original = await readFile(this.globalPath, 'utf8').catch(() => undefined)
+			if (original !== undefined) {
+				await this.writeIfMissing(join(this.root, 'preferences', 'AGENTS.md.imported'), original)
+			}
 		}
 		await rm(this.globalPath, { force: true })
+		await mkdir(dirname(this.globalPath), { recursive: true })
 		await symlink(this.preferencesPath, this.globalPath)
 		return { linked: true, message: `已链接，DSH 全局加载 ${this.globalPath}。` }
 	}
@@ -615,6 +740,13 @@ export class Evolver {
 	async unlinkGlobal() {
 		const state = await this.globalLinkState()
 		if (state.kind !== 'link') return { linked: false, message: '全局链接本来就不存在。' }
+		if (!state.ours) {
+			return {
+				linked: false,
+				foreign: true,
+				message: `${this.globalPath} 的链接不是本插件建立的（指向 ${state.target}），没有移除。`,
+			}
+		}
 		await rm(this.globalPath, { force: true })
 		return { linked: false, message: '已移除全局链接。' }
 	}
@@ -649,7 +781,7 @@ export class Evolver {
 				link: preferences.link,
 				note: '全局偏好由 DSH 的 AGENTS.md 加载器注入，不占用演化器自己的预算。',
 			},
-			totalBytes: practice.projection.text.length + soul.bytes + preferences.bytes,
+			totalBytes: Buffer.byteLength(practice.projection.text, 'utf8') + soul.bytes + preferences.bytes,
 		}
 	}
 
@@ -743,6 +875,9 @@ export function slugify(value) {
 			.replace(/[\\/:*?"<>|\u0000-\u001F]/g, '-')
 			.replace(/^\.+/, '')
 			.slice(0, 64)
+			// A trailing dot or space is legal here but not on Windows, and the
+			// folder travels between machines.
+			.replace(/[. ]+$/, '')
 	}
 	return trimmed
 		.toLowerCase()

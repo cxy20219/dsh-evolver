@@ -138,7 +138,11 @@ export function lengthFactor(text) {
  * @param {{lambda?: number, limit?: number}} [options] - Selection options.
  * @returns {Array<object>} The selected candidates.
  */
-export function mmrSelect(candidates, { lambda = MMR_LAMBDA, limit = 8 } = {}) {
+export function mmrSelect(candidates, {
+	lambda = MMR_LAMBDA,
+	limit = 8,
+	similarity = (left, right) => textOverlap(left.text, right.text),
+} = {}) {
 	const selected = []
 	const pool = [...candidates]
 	while (pool.length > 0 && selected.length < limit) {
@@ -148,8 +152,8 @@ export function mmrSelect(candidates, { lambda = MMR_LAMBDA, limit = 8 } = {}) {
 			const candidate = pool[index]
 			let worst = 0
 			for (const chosen of selected) {
-				const similarity = textOverlap(chosen.text, candidate.text)
-				if (similarity > worst) worst = similarity
+				const value = similarity(chosen, candidate)
+				if (value > worst) worst = value
 			}
 			const value = lambda * candidate.score - (1 - lambda) * worst
 			if (value > bestValue) {
@@ -170,11 +174,15 @@ export function mmrSelect(candidates, { lambda = MMR_LAMBDA, limit = 8 } = {}) {
  * @returns {number} The similarity in [0, 1].
  */
 export function textOverlap(left, right) {
-	const a = new Set(String(left ?? '').split(/\s+/).filter(word => word !== ''))
-	const b = new Set(String(right ?? '').split(/\s+/).filter(word => word !== ''))
+	// Tokenised overlap rather than whitespace overlap: Chinese is written
+	// without spaces, so splitting on whitespace made every Chinese memory a
+	// single token and every similarity either 0 or 1 — MMR and the duplicate
+	// threshold silently never fired for the language most of this store is in.
+	const a = new Set(tokenize(left))
+	const b = new Set(tokenize(right))
 	if (a.size === 0 || b.size === 0) return 0
 	let shared = 0
-	for (const word of a) if (b.has(word)) shared += 1
+	for (const token of a) if (b.has(token)) shared += 1
 	return shared / Math.min(a.size, b.size)
 }
 
@@ -216,7 +224,7 @@ export async function hybridRetrieve({ db, query, queryVector, limit = 8, minSco
 	// Rank fusion produces small numbers (1/(k+rank)), so the fused scores
 	// are scaled against the best one before anything else looks at them.
 	// Without this the hard minimum would throw every result away.
-	const top = Math.max(0, ...fused.values())
+	const top = [...fused.values()].reduce((max, value) => Math.max(max, value), 0)
 	let scored = [...fused.entries()].map(([id, score]) => {
 		const memory = db.memories.get(id)
 		return {
@@ -233,7 +241,7 @@ export async function hybridRetrieve({ db, query, queryVector, limit = 8, minSco
 	// its words, or an embedding close enough to believe.
 	const queryTokens = new Set(tokenize(query))
 	scored = scored.map(item => {
-		const memoryTokens = new Set(tokenize(db.searchableText(item.memory)))
+		const memoryTokens = db.tokenSet(item.id)
 		let shared = 0
 		for (const token of queryTokens) if (memoryTokens.has(token)) shared += 1
 		return { ...item, overlap: queryTokens.size === 0 ? 0 : shared / queryTokens.size }
@@ -264,10 +272,19 @@ export async function hybridRetrieve({ db, query, queryVector, limit = 8, minSco
 	scored.sort((left, right) => right.score - left.score || left.id.localeCompare(right.id))
 
 	// MMR only reorders; it does not remove. Two memories that say the same
-	// thing would still both be shown, so the near-duplicates go.
+	// thing would still both be shown, so the near-duplicates go. Both use the
+	// same index-time token sets, so this costs no extra tokenisation.
+	const similarityOf = (left, right) => {
+		const a = db.tokenSet(left.id)
+		const b = db.tokenSet(right.id)
+		if (a.size === 0 || b.size === 0) return 0
+		let shared = 0
+		for (const token of a) if (b.has(token)) shared += 1
+		return shared / Math.min(a.size, b.size)
+	}
 	const selected = []
-	for (const item of mmrSelect(scored, { limit })) {
-		const redundant = selected.some(other => textOverlap(other.memory.text, item.memory.text) >= DUPLICATE_THRESHOLD)
+	for (const item of mmrSelect(scored, { limit, similarity: similarityOf })) {
+		const redundant = selected.some(other => similarityOf(other, item) >= DUPLICATE_THRESHOLD)
 		if (redundant) continue
 		selected.push(item)
 	}

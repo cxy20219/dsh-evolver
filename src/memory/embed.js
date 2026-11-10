@@ -124,6 +124,9 @@ export function cosine(left, right) {
 	return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm))
 }
 
+/** How long one embedding request may take before it is abandoned. */
+const REQUEST_TIMEOUT_MS = 20_000
+
 /**
  * An embedder backed by an OpenAI-compatible endpoint.
  */
@@ -142,27 +145,51 @@ class HttpEmbedder {
 	/**
 	 * Embed a batch of texts.
 	 *
+	 * A request without a deadline used to be able to hold the whole plugin
+	 * (and the panel's recall button) open for as long as the endpoint stayed
+	 * silent, so every request now carries a timeout and every response is
+	 * checked against what was asked for.
+	 *
 	 * @param {string[]} texts - Texts to embed.
 	 * @returns {Promise<Float32Array[]>} One vector per text.
 	 */
 	async embedBatch(texts) {
 		if (texts.length === 0) return []
-		const response = await fetch(`${this.baseURL}/embeddings`, {
-			method: 'POST',
-			headers: {
-				'content-type': 'application/json',
-				...(this.apiKey === '' ? {} : { authorization: `Bearer ${this.apiKey}` }),
-			},
-			body: JSON.stringify({
-				model: this.model,
-				input: texts,
-				...(this.dimensions > 0 ? { dimensions: this.dimensions } : {}),
-			}),
-		})
+		const signal = typeof AbortSignal.timeout === 'function'
+			? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+			: undefined
+		let response
+		try {
+			response = await fetch(`${this.baseURL}/embeddings`, {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					...(this.apiKey === '' ? {} : { authorization: `Bearer ${this.apiKey}` }),
+				},
+				body: JSON.stringify({
+					model: this.model,
+					input: texts,
+					...(this.dimensions > 0 ? { dimensions: this.dimensions } : {}),
+				}),
+				...(signal === undefined ? {} : { signal }),
+			})
+		} catch (error) {
+			throw new Error(`embedding 请求失败：${error instanceof Error ? error.message : String(error)}`)
+		}
 		if (!response.ok) throw new Error(`embedding 请求失败：HTTP ${response.status}`)
 		const payload = await response.json()
 		const data = Array.isArray(payload?.data) ? payload.data : []
-		return data.map(item => normalize(Float32Array.from(item.embedding ?? [])))
+		if (data.length !== texts.length) {
+			throw new Error(`embedding 返回 ${data.length} 条向量，请求的是 ${texts.length} 条`)
+		}
+		return data.map((item) => {
+			const values = Array.isArray(item?.embedding) ? item.embedding : undefined
+			if (values === undefined || values.length === 0) throw new Error('embedding 返回的数据缺少向量')
+			if (this.dimensions > 0 && values.length !== this.dimensions) {
+				throw new Error(`embedding 向量维度是 ${values.length}，配置的是 ${this.dimensions}`)
+			}
+			return normalize(Float32Array.from(values))
+		})
 	}
 
 	/**
@@ -287,7 +314,7 @@ export class ModelEmbedder {
 		if (this.loading === undefined) {
 			this.loading = this.load().catch(error => {
 				this.failed = true
-				this.logger?.warn?.(`dsh-panel: embedding model unavailable, falling back to hashing: ${error instanceof Error ? error.message : String(error)}`)
+				this.logger?.warn?.(`dsh-evolver: embedding model unavailable, falling back to hashing: ${error instanceof Error ? error.message : String(error)}`)
 				return undefined
 			})
 		}
@@ -386,7 +413,7 @@ export function createEmbedder(config = {}) {
 	if (provider === 'model') {
 		const model = new ModelEmbedder(config)
 		if (!model.available()) {
-			config.logger?.warn?.('dsh-panel: embedding model or runtime missing, falling back to hashing')
+			config.logger?.warn?.('dsh-evolver: embedding model or runtime missing, falling back to hashing')
 			return createEmbedder({ ...config, provider: 'local' })
 		}
 		return model

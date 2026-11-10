@@ -28,6 +28,9 @@ export const ENTRY_KINDS = ['fact', 'preference', 'convention', 'correction', 'f
 /** The kinds that are skeleton nodes. */
 export const NODE_KINDS = ['constraint', 'decision', 'artifact', 'progress']
 
+/** How many memories one embedding request carries. */
+const REEMBED_BATCH = 32
+
 /** The category each of our kinds maps onto. */
 const CATEGORY_OF = {
 	fact: 'fact',
@@ -55,24 +58,57 @@ export class MemoryStore {
 		this.logger = logger
 		this.embedder = embedding === undefined ? createEmbedder({ provider: 'local' }) : embedding
 		this.db = new MemoryDatabase({ dataDir, embedder: this.embedder, logger })
+		/**
+		 * Whether every stored vector belongs to the configured embedder.
+		 *
+		 * A single fresh save sets the metadata on its own vector, so metadata
+		 * alone cannot answer this: a rebuild that was interrupted leaves a
+		 * store that is half old space, half new space. The flag is what the
+		 * read path trusts.
+		 */
+		this.vectorsAligned = false
 	}
 
 	/**
 	 * Open the store.
 	 *
-	 * @returns {Promise<void>} Resolves once the store is ready.
+	 * Loading the records is local and fast; rebuilding embeddings may talk to
+	 * a network endpoint, so it runs in the background. Until it finishes the
+	 * store reports its vectors as unusable and retrieval runs keyword-only —
+	 * a plugin activation is never held up by an embedding provider.
+	 *
+	 * @returns {Promise<void>} Resolves once the records are loaded.
 	 */
 	async init() {
 		await this.db.init()
-		await this.reembedIfNeeded()
+		this.ready = this.reembedIfNeeded().catch((error) => {
+			this.vectorsAligned = false
+			this.logger?.warn?.(`dsh-evolver: embedding rebuild failed: ${error instanceof Error ? error.message : String(error)}`)
+		})
+	}
+
+	/**
+	 * Whether the stored vectors belong to the configured embedder.
+	 *
+	 * Vectors from two different backends (or two different models) live in
+	 * different spaces and cannot be compared; a query must not mix them.
+	 *
+	 * @returns {boolean} True when vector search is meaningful.
+	 */
+	vectorsReady() {
+		if (this.vectorsAligned !== true) return false
+		if (this.embedder === undefined || this.embedder.id === 'none') return false
+		if (this.db.vectorBackend !== this.embedder.id) return false
+		return this.db.vectorModel === this.embedder.modelName
 	}
 
 	/**
 	 * Re-embed every memory when the embedding backend changed.
 	 *
-	 * Vectors from two different backends live in different spaces: a model
-	 * vector cannot be compared with a hashing vector. Re-embedding is cheap
-	 * (a few milliseconds per memory), so the store simply does it.
+	 * The rebuild is staged: vectors are collected first and applied only when
+	 * every batch succeeded. A half-rebuilt store would mix two vector spaces
+	 * and quietly produce wrong rankings, which is worse than keeping the old
+	 * vectors until the next attempt.
 	 *
 	 * @returns {Promise<void>} Resolves once the vectors are consistent.
 	 */
@@ -80,19 +116,75 @@ export class MemoryStore {
 		if (this.embedder === undefined || this.embedder.id === 'none') return
 		const backend = this.db.vectorBackend
 		const model = this.db.vectorModel
-		const sameBackend = backend === this.embedder.id
 		// A backend without a model name (the hashing one) has nothing to
 		// compare; a named backend has to match exactly, or the stored
 		// vectors belong to another model and cannot be compared with it.
-		const sameModel = this.embedder.modelName === undefined
-			? true
-			: model === this.embedder.modelName
-		if (sameBackend && sameModel) return
-		this.logger?.info?.(`dsh-panel: embedding changed (${backend ?? 'none'}/${model ?? 'none'} → ${this.embedder.id}/${this.embedder.modelName}), re-embedding ${this.db.memories.size} memories`)
-		for (const memory of this.db.all()) {
-			await this.db.embedMemory(memory)
+		if (backend === this.embedder.id && model === this.embedder.modelName) {
+			this.vectorsAligned = true
+			return
 		}
+		const memories = this.db.all()
+		// Nothing to convert: the store simply adopts the configured backend.
+		if (memories.length === 0) {
+			this.db.vectorBackend = this.embedder.id
+			this.db.vectorModel = this.embedder.modelName
+			this.vectorsAligned = true
+			return
+		}
+		this.logger?.info?.(`dsh-evolver: embedding changed (${backend ?? 'none'}/${model ?? 'none'} → ${this.embedder.id}/${this.embedder.modelName}), re-embedding ${memories.length} memories`)
+		const staged = []
+		let failures = 0
+		for (let start = 0; start < memories.length; start += REEMBED_BATCH) {
+			const batch = memories.slice(start, start + REEMBED_BATCH)
+			try {
+				const vectors = await this.embedTexts(batch.map((memory) => this.db.searchableText(memory)))
+				if (vectors.length !== batch.length) {
+					throw new Error(`嵌入返回 ${vectors.length} 条，期望 ${batch.length} 条`)
+				}
+				for (let index = 0; index < batch.length; index += 1) {
+					if (vectors[index]?.length > 0) staged.push([batch[index].id, vectors[index]])
+				}
+			} catch (error) {
+				failures += 1
+				this.logger?.warn?.(`dsh-evolver: 批量嵌入失败（第 ${Math.floor(start / REEMBED_BATCH) + 1} 批）：${error instanceof Error ? error.message : String(error)}`)
+				if (failures >= 2) {
+					this.logger?.warn?.('dsh-evolver: 嵌入后端不可用，放弃本次重建，旧向量保持不变。')
+					return
+				}
+			}
+		}
+		// One failed batch leaves its memories on the old space, so a partial
+		// rebuild is not applied at all: keyword-only is better than rankings
+		// computed across two incomparable vector spaces.
+		if (failures > 0) {
+			this.logger?.warn?.('dsh-evolver: 有批次失败，放弃本次重建，旧向量保持不变。')
+			return
+		}
+		for (const [id, vector] of staged) await this.db.setVector(id, vector)
 		await this.db.flush()
+		this.vectorsAligned = true
+	}
+
+	/**
+	 * Embed a batch of texts with whichever method the backend offers.
+	 *
+	 * @param {string[]} texts - The texts.
+	 * @returns {Promise<Array<Float32Array | number[]>>} One vector per text.
+	 */
+	async embedTexts(texts) {
+		if (texts.length === 0) return []
+		if (typeof this.embedder.embedBatch === 'function') {
+			return this.embedder.embedBatch(texts)
+		}
+		const embed = this.embedder.embedDocument ?? this.embedder.embed
+		const vectors = []
+		for (const text of texts) vectors.push(await embed.call(this.embedder, text))
+		return vectors
+	}
+
+	/** Write the store out and stop the debounce timer. */
+	async close() {
+		await this.db.close()
 	}
 
 	/** ISO timestamp for now. */
@@ -117,7 +209,13 @@ export class MemoryStore {
 	 * @returns {object[]} The entries.
 	 */
 	entries() {
-		return this.db.all().filter(memory => ENTRY_KINDS.includes(memory.kind))
+		// No sort here: this feeds filters and counters, and `all()` sorting the
+		// whole store for a scope lookup was pure cost. `list()` sorts its slice.
+		const entries = []
+		for (const memory of this.db.memories.values()) {
+			if (ENTRY_KINDS.includes(memory.kind)) entries.push(memory)
+		}
+		return entries
 	}
 
 	/**
@@ -126,7 +224,11 @@ export class MemoryStore {
 	 * @returns {object[]} The nodes.
 	 */
 	nodes() {
-		return this.db.all().filter(memory => NODE_KINDS.includes(memory.kind))
+		const nodes = []
+		for (const memory of this.db.memories.values()) {
+			if (NODE_KINDS.includes(memory.kind)) nodes.push(memory)
+		}
+		return nodes
 	}
 
 	/**
@@ -135,7 +237,11 @@ export class MemoryStore {
 	 * @returns {object[]} The standing entries.
 	 */
 	standing() {
-		return this.db.all().filter(memory => memory.kind === 'standing')
+		const standing = []
+		for (const memory of this.db.memories.values()) {
+			if (memory.kind === 'standing') standing.push(memory)
+		}
+		return standing
 	}
 
 	/**
@@ -250,7 +356,7 @@ export class MemoryStore {
 		const timestamp = this.stamp()
 		const text = String(input.content ?? input.text ?? '')
 		const memory = {
-			id: input.id ?? `mem-${randomUUID().slice(0, 8)}`,
+			id: input.id ?? `mem-${randomUUID()}`,
 			kind: input.kind ?? 'fact',
 			category: input.category ?? CATEGORY_OF[input.kind ?? 'fact'] ?? 'other',
 			scope: input.scope ?? 'global',
@@ -294,7 +400,7 @@ export class MemoryStore {
 	 */
 	async putSpan(span) {
 		const reflection = {
-			id: span.id ?? `span-${randomUUID().slice(0, 8)}`,
+			id: span.id ?? `span-${randomUUID()}`,
 			kind: 'event',
 			text: span.text ?? '',
 			title: span.title ?? '',
@@ -355,11 +461,7 @@ export class MemoryStore {
 	 */
 	async deleteRecord(id) {
 		if (this.db.memories.has(id)) return this.db.remove(id)
-		if (this.db.reflections.has(id)) {
-			this.db.reflections.delete(id)
-			this.db.scheduleFlush()
-			return true
-		}
+		if (this.db.reflections.has(id)) return this.db.removeReflection(id)
 		if (this.db.edges.has(id)) return this.db.removeEdge(id)
 		return false
 	}
@@ -428,7 +530,7 @@ export class MemoryStore {
 	 */
 	async retrieve({ query, limit = 8, scope = {}, minScore, rerank } = {}) {
 		let queryVector
-		if (this.embedder.id !== 'none') {
+		if (this.vectorsReady()) {
 			try {
 				const embed = this.embedder.embedQuery ?? this.embedder.embed
 				queryVector = await embed.call(this.embedder, String(query ?? ''))
@@ -442,7 +544,10 @@ export class MemoryStore {
 			queryVector,
 			limit,
 			minScore,
-			floor: this.embedder.relevanceFloor,
+			// The absolute relevance floor belongs to a backend that knows
+			// where its hits start; it must not be applied to keyword-only
+			// results or to a backend that never configured one.
+			floor: queryVector === undefined ? undefined : this.embedder.relevanceFloor,
 			rerank,
 		})
 		const visible = results.filter(result => scopeVisible(result.memory.scope, scope))
