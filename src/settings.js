@@ -142,13 +142,37 @@ export function normalizeIngest(value, fallback = defaultIngest()) {
 	}
 }
 
+/** The default card body budget, in Unicode code points. */
+export function defaultCardMaxChars() {
+	return 1000
+}
+
+/**
+ * Normalise the card body budget.
+ *
+ * @param {unknown} value - The raw value.
+ * @returns {number} A number between 200 and 4000.
+ */
+export function normalizeCardMaxChars(value) {
+	const size = Math.round(Number(value))
+	if (!Number.isFinite(size)) return defaultCardMaxChars()
+	return Math.min(4000, Math.max(200, size))
+}
+
 /**
  * The default settings.
  *
  * @returns {object} A fresh object.
  */
 export function defaultSettings() {
-	return { dataDir: '', backup: defaultBackup(), status: defaultStatus(), embedding: defaultEmbedding(), ingest: defaultIngest() }
+	return {
+		dataDir: '',
+		cardMaxChars: defaultCardMaxChars(),
+		backup: defaultBackup(),
+		status: defaultStatus(),
+		embedding: defaultEmbedding(),
+		ingest: defaultIngest(),
+	}
 }
 
 /**
@@ -289,6 +313,7 @@ export class SettingsStore {
 			const parsed = JSON.parse(raw)
 			this.data = {
 				dataDir: typeof parsed?.dataDir === 'string' ? parsed.dataDir : '',
+				cardMaxChars: normalizeCardMaxChars(parsed?.cardMaxChars),
 				backup: normalizeBackup(parsed?.backup),
 				status: normalizeStatus(parsed?.status),
 				embedding: normalizeEmbedding(parsed?.embedding),
@@ -326,6 +351,9 @@ export class SettingsStore {
 	async update(patch = {}) {
 		if (typeof patch.dataDir === 'string') {
 			this.data.dataDir = patch.dataDir.trim()
+		}
+		if (patch.cardMaxChars !== undefined) {
+			this.data.cardMaxChars = normalizeCardMaxChars(patch.cardMaxChars)
 		}
 		const embedding = patch.embedding
 		if (embedding !== null && typeof embedding === 'object') {
@@ -399,6 +427,7 @@ export class SettingsStore {
 		const archiveName = suggestedArchiveName()
 		return {
 			dataDir: rootInfo.root,
+			cardMaxChars: this.data.cardMaxChars,
 			dataDirSource: rootInfo.source,
 			dataDirWarning: rootInfo.warning ?? '',
 			defaultDataDir: rootInfo.defaultRoot,

@@ -111,6 +111,7 @@ export async function migrateToCards({ dataDir, store, logger, now = () => Date.
 			tags: normalizeTags([meta.topic, ...(meta.tags ?? [])]),
 			links: [],
 			scope: 'global',
+			slug: meta.slug,
 			source: 'migration:practice',
 			sourceId,
 			created: meta.updatedAt || new Date(stamp).toISOString(),

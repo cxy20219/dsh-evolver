@@ -249,13 +249,16 @@ export class Evolver {
 	/**
 	 * @param {{root: string, logger?: object, dshHome?: string, indexBytes?: number, version?: string}} deps - The options.
 	 */
-	constructor({ root, logger, dshHome, indexBytes, version }) {
+	constructor({ root, logger, dshHome, indexBytes, version, hooks }) {
 		this.root = root
 		this.logger = logger
 		this.dshHome = dshHome ?? resolveDshHome()
 		// The version is read from package.json by the caller; the evolver
 		// itself must not reach for its own package.
 		this.version = typeof version === 'string' ? version : ''
+		// Optional observers used while the card store takes over; a failing
+		// observer must never fail the practice write itself.
+		this.hooks = hooks ?? {}
 		this.indexBytes = Number.isFinite(indexBytes) && indexBytes >= 512
 			? Math.trunc(indexBytes)
 			: DEFAULT_INDEX_BYTES
@@ -645,7 +648,7 @@ export class Evolver {
 		// The prompt sections read this cache, so a write has to refresh it:
 		// otherwise the agent cannot see what it just sank until the timer runs.
 		this.cache.practice = rebuilt.projection.text
-		return {
+		const result = {
 			path: relPath,
 			title,
 			purpose,
@@ -657,6 +660,12 @@ export class Evolver {
 			injectedBytes: Buffer.byteLength(rebuilt.projection.text, 'utf8'),
 			dropped: rebuilt.projection.dropped.length,
 		}
+		try {
+			await this.hooks.afterPracticeWrite?.({ ...result, input })
+		} catch (error) {
+			this.logger?.warn?.(`dsh-evolver: practice hook failed: ${error instanceof Error ? error.message : String(error)}`)
+		}
+		return result
 	}
 
 	/**
@@ -678,6 +687,11 @@ export class Evolver {
 		}
 		const rebuilt = await this.regenerateIndex()
 		this.cache.practice = rebuilt.projection.text
+		try {
+			await this.hooks.afterPracticeDelete?.({ path: clean })
+		} catch (error) {
+			this.logger?.warn?.(`dsh-evolver: practice hook failed: ${error instanceof Error ? error.message : String(error)}`)
+		}
 		return { ok: true, path: clean }
 	}
 

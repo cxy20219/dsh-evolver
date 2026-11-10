@@ -34,7 +34,7 @@ export const MAX_IMPORT_BYTES = 8 * 1024 * 1024 * 1024
 const MAX_IMPORT_ENTRIES = 20000
 
 /** The only top-level folders an archive may write into. */
-const IMPORT_ROOTS = ['practice/', 'sight/', 'preferences/', 'models/']
+const IMPORT_ROOTS = ['practice/', 'sight/', 'preferences/', 'models/', 'knowledge/']
 
 /** Files that are never part of an archive. */
 function isTransient(name) {

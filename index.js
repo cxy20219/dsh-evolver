@@ -33,6 +33,10 @@ import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { createTools } from './src/tools.js'
 import { PROACTIVE_PROTOCOL } from './src/proactive.js'
+import { createMemoryAdapter, createPracticeAdapter } from './src/cards/adapters.js'
+import { migrateToCards } from './src/cards/migrate.js'
+import { cardPrompt } from './src/cards/prompt.js'
+import { CardStore } from './src/cards/store.js'
 import { copyTree, countEntries, isDirectory, isInsidePath, pathsOverlap } from './src/workspace.js'
 
 /** The plugin's row name. */
@@ -184,6 +188,12 @@ export async function apply(ctx, config) {
 		dshHome,
 		indexBytes: typeof config?.indexBytes === 'number' ? config.indexBytes : undefined,
 		version: await readVersion(),
+		// The old practice files stay writable for one release; every write is
+		// mirrored into the card store so the injected projection follows.
+		hooks: {
+			afterPracticeWrite: (event) => syncPracticeCard(event),
+			afterPracticeDelete: (event) => removePracticeCard(event),
+		},
 	})
 	await evolver.ensure()
 	await evolver.migrate()
@@ -204,6 +214,9 @@ export async function apply(ctx, config) {
 	// tools and the API talk to a small proxy rather than to one instance.
 	const storeRef = { current: undefined }
 	const memoryRef = { current: undefined }
+	const cardStoreRef = { current: undefined }
+	const practiceCardRef = { current: undefined }
+	const memoryCardRef = { current: undefined }
 
 	/**
 	 * The embedding configuration the settings currently ask for.
@@ -263,13 +276,118 @@ export async function apply(ctx, config) {
 	 */
 	async function reopenEmbedding() {
 		const next = await createMemory(evolver.root)
+		const nextCards = await createCards(evolver.root)
 		const previous = storeRef.current
+		const previousCards = cardStoreRef.current
 		useMemory(next)
+		useCards(nextCards)
 		await previous?.close().catch(() => {})
+		await previousCards?.close().catch(() => {})
 		ctx.logger.info(`dsh-evolver: embedding backend reopened (${next.status().embedder})`)
 	}
 
+	/**
+	 * Build (and initialise) the card store of one data folder.
+	 *
+	 * The one-time migration from practice/memory runs here; a failure is
+	 * logged instead of failing activation, and the next start retries it.
+	 *
+	 * @param {string} root - The data folder.
+	 * @returns {Promise<object>} The opened store.
+	 */
+	async function createCards(root) {
+		const store = new CardStore({
+			dataDir: root,
+			logger: ctx.logger,
+			embedding: createEmbedder(currentEmbeddingConfig()),
+			cardMaxChars: settings.get().cardMaxChars,
+		})
+		await store.init()
+		try {
+			const migrated = await migrateToCards({ dataDir: root, store, logger: ctx.logger })
+			if (migrated.skipped !== true) {
+				ctx.logger.info(`dsh-evolver: card migration practice=${migrated.practice} memory=${migrated.memory}`)
+			}
+		} catch (error) {
+			ctx.logger.warn(`dsh-evolver: card migration failed: ${error instanceof Error ? error.message : String(error)}`)
+		}
+		return store
+	}
+
+	/**
+	 * Make one card store the one the tools use.
+	 *
+	 * @param {object} store - The opened store.
+	 * @returns {void}
+	 */
+	function useCards(store) {
+		cardStoreRef.current = store
+		practiceCardRef.current = createPracticeAdapter(store)
+		memoryCardRef.current = createMemoryAdapter(store)
+	}
+
+	/**
+	 * Open the card store of one data folder.
+	 *
+	 * @param {string} root - The data folder.
+	 * @returns {Promise<object>} The opened store.
+	 */
+	async function openCards(root) {
+		const store = await createCards(root)
+		useCards(store)
+		return store
+	}
+
+	/**
+	 * Mirror one old practice write into the card store.
+	 *
+	 * @param {object} event - The hook payload.
+	 * @returns {Promise<void>} Resolves after the card write.
+	 */
+	async function syncPracticeCard(event) {
+		const store = cardStoreRef.current
+		if (store === undefined) return
+		const input = event?.input
+		if (input === null || typeof input !== 'object') return
+		await createPracticeAdapter(store).practiceWrite(input)
+	}
+
+	/**
+	 * Mirror one old practice delete into the card store.
+	 *
+	 * @param {object} event - The hook payload.
+	 * @returns {Promise<void>} Resolves after the card is removed.
+	 */
+	async function removePracticeCard(event) {
+		const store = cardStoreRef.current
+		if (store === undefined) return
+		const path = String(event?.path ?? '')
+		const card = store.all().find((item) => item.sourceId === `practice:${path}`)
+			?? store.resolve(path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? '')
+		if (card !== undefined) await store.remove(card.id)
+	}
+
 	await openMemory(resolved.root)
+	await openCards(resolved.root)
+
+	// Tools and the ingest job talk to these proxies; a data-folder switch
+	// replaces the adapters behind them without changing tool identities.
+	const practiceCards = {
+		practice: (...args) => practiceCardRef.current.practice(...args),
+		practiceSearch: (...args) => practiceCardRef.current.practiceSearch(...args),
+		practiceRead: (...args) => practiceCardRef.current.practiceRead(...args),
+		practiceWrite: (...args) => practiceCardRef.current.practiceWrite(...args),
+		practiceDelete: (...args) => practiceCardRef.current.practiceDelete(...args),
+		overview: (...args) => practiceCardRef.current.overview(...args),
+	}
+	const memoryCards = {
+		recall: (...args) => memoryCardRef.current.recall(...args),
+		save: (...args) => memoryCardRef.current.save(...args),
+		forget: (...args) => memoryCardRef.current.forget(...args),
+		list: (...args) => memoryCardRef.current.list(...args),
+		stats: (...args) => memoryCardRef.current.stats(...args),
+	}
+
 	const memory = {
 		recall: (...args) => memoryRef.current.recall(...args),
 		save: (...args) => memoryRef.current.save(...args),
@@ -303,7 +421,7 @@ export async function apply(ctx, config) {
 		settings,
 		query: ctx.get('sessionQuery'),
 		ledger: ingestLedger,
-		memory,
+		memory: memoryCards,
 		llm: ctx.get('llm'),
 		modelSelection: ctx.get('agentDefaultModel'),
 		logger: ctx.logger,
@@ -353,8 +471,9 @@ export async function apply(ctx, config) {
 			} else if (!(await isDirectory(dirname(requested)))) {
 				throw new Error(`目标目录的上级不存在：${dirname(requested)}`)
 			}
-			// Flush first: the copy has to see the newest memory writes.
+			// Flush first: the copy has to see the newest memory and card writes.
 			await storeRef.current.close()
+			await cardStoreRef.current?.close().catch(() => {})
 			let copied
 			try {
 				copied = await copyTree(evolver.root, requested, { force })
@@ -362,6 +481,7 @@ export async function apply(ctx, config) {
 				// The old folder is untouched; reopen it so the plugin keeps
 				// answering with the data it had before the attempt.
 				await openMemory(evolver.root).catch(() => {})
+				await openCards(evolver.root).catch(() => {})
 				throw error
 			}
 			// Persist the new location *before* switching: if the switch fails,
@@ -370,6 +490,7 @@ export async function apply(ctx, config) {
 			await settings.update({ dataDir: requested })
 			await evolver.switchRoot(requested)
 			await openMemory(requested)
+			await openCards(requested)
 			rootState.source = 'settings'
 			rootState.warning = ''
 			ctx.logger.info(`dsh-evolver: data folder moved to ${requested}`)
@@ -413,12 +534,20 @@ export async function apply(ctx, config) {
 			} else if (!(await isDirectory(dirname(target)))) {
 				throw new Error(`导出目录的上级不存在：${dirname(target)}`)
 			}
-			// Flush first so the archive contains the newest memory writes.
+			// Flush first so the archive contains the newest memory and card
+			// writes. Both stores are reopened afterwards: an export must not
+			// leave the plugin without its read path.
 			await storeRef.current.close()
-			// Weights are part of the data folder now; the archive streams, so
-			// a 570 MB model does not have to fit in memory.
-			const packed = await writeArchiveFile(evolver.root, target)
-			return { file: target, bytes: packed.bytes, files: packed.files }
+			await cardStoreRef.current?.close().catch(() => {})
+			try {
+				// Weights are part of the data folder now; the archive streams,
+				// so a 570 MB model does not have to fit in memory.
+				const packed = await writeArchiveFile(evolver.root, target)
+				return { file: target, bytes: packed.bytes, files: packed.files }
+			} finally {
+				await openMemory(evolver.root).catch(() => {})
+				await openCards(evolver.root).catch(() => {})
+			}
 		},
 
 		/**
@@ -459,6 +588,7 @@ export async function apply(ctx, config) {
 				throw new Error('导入文件不能是数据目录里的文件。')
 			}
 			await storeRef.current.close()
+			await cardStoreRef.current?.close().catch(() => {})
 			let restored
 			try {
 				restored = await extractArchiveFile(source, evolver.root, { force })
@@ -466,6 +596,7 @@ export async function apply(ctx, config) {
 				// A half-finished import must not leave the in-memory store out
 				// of sync with the files that did land.
 				await openMemory(evolver.root).catch(() => {})
+				await openCards(evolver.root).catch(() => {})
 				const message = error instanceof Error ? error.message : String(error)
 				throw new Error(message.includes('压缩包') ? message : `不能读取压缩包：${message}`)
 			}
@@ -473,9 +604,11 @@ export async function apply(ctx, config) {
 				await evolver.switchRoot(evolver.root)
 			} catch (error) {
 				await openMemory(evolver.root).catch(() => {})
+				await openCards(evolver.root).catch(() => {})
 				throw error
 			}
 			await openMemory(evolver.root)
+			await openCards(evolver.root)
 			return restored
 		},
 	}
@@ -608,8 +741,11 @@ export async function apply(ctx, config) {
 				// A failing disposer must not stop the others.
 			}
 		}
-		// Writing out the debounced memory saves is part of shutting down.
-		return storeRef.current?.close().catch(() => {})
+		// Writing out the debounced saves is part of shutting down.
+		return Promise.allSettled([
+			storeRef.current?.close(),
+			cardStoreRef.current?.close(),
+		])
 	}, 'dsh-evolver: resources')
 
 	// Any session activity postpones the idle run; the scheduled ingest run
@@ -628,7 +764,7 @@ export async function apply(ctx, config) {
 		return () => backup.stop()
 	}, 'dsh-evolver: backup scheduler')
 
-	for (const tool of createTools({ practice: evolver, memory, sessions })) {
+	for (const tool of createTools({ practice: practiceCards, memory: memoryCards, sessions })) {
 		disposers.push(ctx.tools.register(tool))
 	}
 
@@ -639,7 +775,7 @@ export async function apply(ctx, config) {
 		name: 'dsh-evolver:practice',
 		order: 900,
 		interpolate: false,
-		text: () => evolver.cache.practice,
+		text: () => (cardStoreRef.current === undefined ? '' : cardPrompt(cardStoreRef.current)),
 	}))
 	disposers.push(ctx.systemPrompt.section({
 		name: 'dsh-evolver:soul',

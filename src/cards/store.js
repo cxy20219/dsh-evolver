@@ -167,6 +167,7 @@ export class CardStore {
 	cardOf(record) {
 		return {
 			id: record.id,
+			slug: record.slug ?? '',
 			type: record.type ?? 'fleeting',
 			shape: record.shape ?? 'memo',
 			category: record.category ?? record.kind ?? '',
@@ -211,6 +212,23 @@ export class CardStore {
 	get(id) {
 		const record = this.cards.getEntry(id)
 		return record === undefined ? undefined : this.cardOf(record)
+	}
+
+	/**
+	 * Resolve a card reference: id, slug, legacy sourceId or a path suffix.
+	 *
+	 * @param {unknown} ref - The reference.
+	 * @returns {object | undefined} The card.
+	 */
+	resolve(ref) {
+		const value = String(ref ?? '').trim().replace(/^\.\//, '')
+		if (value === '') return undefined
+		if (isCardId(value)) return this.get(value)
+		const cards = this.all()
+		return cards.find((card) => card.slug === value)
+			?? cards.find((card) => card.sourceId === value)
+			?? cards.find((card) => card.sourceId.endsWith(`/${value}`))
+			?? cards.find((card) => card.sourceId.endsWith(`:${value}`))
 	}
 
 	/**
@@ -272,6 +290,7 @@ export class CardStore {
 		const verified = input.verified ?? previous?.verified ?? (type === 'permanent' && status === 'verified' ? now.slice(0, 10) : '')
 		const record = {
 			id,
+			slug: input.slug ?? previous?.slug ?? '',
 			type,
 			shape,
 			category,
