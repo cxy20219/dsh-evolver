@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { SettingsStore, defaultSettings, normalizeBackup } from '../src/settings.js'
+import { SettingsStore, defaultSettings, defaultIngest, normalizeBackup } from '../src/settings.js'
 
 /**
  * Build a settings store on a temporary file.
@@ -30,6 +30,23 @@ test('设置文件不存在时给出默认值', async () => {
 		assert.equal(view.backup.enabled, false)
 		assert.equal(view.backup.keep, 7)
 		assert.equal(view.backup.hasAccessKeySecret, false)
+		assert.deepEqual(defaultIngest(), { enabled: true, idleMinutes: 15 })
+		assert.equal(view.ingest.enabled, true)
+		assert.equal(view.ingest.idleMinutes, 15)
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('闲时整理间隔被夹在 5–240 分钟', async () => {
+	const { store, dir } = await fixture()
+	try {
+		await store.update({ ingest: { idleMinutes: 1 } })
+		assert.equal(store.get().ingest.idleMinutes, 5)
+		await store.update({ ingest: { idleMinutes: 999 } })
+		assert.equal(store.get().ingest.idleMinutes, 240)
+		await store.update({ ingest: { enabled: false } })
+		assert.equal(store.get().ingest.enabled, false)
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}

@@ -353,6 +353,23 @@ test('记忆列表的 total 是过滤后的总数，不是当前页条数', asyn
 	}
 })
 
+test('记忆不保存密钥', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-secret-'))
+	try {
+		const store = new MemoryStore({ dataDir: dir, embedding: { id: 'none' } })
+		await store.init()
+		await store.ready
+		const memory = createMemoryActions(store)
+		const result = await memory.save({ content: 'API key 是 sk-abcdefghijklmnopqrstuvwx', kind: 'fact' })
+		assert.equal(result.success, false)
+		assert.match(result.message, /密钥/)
+		assert.equal(store.entries().length, 0)
+		await store.close()
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
 test('小记忆库的语义命中不会被统计门槛全部滤掉', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-small-'))
 	try {

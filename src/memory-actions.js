@@ -16,6 +16,7 @@ import { textSimilarity } from './importance.js'
 import { ENTRY_KINDS, SCOPES } from './memory/kinds.js'
 import { classifyNoise } from './memory/noise.js'
 import { parseScope } from './memory/scopes.js'
+import { findSecret } from './secrets.js'
 
 /** Two memories this alike say the same thing; the newer one replaces the older. */
 const MERGE_THRESHOLD = 0.85
@@ -79,6 +80,10 @@ export function createMemoryActions(store, { now = () => new Date() } = {}) {
 		const noise = classifyNoise(text)
 		if (noise.noise) {
 			return { success: false, message: `这条内容像噪声（${noise.category}），没有保存。` }
+		}
+		const secret = findSecret(text)
+		if (secret !== undefined) {
+			return { success: false, message: `这条内容包含${secret}，没有保存；密钥不要写进记忆。` }
 		}
 		const timestamp = stamp()
 

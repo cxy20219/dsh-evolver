@@ -39,7 +39,7 @@ test('evolve_review 汇总实践、记忆与可执行的提示', async () => {
 		},
 	}
 	const tools = createTools({ practice, memory })
-	assert.equal(tools.length, 10)
+	assert.equal(tools.length, 11)
 	const review = tools.find((tool) => tool.name === 'evolve_review')
 	const result = await review.execute({})
 	assert.equal(result.practice.entries, 3)
@@ -68,4 +68,28 @@ test('evolve_review 在空记忆和无问题时给出不同提示', async () => 
 	}).find((tool) => tool.name === 'evolve_review')
 	const quietResult = await quiet.execute({})
 	assert.match(quietResult.hints.join(' '), /不用为了主动而主动/)
+})
+
+test('session_digest 把参数交给会话读取层，缺失时明确报错', async () => {
+	const calls = []
+	const tools = createTools({
+		practice: { async overview() { return { practice: { entries: 0, problems: [] }, suggestions: [] } } },
+		memory: {},
+		sessions: {
+			async digest(args) {
+				calls.push(args)
+				return { success: true, sessions: [] }
+			},
+		},
+	})
+	const tool = tools.find((entry) => entry.name === 'session_digest')
+	assert.ok(tool)
+	const result = await tool.execute({ sinceDays: 2, limit: 3, commit: true })
+	assert.equal(result.success, true)
+	assert.deepEqual(calls[0], { sinceDays: 2, limit: 3, commit: true })
+
+	const missing = createTools({ practice: {}, memory: {} }).find((entry) => entry.name === 'session_digest')
+	const empty = await missing.execute({})
+	assert.equal(empty.success, false)
+	assert.match(empty.message, /会话读取/)
 })

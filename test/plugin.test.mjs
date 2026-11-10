@@ -109,9 +109,9 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 		const { ctx, routes, tools, sections, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
-			assert.equal(tools.length, 10)
+			assert.equal(tools.length, 11)
 			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:practice', 'dsh-evolver:soul', 'dsh-evolver:proactive'])
-			assert.equal(routes.size, 31)
+			assert.equal(routes.size, 35)
 			assert.match(sections[0].text(), /\[实践\]/)
 			assert.match(sections[2].text(), /\[主动性\]/)
 
@@ -342,6 +342,52 @@ test('两个数据操作不能同时进行', async () => {
 			assert.match((await rejected.json()).error.message, /正在进行/)
 			const written = first.status === 200 ? 'one.tar.gz' : 'two.tar.gz'
 			assert.equal((await stat(join(home, written))).isFile(), true)
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
+})
+
+test('启动时把旧权重迁入数据目录，清理接口只删旧目录', async () => {
+	await withHome(async (home) => {
+		const dataDir = join(home, 'evolver')
+		const legacy = join(home, 'evolver-models', 'multilingual-e5-small')
+		await mkdir(join(legacy, 'onnx'), { recursive: true })
+		await writeFile(join(legacy, 'config.json'), '{}')
+		await writeFile(join(legacy, 'onnx', 'model_quantized.onnx'), 'weights')
+		const { ctx, routes, effects } = fakeContext()
+		await apply(ctx, { dataDir })
+		try {
+			assert.equal(await readFile(join(dataDir, 'models', 'multilingual-e5-small', 'config.json'), 'utf8'), '{}')
+			const status = await (await post(routes, 'embedding-status', {})).json()
+			assert.equal(status.legacy.dirs.length, 0)
+
+			// A leftover folder (for example because the data folder already
+			// had that model) can be removed from the panel.
+			const leftover = join(home, 'evolver-models', 'bge-m3')
+			await mkdir(leftover, { recursive: true })
+			await writeFile(join(leftover, 'config.json'), '{}')
+			const cleaned = await (await post(routes, 'embedding-cleanup', {})).json()
+			assert.equal(cleaned.removed, 1)
+			assert.equal(cleaned.status.legacy.bytes, 0)
+			await assert.rejects(() => readFile(join(leftover, 'config.json'), 'utf8'))
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
+})
+
+test('会话整理：宿主能力缺失时状态如实报告', async () => {
+	await withHome(async (home) => {
+		const { ctx, routes, effects } = fakeContext()
+		await apply(ctx, { dataDir: join(home, 'evolver') })
+		try {
+			const status = await (await post(routes, 'ingest-status', {})).json()
+			assert.equal(status.enabled, true)
+			assert.equal(status.idleMinutes, 15)
+			assert.equal(status.available, false)
+			assert.equal(status.pending, null)
+			assert.equal(status.ledger.processed, 0)
 		} finally {
 			await disposeEffects(effects)
 		}

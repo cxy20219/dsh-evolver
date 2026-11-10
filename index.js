@@ -22,8 +22,10 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { MAX_IMPORT_BYTES, extractArchiveFile, writeArchiveFile } from './src/backup/archive.js'
 import { BackupService } from './src/backup/service.js'
-import { EMBEDDING_MODELS, ModelDownloader, embeddingConfig, embeddingLocations, modelPresent, probeEmbedding, runtimeState } from './src/embedding.js'
+import { EMBEDDING_MODELS, ModelDownloader, embeddingConfig, embeddingLocations, legacyModelState, migrateLegacyModels, modelPresent, probeEmbedding, removeLegacyModels, runtimeState } from './src/embedding.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
+import { createIngestController } from './src/ingest.js'
+import { SessionLedger, digestSessions } from './src/sessions.js'
 import { createEmbedder } from './src/memory/embed.js'
 import { MemoryStore } from './src/memory/store.js'
 import { createMemoryActions } from './src/memory-actions.js'
@@ -186,6 +188,17 @@ export async function apply(ctx, config) {
 	await evolver.ensure()
 	await evolver.migrate()
 	await evolver.linkGlobalIfNeeded()
+	// Weights used to live next to the harness home. Move them into the data
+	// folder before the panel asks what is downloaded, so an existing model is
+	// never offered for download again.
+	const migratedWeights = await migrateLegacyModels({ dataDir: evolver.root, dshHome, logger: ctx.logger })
+		.catch((error) => {
+			ctx.logger.warn(`dsh-evolver: could not move the old embedding weights: ${error instanceof Error ? error.message : String(error)}`)
+			return { migrated: [], blocked: [] }
+		})
+	if (migratedWeights.migrated.length > 0) {
+		ctx.logger.info(`dsh-evolver: ${migratedWeights.migrated.length} model folder(s) moved into the data folder`)
+	}
 
 	// The memory store is replaced whenever the data folder changes, so the
 	// tools and the API talk to a small proxy rather than to one instance.
@@ -264,6 +277,37 @@ export async function apply(ctx, config) {
 		list: (...args) => memoryRef.current.list(...args),
 		stats: (...args) => memoryRef.current.stats(...args),
 	}
+
+	// The ledger lives inside the data folder, which may move. Every call
+	// opens the current location instead of holding a path captured at boot.
+	const ledger = () => new SessionLedger({ dataDir: evolver.root })
+	const sessions = {
+		async digest(args = {}) {
+			const query = ctx.get('sessionQuery')
+			if (query === undefined) return { success: false, message: '这个宿主没有提供会话读取能力（sessionQuery）。' }
+			return digestSessions({
+				query,
+				ledger: ledger(),
+				sinceDays: args.sinceDays,
+				limit: args.limit,
+				commit: args.commit === true,
+			})
+		},
+	}
+	const ingestLedger = {
+		load: () => ledger().load(),
+		commit: (...args) => ledger().commit(...args),
+		snapshot: () => ledger().snapshot(),
+	}
+	const ingest = createIngestController({
+		settings,
+		query: ctx.get('sessionQuery'),
+		ledger: ingestLedger,
+		memory,
+		llm: ctx.get('llm'),
+		modelSelection: ctx.get('agentDefaultModel'),
+		logger: ctx.logger,
+	})
 
 	const backup = new BackupService({ settings, root: () => evolver.root, logger: ctx.logger })
 	const rootState = { source: resolved.source, warning: resolved.warning }
@@ -516,6 +560,7 @@ export async function apply(ctx, config) {
 				note: model.note,
 			})),
 			present,
+			legacy: await legacyModelState(dshHome),
 			download: downloader.state(),
 			store: storeRef.current.status(),
 		}
@@ -542,6 +587,13 @@ export async function apply(ctx, config) {
 		async test() {
 			return probeEmbedding(currentEmbeddingConfig())
 		},
+		async cleanup() {
+			const removed = await removeLegacyModels(dshHome)
+			if (removed.removed > 0) {
+				ctx.logger.info(`dsh-evolver: removed ${removed.removed} old model folder(s) (${removed.bytes} bytes)`)
+			}
+			return { ...removed, status: await embeddingStatus() }
+		},
 	}
 
 	/** Everything that has to be undone, in registration order. */
@@ -560,12 +612,23 @@ export async function apply(ctx, config) {
 		return storeRef.current?.close().catch(() => {})
 	}, 'dsh-evolver: resources')
 
+	// Any session activity postpones the idle run; the scheduled ingest run
+	// itself counts as activity, so two runs cannot overlap by accident.
+	for (const event of ['session/event', 'agent/status', 'api-session/activity']) {
+		try {
+			disposers.push(ctx.on(event, () => ingest.noteActivity()))
+		} catch {
+			// An event this Host does not publish is not a reason to fail.
+		}
+	}
+	disposers.push(ingest.start())
+
 	ctx.effect(() => {
 		backup.start()
 		return () => backup.stop()
 	}, 'dsh-evolver: backup scheduler')
 
-	for (const tool of createTools({ practice: evolver, memory })) {
+	for (const tool of createTools({ practice: evolver, memory, sessions })) {
 		disposers.push(ctx.tools.register(tool))
 	}
 
@@ -604,7 +667,12 @@ export async function apply(ctx, config) {
 	}, 'dsh-evolver: index refresh')
 
 	const view = () => settings.publicView(workspace.state())
-	const handler = createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding })
+	const ingestApi = {
+		status: () => ingest.status(),
+		save: (patch) => ingest.save(patch),
+		run: () => ingest.run(),
+	}
+	const handler = createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding, ingest: ingestApi })
 	for (const endpoint of ENDPOINTS) {
 		disposers.push(connection.fetch.register({
 			path: `${API_PREFIX}/${endpoint}`,

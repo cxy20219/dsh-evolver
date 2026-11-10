@@ -32,6 +32,23 @@ window.__ModuleLoader__.load({
 			'tab.sight': '见闻',
 			'sight.section.soul': '灵魂',
 			'sight.section.memory': '记忆',
+			'sight.section.ingest': '整理',
+			'sight.ingest.title': '会话整理',
+			'sight.ingest.hint': '闲时自动新建一个整理会话，把没整理过的会话提炼成记忆；只读用户与助手的文本，不含工具输出，摘录会发给模型。',
+			'sight.ingest.auto': '闲时自动整理',
+			'sight.ingest.on': '开',
+			'sight.ingest.off': '关',
+			'sight.ingest.enable': '启用',
+			'sight.ingest.idleUnit': '分钟无活动后',
+			'sight.ingest.pending': '待整理',
+			'sight.ingest.processed': '已处理',
+			'sight.ingest.last': '上次完成',
+			'sight.ingest.never': '还没有整理记录',
+			'sight.ingest.unavailable': '宿主没有提供会话读取或模型调用能力。',
+			'sight.ingest.sessionsUnit': '个会话',
+			'sight.ingest.memoriesUnit': '条记忆',
+			'sight.ingest.run': '立即整理',
+			'sight.ingest.done': '整理完成',
 			'tab.preferences': '偏好',
 			'tab.suggestions': '建议',
 			'tab.settings': '设置',
@@ -173,6 +190,10 @@ window.__ModuleLoader__.load({
 			'settings.embedding.download': '下载权重',
 			'settings.embedding.cancel': '取消下载',
 			'settings.embedding.downloaded': '已下载',
+			'settings.embedding.legacy': '旧权重目录',
+			'settings.embedding.legacyHint': '权重在旧位置，已不再使用；可以删除以释放空间。',
+			'settings.embedding.cleanup': '清理旧权重',
+			'settings.embedding.cleanupDone': '已清理旧权重',
 			'settings.embedding.notDownloaded': '未下载',
 			'settings.embedding.downloading': '正在下载',
 			'settings.embedding.downloadDone': '权重已下载完成',
@@ -214,6 +235,23 @@ window.__ModuleLoader__.load({
 			'tab.sight': 'Sight',
 			'sight.section.soul': 'Soul',
 			'sight.section.memory': 'Memories',
+			'sight.section.ingest': 'Ingest',
+			'sight.ingest.title': 'Session ingest',
+			'sight.ingest.hint': 'On idle, a small session extracts memories from sessions that were never digested; only user and assistant text is read, never tool output, and the excerpt goes to the model.',
+			'sight.ingest.auto': 'Automatic on idle',
+			'sight.ingest.on': 'On',
+			'sight.ingest.off': 'Off',
+			'sight.ingest.enable': 'Enable',
+			'sight.ingest.idleUnit': 'minutes without activity',
+			'sight.ingest.pending': 'Pending',
+			'sight.ingest.processed': 'Processed',
+			'sight.ingest.last': 'Last finished',
+			'sight.ingest.never': 'Nothing ingested yet',
+			'sight.ingest.unavailable': 'This host does not expose session reading or model calls.',
+			'sight.ingest.sessionsUnit': 'sessions',
+			'sight.ingest.memoriesUnit': 'memories',
+			'sight.ingest.run': 'Run now',
+			'sight.ingest.done': 'Ingest finished',
 			'tab.preferences': 'Preferences',
 			'tab.suggestions': 'Suggestions',
 			'tab.settings': 'Settings',
@@ -355,6 +393,10 @@ window.__ModuleLoader__.load({
 			'settings.embedding.download': 'Download',
 			'settings.embedding.cancel': 'Cancel download',
 			'settings.embedding.downloaded': 'Downloaded',
+			'settings.embedding.legacy': 'Old weights folder',
+			'settings.embedding.legacyHint': 'These weights are in the old location and no longer used; remove them to free space.',
+			'settings.embedding.cleanup': 'Remove old weights',
+			'settings.embedding.cleanupDone': 'Old weights removed',
 			'settings.embedding.notDownloaded': 'Not downloaded',
 			'settings.embedding.downloading': 'Downloading',
 			'settings.embedding.downloadDone': 'Weights downloaded',
@@ -865,9 +907,12 @@ window.__ModuleLoader__.load({
 			var soul = props.soul;
 			var memories = props.memories ?? [];
 			var [section, setSection] = useState('soul');
+			var ingestForm = props.ingestDraft || ingestFormOf(props.ingest);
+			var setIngest = function (patch) { props.onIngestDraft(patch); };
 			var sections = [
 				{ id: 'soul', label: t('sight.section.soul') },
 				{ id: 'memory', label: t('sight.section.memory') },
+				{ id: 'ingest', label: t('sight.section.ingest') },
 			];
 			return h('div', null,
 				h('div', { className: 'evrToolbar', role: 'tablist' }, sections.map(function (item) {
@@ -929,7 +974,54 @@ window.__ModuleLoader__.load({
 										h('span', { className: 'evrTag' }, item.kind),
 										h('span', null, item.scope ?? ''))),
 								h('div', { className: 'evrRowTime' }, item.score === undefined ? '' : String(item.score)));
-						}))) : null);
+						}))) : null,
+				section === 'ingest' ? h('div', null,
+					h('div', { className: 'evrSection' }, t('sight.ingest.title')),
+					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('sight.ingest.hint')),
+					props.ingest === null || props.ingest === undefined
+						? h(Empty, null, t('state.loading'))
+						: h('div', null,
+							h('div', { className: 'evrCard' },
+								h('div', { className: 'evrCardHead' },
+									h('span', { className: 'evrCardTitle' }, t('sight.ingest.auto')),
+									h('span', { className: 'evrCardCount' }, props.ingest.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
+								h('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' } },
+									h('input', {
+										type: 'checkbox',
+										checked: ingestForm.enabled,
+										onChange: function (event) { setIngest({ enabled: event.target.checked }); },
+									}),
+									t('sight.ingest.enable')),
+								h('div', { className: 'evrToolbar' },
+									h('input', {
+										className: 'evrInput',
+										type: 'number',
+										min: 5,
+										max: 240,
+										value: ingestForm.idleMinutes,
+										onChange: function (event) { setIngest({ idleMinutes: Number(event.target.value) }); },
+									}),
+									h('span', { className: 'evrHint' }, t('sight.ingest.idleUnit')),
+									h('button', {
+										type: 'button',
+										className: 'evrBtn',
+										disabled: props.busy,
+										onClick: function () { props.onIngestSave(ingestForm); },
+									}, t('action.save')))),
+							h('div', { className: 'evrHint' },
+								props.ingest.available
+									? t('sight.ingest.pending') + ': ' + (props.ingest.pending ?? 0) + ' · ' + t('sight.ingest.processed') + ': ' + (props.ingest.ledger?.processed ?? 0)
+									: t('sight.ingest.unavailable')),
+							h('div', { className: 'evrHint evrMono' },
+								props.ingest.ledger?.lastCommitAt
+									? t('sight.ingest.last') + ': ' + String(props.ingest.ledger.lastCommitAt).replace('T', ' ').slice(0, 16)
+									: t('sight.ingest.never')),
+							h('button', {
+								type: 'button',
+								className: 'evrBtn evrBtnPrimary',
+								disabled: props.busy || !props.ingest.available,
+								onClick: props.onIngestRun,
+							}, t('sight.ingest.run')))) : null);
 		}
 
 		/**
@@ -1025,6 +1117,19 @@ window.__ModuleLoader__.load({
 				baseURL: e.baseURL || '',
 				apiKey: '',
 				mirror: e.mirror || 'https://hf-mirror.com',
+			};
+		}
+
+		/**
+		 * The initial values of the ingest form.
+		 *
+		 * @param {object} status - The ingest status.
+		 * @returns {object} The form values.
+		 */
+		function ingestFormOf(status) {
+			return {
+				enabled: status?.enabled !== false,
+				idleMinutes: status?.idleMinutes ?? 15,
 			};
 		}
 
@@ -1274,6 +1379,21 @@ window.__ModuleLoader__.load({
 							+ ' · ' + t('settings.embedding.dimensions') + ': ' + (store.dimensions || '—')
 							+ ' · ' + (store.aligned ? t('settings.embedding.aligned') : t('settings.embedding.rebuilding'))
 							+ ' · ' + t('settings.embedding.entries') + ': ' + (store.entries ?? 0))),
+					status.legacy && status.legacy.bytes > 0
+						? h('div', { className: 'evrCard' },
+							h('div', { className: 'evrCardHead' },
+								h('span', { className: 'evrCardTitle' }, t('settings.embedding.legacy')),
+								h('span', { className: 'evrCardCount' }, formatBytes(status.legacy.bytes))),
+							h('div', { className: 'evrCardHint' }, t('settings.embedding.legacyHint')),
+							h('div', { className: 'evrHint evrMono', style: { marginBottom: '8px' } },
+								(status.legacy.dirs || []).map(function (dir) { return dir.name; }).join(' · ')),
+							h('button', {
+								type: 'button',
+								className: 'evrBtn',
+								disabled: props.busy,
+								onClick: props.onEmbeddingCleanup,
+							}, t('settings.embedding.cleanup')))
+						: null,
 					h(Field, { label: t('settings.embedding.provider') },
 						h('div', { style: { display: 'flex', gap: '14px', flexWrap: 'wrap' } },
 							providers.map(function (item) {
@@ -1601,6 +1721,8 @@ window.__ModuleLoader__.load({
 			var [settingsEpoch, setSettingsEpoch] = useState(0);
 			var [embedding, setEmbedding] = useState(null);
 			var [embeddingDraft, setEmbeddingDraft] = useState(null);
+			var [ingest, setIngest] = useState(null);
+			var [ingestDraft, setIngestDraft] = useState(null);
 			var [memories, setMemories] = useState([]);
 			var [kind, setKind] = useState('doc');
 			var [editor, setEditor] = useState(null);
@@ -1634,6 +1756,7 @@ window.__ModuleLoader__.load({
 					call('memory-list', { limit: 20 }),
 					call('settings'),
 					call('embedding-status'),
+					call('ingest-status'),
 				]).then(function (results) {
 					setOverview(results[0]);
 					setInjection(results[1]);
@@ -1644,6 +1767,8 @@ window.__ModuleLoader__.load({
 					setSettings(results[6]);
 					setEmbedding(results[7]);
 					setEmbeddingDraft(function (current) { return current === null || current === undefined ? embeddingFormOf(results[7]) : current; });
+					setIngest(results[8]);
+					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(results[8]) : current; });
 					setError(null);
 				}).catch(function (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
@@ -1942,6 +2067,47 @@ window.__ModuleLoader__.load({
 				});
 			}, [call, notify]);
 
+			var patchIngestDraft = useCallback(function (patch) {
+				setIngestDraft(function (current) { return { ...(current ?? ingestFormOf(ingest)), ...patch }; });
+			}, [ingest]);
+
+			var saveIngest = useCallback(function (form) {
+				setBusy(true);
+				return call('ingest-save', { ingest: form }).then(function (value) {
+					setIngest(value);
+					setIngestDraft(ingestFormOf(value));
+					notify(t('state.saved'), false);
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, t]);
+
+			var runIngest = useCallback(function () {
+				setBusy(true);
+				return call('ingest-run', {}, 300000).then(function (value) {
+					var message = value && value.message
+						? value.message
+						: t('sight.ingest.done') + ' · ' + String(value?.sessions ?? 0) + ' ' + t('sight.ingest.sessionsUnit') + ' · ' + String(value?.saved ?? 0) + ' ' + t('sight.ingest.memoriesUnit');
+					notify(message, false);
+					return call('ingest-status').then(function (status) {
+						setIngest(status);
+						setIngestDraft(ingestFormOf(status));
+					}).catch(function () {});
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, t]);
+
+			var cleanupEmbedding = useCallback(function () {
+				setBusy(true);
+				return call('embedding-cleanup', {}, 120000).then(function (value) {
+					setEmbedding(value.status);
+					notify(t('settings.embedding.cleanupDone') + ' · ' + formatBytes(value.bytes), false);
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, t]);
+
 			var testEmbedding = useCallback(function () {
 				setBusy(true);
 				return call('embedding-test', {}, 120000).then(function (value) {
@@ -1996,6 +2162,11 @@ window.__ModuleLoader__.load({
 					onRecall: recall,
 					busy: busy,
 					status: status,
+					ingest: ingest,
+					ingestDraft: ingestDraft,
+					onIngestDraft: patchIngestDraft,
+					onIngestSave: saveIngest,
+					onIngestRun: runIngest,
 				});
 			} else if (tab === 'preferences') {
 				body = h(PreferencesTab, {
@@ -2031,6 +2202,7 @@ window.__ModuleLoader__.load({
 					onEmbeddingDownload: downloadEmbedding,
 					onEmbeddingCancel: cancelEmbedding,
 					onEmbeddingTest: testEmbedding,
+					onEmbeddingCleanup: cleanupEmbedding,
 					onRefreshEmbedding: refreshEmbedding,
 				});
 			} else {

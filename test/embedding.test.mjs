@@ -10,8 +10,11 @@ import {
 	ModelDownloader,
 	embeddingConfig,
 	findEmbeddingModel,
+	legacyModelState,
+	migrateLegacyModels,
 	modelPresent,
 	probeEmbedding,
+	removeLegacyModels,
 	requiredModelFiles,
 	runtimeState,
 } from '../src/embedding.js'
@@ -184,4 +187,61 @@ test('测试后端：本地哈希返回固定维度，none 明确报错', async 
 	assert.equal(local.dimensions, 256)
 	assert.equal(local.configured, 'local')
 	await assert.rejects(() => probeEmbedding({ provider: 'none' }), /没有向量能力/)
+})
+
+test('旧权重目录在启动时迁入数据目录，不重复下载', async () => {
+	const home = await mkdtemp(join(tmpdir(), 'evr-home-'))
+	const data = await mkdtemp(join(tmpdir(), 'evr-data-'))
+	try {
+		const legacy = join(home, 'evolver-models', 'test-model')
+		await mkdir(join(legacy, 'onnx'), { recursive: true })
+		await writeFile(join(legacy, 'config.json'), '{}')
+		await writeFile(join(legacy, 'onnx', 'model_quantized.onnx'), 'weights')
+		assert.equal((await legacyModelState(home)).bytes > 0, true)
+
+		const result = await migrateLegacyModels({ dataDir: data, dshHome: home })
+		assert.deepEqual(result.migrated, ['test-model'])
+		assert.equal(await readFile(join(data, 'models', 'test-model', 'config.json'), 'utf8'), '{}')
+		assert.equal(await readFile(join(data, 'models', 'test-model', 'onnx', 'model_quantized.onnx'), 'utf8'), 'weights')
+		assert.equal((await legacyModelState(home)).dirs.length, 0)
+	} finally {
+		await rm(home, { recursive: true, force: true })
+		await rm(data, { recursive: true, force: true })
+	}
+})
+
+test('新目录已有同名模型时旧目录保留并报告', async () => {
+	const home = await mkdtemp(join(tmpdir(), 'evr-home-'))
+	const data = await mkdtemp(join(tmpdir(), 'evr-data-'))
+	try {
+		await mkdir(join(home, 'evolver-models', 'test-model'), { recursive: true })
+		await writeFile(join(home, 'evolver-models', 'test-model', 'config.json'), 'old')
+		await mkdir(join(data, 'models', 'test-model'), { recursive: true })
+		await writeFile(join(data, 'models', 'test-model', 'config.json'), 'new')
+
+		const result = await migrateLegacyModels({ dataDir: data, dshHome: home })
+		assert.deepEqual(result.migrated, [])
+		assert.deepEqual(result.blocked, ['test-model'])
+		assert.equal(await readFile(join(data, 'models', 'test-model', 'config.json'), 'utf8'), 'new')
+	} finally {
+		await rm(home, { recursive: true, force: true })
+		await rm(data, { recursive: true, force: true })
+	}
+})
+
+test('清理旧权重只删模型目录，不动其它文件', async () => {
+	const home = await mkdtemp(join(tmpdir(), 'evr-home-'))
+	try {
+		await mkdir(join(home, 'evolver-models', 'test-model'), { recursive: true })
+		await writeFile(join(home, 'evolver-models', 'test-model', 'config.json'), '{}')
+		await writeFile(join(home, 'evolver-models', 'notes.txt'), 'keep me')
+
+		const removed = await removeLegacyModels(home)
+		assert.equal(removed.removed, 1)
+		assert.equal(removed.bytes > 0, true)
+		assert.equal(await readFile(join(home, 'evolver-models', 'notes.txt'), 'utf8'), 'keep me')
+		assert.equal((await legacyModelState(home)).dirs.length, 0)
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
 })

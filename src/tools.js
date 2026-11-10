@@ -45,7 +45,7 @@ function sanitize(value) {
  * @param {{practice: object, memory: object}} deps - The evolver and the memory actions.
  * @returns {object[]} The tool definitions.
  */
-export function createTools({ practice, memory }) {
+export function createTools({ practice, memory, sessions }) {
 	return [
 		{
 			name: 'practice_query',
@@ -180,6 +180,34 @@ export function createTools({ practice, memory }) {
 					},
 					suggestions: suggestions.slice(0, 8),
 					hints,
+				})
+			},
+		},
+		{
+			name: 'session_digest',
+			description: '读取还没整理过的会话：只抽用户与助手的文本（不含工具输出和系统提示），按会话给出摘录。想手动整理时用；commit:true 会把返回的会话标记为已处理，只在保存完记忆后调用。空闲时的自动整理不经过这个工具。',
+			parameters: {
+				type: 'object',
+				properties: {
+					sinceDays: { type: 'integer', description: '只看最近 N 天有活动的会话；0 表示所有未整理的，默认 0' },
+					limit: { type: 'integer', description: '返回的会话数，默认 5，最多 10' },
+					commit: { type: 'boolean', description: '是否把返回的会话标记为已处理；默认 false' },
+				},
+			},
+			output: OBJECT_OUTPUT,
+			async execute(args) {
+				const input = args ?? {}
+				if (sessions === undefined) {
+					return sanitize({ success: false, message: '这个宿主没有提供会话读取能力。' })
+				}
+				const result = await sessions.digest({
+					sinceDays: input.sinceDays,
+					limit: input.limit,
+					commit: input.commit === true,
+				})
+				return sanitize({
+					...result,
+					empty: Array.isArray(result.empty) ? result.empty.length : 0,
 				})
 			},
 		},

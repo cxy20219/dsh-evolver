@@ -45,6 +45,10 @@ export const ENDPOINTS = [
 	'embedding-download',
 	'embedding-cancel',
 	'embedding-test',
+	'embedding-cleanup',
+	'ingest-status',
+	'ingest-save',
+	'ingest-run',
 ]
 
 /**
@@ -97,7 +101,7 @@ function count(payload, field, fallback, max) {
  * @param {{evolver: object, memory: object}} deps - The evolver and the memory actions.
  * @returns {(endpoint: string, payload: unknown) => Promise<object>} The handler.
  */
-export function createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding }) {
+export function createEvolverHandler({ evolver, memory, settings, backup, workspace, view, embedding, ingest }) {
 	return async function handleEvolver(endpoint, payload) {
 		try {
 			switch (endpoint) {
@@ -241,6 +245,18 @@ export function createEvolverHandler({ evolver, memory, settings, backup, worksp
 				}
 				case 'embedding-cancel': {
 					return { ok: true, value: await embedding.cancel() }
+				}
+				case 'embedding-cleanup': {
+					return { ok: true, value: await embedding.cleanup() }
+				}
+				case 'ingest-status': {
+					return { ok: true, value: await ingest.status() }
+				}
+				case 'ingest-save': {
+					return { ok: true, value: await ingest.save(payload?.ingest ?? {}) }
+				}
+				case 'ingest-run': {
+					return { ok: true, value: await ingest.run() }
 				}
 				case 'embedding-test': {
 					return { ok: true, value: await embedding.test() }

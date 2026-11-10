@@ -115,12 +115,40 @@ export function defaultStatus() {
 }
 
 /**
+ * The default idle-ingest configuration.
+ *
+ * The user can turn this off; the default is on because the whole point is a
+ * safety net for sessions where nobody remembered to save anything.
+ *
+ * @returns {object} A fresh object.
+ */
+export function defaultIngest() {
+	return { enabled: true, idleMinutes: 15 }
+}
+
+/**
+ * Normalise the idle-ingest configuration.
+ *
+ * @param {unknown} value - The raw value.
+ * @param {object} [fallback] - What to use for missing fields.
+ * @returns {object} The normalised value.
+ */
+export function normalizeIngest(value, fallback = defaultIngest()) {
+	const source = value !== null && typeof value === 'object' ? value : {}
+	const minutes = Math.round(Number(source.idleMinutes))
+	return {
+		enabled: typeof source.enabled === 'boolean' ? source.enabled : fallback.enabled,
+		idleMinutes: Number.isFinite(minutes) ? Math.min(240, Math.max(5, minutes)) : fallback.idleMinutes,
+	}
+}
+
+/**
  * The default settings.
  *
  * @returns {object} A fresh object.
  */
 export function defaultSettings() {
-	return { dataDir: '', backup: defaultBackup(), status: defaultStatus(), embedding: defaultEmbedding() }
+	return { dataDir: '', backup: defaultBackup(), status: defaultStatus(), embedding: defaultEmbedding(), ingest: defaultIngest() }
 }
 
 /**
@@ -264,6 +292,7 @@ export class SettingsStore {
 				backup: normalizeBackup(parsed?.backup),
 				status: normalizeStatus(parsed?.status),
 				embedding: normalizeEmbedding(parsed?.embedding),
+				ingest: normalizeIngest(parsed?.ingest),
 			}
 		} catch (error) {
 			// Keep the broken file around: it explains what happened after a
@@ -308,6 +337,10 @@ export class SettingsStore {
 				next.apiKey = this.data.embedding.apiKey
 			}
 			this.data.embedding = next
+		}
+		const ingest = patch.ingest
+		if (ingest !== null && typeof ingest === 'object') {
+			this.data.ingest = normalizeIngest({ ...this.data.ingest, ...ingest })
 		}
 		const backup = patch.backup
 		if (backup !== null && typeof backup === 'object') {
@@ -389,6 +422,7 @@ export class SettingsStore {
 				intervalMinutes: backup.intervalMinutes,
 			},
 			status: { ...this.data.status },
+			ingest: { ...this.data.ingest },
 			embedding: {
 				provider: this.data.embedding.provider,
 				model: this.data.embedding.model,

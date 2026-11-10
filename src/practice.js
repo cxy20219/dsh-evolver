@@ -34,6 +34,9 @@
 
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, sep } from 'node:path'
+import { findSecret, redactSecrets } from './secrets.js'
+
+export { findSecret, redactSecrets }
 
 /** The kinds of practice, in the order the index lists them. */
 export const KINDS = [
@@ -66,33 +69,6 @@ export const PRACTICE_DISCIPLINE = [
 	'只写能减少未来误判、重复劳动或验证成本的内容；不写流水账、一次性命令、猜测、废弃方案、密钥、日志和对话转录。没有高信号就跳过。',
 	'写完读返回的 problems，链接要闭环。用户说「沉淀经验」「复盘流程」时同样适用。',
 ].join('\n')
-
-/** Patterns that must never reach the practice layer. */
-const SECRET_PATTERNS = [
-	[/-----BEGIN [A-Z ]*PRIVATE KEY-----/, '私钥'],
-	[/\bgh[pousr]_[A-Za-z0-9]{20,}\b/, 'GitHub 令牌'],
-	[/\bAKIA[0-9A-Z]{16}\b/, 'AWS 访问密钥'],
-	[/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, 'Slack 令牌'],
-	[/\bsk-[A-Za-z0-9_-]{20,}\b/, 'API 密钥'],
-]
-
-/**
- * Detect a credential in what is about to be written.
- *
- * The check is deliberately narrow: it recognizes the common token shapes and
- * leaves ordinary prose alone. A false negative is possible; the discipline
- * text still says not to write secrets.
- *
- * @param {string} text - The title, purpose and body being written.
- * @returns {string | undefined} What the credential looks like, if any.
- */
-export function findSecret(text) {
-	const source = String(text ?? '')
-	for (const [pattern, label] of SECRET_PATTERNS) {
-		if (pattern.test(source)) return label
-	}
-	return undefined
-}
 
 /** How much of an entry is read just to describe it. */
 const ENTRY_HEAD_BYTES = 8 * 1024

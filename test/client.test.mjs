@@ -388,6 +388,17 @@ function apiPayload(endpoint, payload) {
 			return { file: `${payload.dir}/${payload.name}`, files: 4, bytes: 1234 }
 		case 'data-import':
 			return { root: '/data/evolver', files: 2, bytes: 99, skipped: 0 }
+		case 'ingest-status':
+			return {
+				enabled: true,
+				idleMinutes: 15,
+				available: false,
+				pending: 0,
+				taskId: '',
+				lastActivityAt: 0,
+				lastAutoAt: 0,
+				ledger: { processed: 0, lastCommitAt: '' },
+			}
 		case 'embedding-status':
 			return {
 				embedding: {
@@ -548,7 +559,7 @@ test('已下载的模型显示绿色不可点的“已下载”', async () => {
 	}
 })
 
-test('见闻拆成灵魂和记忆两个子标签，一次只显示一个', async () => {
+test('见闻拆成灵魂、记忆和整理三个子标签，一次只显示一个', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
 	globalThis.fetch = async (url, options) => {
@@ -568,13 +579,19 @@ test('见闻拆成灵魂和记忆两个子标签，一次只显示一个', async
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.sight')[0].props.onClick()
 		tree = await runtime.settle(render)
 		const subTabs = findAll(tree, (node) => node.props?.role === 'tab' && String(textOf(node)).startsWith('sight.section.'))
-		assert.deepEqual(subTabs.map((node) => textOf(node)), ['sight.section.soul', 'sight.section.memory'])
+		assert.deepEqual(subTabs.map((node) => textOf(node)), ['sight.section.soul', 'sight.section.memory', 'sight.section.ingest'])
 		assert.equal(findAll(tree, (node) => node.type === 'textarea').length, 1)
 
 		subTabs[1].props.onClick()
 		tree = await runtime.settle(render)
 		assert.equal(findAll(tree, (node) => node.type === 'textarea').length, 0)
 		assert.equal(findAll(tree, (node) => node.type === 'input' && node.props?.type === 'search').length, 1)
+
+		subTabs[2].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.type === 'input' && node.props?.type === 'checkbox').length, 1)
+		assert.equal(findAll(tree, (node) => node.type === 'input' && node.props?.type === 'number').length, 1)
+		assert.equal(findAll(tree, (node) => textOf(node) === 'sight.ingest.unavailable').length, 1)
 	} finally {
 		globalThis.fetch = previousFetch
 	}
