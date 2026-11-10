@@ -56,10 +56,12 @@ export async function seedStarterCards(store) {
 	let count = 0
 	for (const entry of STARTER_CARDS) {
 		try {
+			const related = entry.tags.filter((tag) => tag.startsWith('实践/')).map((tag) => '#' + tag).join(' ')
+			const body = `[${entry.label}]({{resource}})：用途：${entry.summary}；入口：阅读附件文档；输入：无；输出：可复用的步骤；关联流程：${related || '#实践'}。`
 			await store.put({
 				label: entry.label,
 				summary: entry.summary,
-				body: entry.summary,
+				body,
 				tags: entry.tags,
 				verified: entry.verified,
 				source: 'seed',

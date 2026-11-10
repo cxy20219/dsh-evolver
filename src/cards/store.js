@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import { MemoryStore } from '../memory/store.js'
 import { hybridRetrieve } from '../memory/hybrid.js'
 import { cardId, isCardId } from './ids.js'
-import { ResourceStore, safeResourceName } from './resources.js'
+import { ResourceStore, resourceRelativePath, safeResourceName } from './resources.js'
 import {
 	archiveTags,
 	buildTagTree,
@@ -42,12 +42,10 @@ export const DEFAULT_CARD_MAX_CHARS = 1000
  */
 export function labelOf(body) {
 	const line = String(body ?? '').split('\n').map((part) => part.trim()).find((part) => part !== '') ?? ''
-	return line
-		.replace(/^#{1,6}\s+/, '')
-		.replace(/^[-*+>]\s+/, '')
-		.replace(/\s+/g, ' ')
-		.trim()
-		.slice(0, 80)
+	const clean = line.replace(/^#{1,6}\s+/, '').replace(/^[-*+>]\s+/, '')
+	const link = clean.match(/^\[([^\]]+)\]\([^)]*\)/)
+	if (link !== null) return link[1].replace(/\s+/g, ' ').trim().slice(0, 80)
+	return clean.replace(/\s+/g, ' ').trim().slice(0, 80)
 }
 
 /**
@@ -69,6 +67,48 @@ export function charCount(value) {
  */
 function oneLine(value, max) {
 	return [...String(value ?? '').replace(/\s+/g, ' ').trim()].slice(0, max).join('')
+}
+
+
+/**
+ * Escape a string for a regular expression.
+ *
+ * @param {string} value - The literal.
+ * @returns {string} The escaped literal.
+ */
+function escapeRegExp(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Whether a body already references one resource in the required form.
+ *
+ * @param {string} body - The card body.
+ * @param {string} relativePath - Data-dir-relative resource path.
+ * @returns {boolean} True when the reference is present with a description.
+ */
+export function hasResourceReference(body, relativePath) {
+	const pattern = new RegExp(`\\[[^\\]]+\\]\\(\\s*${escapeRegExp(relativePath)}\\s*\\)\\s*[：:]\\s*\\S`)
+	return pattern.test(String(body ?? ''))
+}
+
+/**
+ * Require one body reference per attachment.
+ *
+ * @param {string} body - The card body.
+ * @param {string} cardId - The card id.
+ * @param {string[]} names - The resource names.
+ * @returns {void}
+ */
+function assertResourceReferences(body, cardId, names) {
+	for (const name of names) {
+		const relativePath = resourceRelativePath(cardId, name)
+		if (!hasResourceReference(body, relativePath)) {
+			throw new Error(
+				`正文必须引用附件 ${name}，格式：\`[标题](${relativePath})：用途、入口命令、输入输出、关联流程\``,
+			)
+		}
+	}
 }
 
 /**
@@ -202,10 +242,7 @@ export class CardStore {
 		if (!isCardId(id)) throw new Error('卡片 id 不合法。')
 		const existing = this.cards.getEntry(id)
 		const previous = existing === undefined ? undefined : this.cardOf(existing)
-		const body = String(input.body ?? previous?.body ?? '')
-		if (charCount(body) > this.cardMaxChars) {
-			throw new Error(`卡片正文超过 ${this.cardMaxChars} 字上限；请拆成多张卡，或把长内容放入资源附件。`)
-		}
+		let body = String(input.body ?? previous?.body ?? '')
 		const rawTags = input.tags === undefined ? (previous?.tags ?? []) : normalizeTags(input.tags)
 		const explicitMarker = (Array.isArray(input.tags) ? normalizeTags(input.tags) : [])
 			.some((tag) => lifecycleMarkerTags([tag]).length > 0)
@@ -223,22 +260,41 @@ export class CardStore {
 		for (const link of links) {
 			if (!isCardId(link)) throw new Error(`链接目标不是卡片 id：${link}`)
 		}
-		const resources = []
+		const resourceByName = new Map()
 		if (Array.isArray(input.resources)) {
 			for (const item of input.resources) {
 				const name = safeResourceName(item?.name)
 				if (name === '') continue
-				resources.push({ name, bytes: Number(item.bytes) || 0, sha256: typeof item.sha256 === 'string' ? item.sha256 : '' })
+				resourceByName.set(name, { name, bytes: Number(item.bytes) || 0, sha256: typeof item.sha256 === 'string' ? item.sha256 : '' })
 			}
 		} else if (previous !== undefined) {
-			resources.push(...(previous.resources ?? []))
+			for (const item of previous.resources ?? []) {
+				const name = safeResourceName(item.name)
+				if (name !== '') resourceByName.set(name, { ...item, name })
+			}
+		}
+		const inputNames = []
+		for (const resource of resourceInputs) {
+			const name = safeResourceName(resource.name)
+			if (name === '') throw new Error(`资源文件名不合法：${String(resource.name)}`)
+			inputNames.push(name)
+			if (!resourceByName.has(name)) resourceByName.set(name, { name, bytes: 0, sha256: '' })
+		}
+		for (const name of inputNames) {
+			const relativePath = resourceRelativePath(id, name)
+			body = body.replaceAll(`{{resource:${name}}}`, relativePath)
+		}
+		if (inputNames.length === 1) body = body.replaceAll('{{resource}}', resourceRelativePath(id, inputNames[0]))
+		if (body.includes('{{resource')) throw new Error('正文里有未解析的附件占位符；请用 {{resource}} 或 {{resource:文件名}}。')
+		assertResourceReferences(body, id, [...resourceByName.keys()])
+		if (charCount(body) > this.cardMaxChars) {
+			throw new Error(`卡片正文超过 ${this.cardMaxChars} 字上限；请拆成多张卡，或把长内容放入资源附件。`)
 		}
 		for (const resource of resourceInputs) {
 			const metadata = await this.resources.put(id, resource.name, resource.data)
-			const index = resources.findIndex((item) => item.name === metadata.name)
-			if (index >= 0) resources[index] = metadata
-			else resources.push(metadata)
+			resourceByName.set(metadata.name, metadata)
 		}
+		const resources = [...resourceByName.values()]
 		const verified = permanent
 			? (input.verified ?? previous?.verified ?? now.slice(0, 10))
 			: ''
@@ -273,7 +329,11 @@ export class CardStore {
 		const metadata = await this.resources.put(id, name, data)
 		const resources = (card.resources ?? []).filter((item) => item.name !== metadata.name)
 		resources.push(metadata)
-		return this.put({ ...card, id, resources })
+		const relativePath = resourceRelativePath(id, metadata.name)
+		const body = hasResourceReference(card.body, relativePath)
+			? card.body
+			: `${card.body.trim()}\n\n[${metadata.name}](${relativePath})：用途：附件资源；入口：按文件说明；输入、输出和关联流程：待补充。`.trim()
+		return this.put({ ...card, id, body, resources })
 	}
 
 	/**

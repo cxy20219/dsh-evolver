@@ -76,16 +76,24 @@ export function createCardAgent(cards) {
 		const label = typeof input.label === 'string' && input.label !== '' ? input.label : labelOf(body)
 		const summary = permanent ? String(input.summary ?? label) : ''
 		const resourceName = input.resourceName === undefined ? '' : String(input.resourceName)
+		const resourceContent = input.resourceContent === undefined ? '' : String(input.resourceContent)
+		if (resourceName !== '' && resourceContent === '') {
+			throw new Error('提供 resourceName 时必须同时提供 resourceContent（附件的完整文件内容）。')
+		}
+		if (resourceName === '' && resourceContent !== '') {
+			throw new Error('提供 resourceContent 时必须同时提供 resourceName。')
+		}
+		if (resourceContent !== '') assertNoSecret(resourceContent)
 		return cards.put({
 			...(typeof input.id === 'string' && input.id !== '' ? { id: input.id } : {}),
 			label,
 			summary,
-			body: resourceName === '' ? body : (summary === '' ? label : summary),
+			body,
 			tags,
 			links,
 			verified: permanent ? String(input.verified ?? new Date().toISOString().slice(0, 10)) : '',
 			source: 'agent',
-		}, resourceName === '' ? {} : { resourceInputs: [{ name: resourceName, data: body }] })
+		}, resourceName === '' ? {} : { resourceInputs: [{ name: resourceName, data: resourceContent }] })
 	}
 
 	/**

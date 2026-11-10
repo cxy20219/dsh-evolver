@@ -62,7 +62,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_read',
-			description: '读一张卡片的完整记录：正文、摘要、层级标签、双链和资源附件。id 必须是 card_ 开头的 ULID。',
+			description: '读一张卡片的完整记录：正文、摘要、层级标签、双链和资源附件。resourceContents 里有附件的绝对 path 和 executable，入口命令优先用该绝对路径。id 必须是 card_ 开头的 ULID。',
 			parameters: {
 				type: 'object',
 				properties: { id: { type: 'string', description: '卡片 id' } },
@@ -75,18 +75,19 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_write',
-			description: '写入或更新一张卡。分类只由 tags 表达：默认 #收集箱；未验证的笔记用 #临时；长期笔记用 #永久笔记/领域/主题；已验证的实践用 #实践/经验、#实践/工作流、#实践/工具。body 超过正文上限时用 resourceName 把全文放进附件，卡片只留 label/summary。写前先 card_query 查重；不写流水账、一次性命令、猜测、密钥。links 只能是卡片 id。',
+			description: '写入或更新一张卡。分类只由 tags 表达：默认 #收集箱；未验证的笔记用 #临时；长期笔记用 #永久笔记/领域/主题；已验证的实践用 #实践/经验、#实践/工作流、#实践/工具。带附件时必须同时给 resourceName 和 resourceContent；body 必须包含 `[标题]({{resource}})：用途、入口命令、输入输出、关联流程`，写入时 {{resource}} 替换为相对数据目录的 knowledge/resources/<card-id>/<文件名>，缺少引用会被拒绝。脚本附件会自动设为可执行。写前先 card_query 查重；不写流水账、一次性命令、猜测、密钥。links 只能是卡片 id。',
 			parameters: {
 				type: 'object',
 				properties: {
 					id: { type: 'string', description: '更新已有卡片时传入 id；新卡留空' },
-					body: { type: 'string', description: '正文；提供 resourceName 时存成附件' },
+					body: { type: 'string', description: '卡片正文；有附件时必须包含 [标题]({{resource}})：用途、入口命令、输入输出、关联流程' },
 					label: { type: 'string', description: '列表里的一行标题；留空从正文首行派生' },
 					summary: { type: 'string', description: '永久卡/实践卡的一句话摘要' },
 					tags: { type: 'array', items: { type: 'string' }, description: '层级标签，例如 ["永久笔记/web开发","实践/工作流"]' },
 					links: { type: 'array', items: { type: 'string' }, description: '关联卡片 id' },
 					verified: { type: 'string', description: '最后验证日期 YYYY-MM-DD' },
-					resourceName: { type: 'string', description: '附件文件名；提供时 body 写入附件' },
+					resourceName: { type: 'string', description: '附件文件名；必须与 resourceContent 同时提供' },
+					resourceContent: { type: 'string', description: '附件的完整文件内容；脚本/文档原文放这里，不要放进 body' },
 				},
 				required: ['body'],
 			},

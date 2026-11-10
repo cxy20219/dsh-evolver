@@ -9,6 +9,7 @@ import { normalizeTag, normalizeTags, buildTagTree } from '../src/cards/tags.js'
 import { safeResourceName } from '../src/cards/resources.js'
 import { cardPrompt } from '../src/cards/prompt.js'
 import { CardStore, labelOf } from '../src/cards/store.js'
+import { hasResourceReference } from '../src/cards/store.js'
 import { seedStarterCards } from '../src/cards/seed.js'
 import { createCardAgent } from '../src/cards/agent.js'
 
@@ -54,6 +55,12 @@ test('层级标签归一化、白名单和多父树计数', () => {
 	assert.equal(verify.count, 3)
 	assert.equal(verify.children.length, 2)
 	assert.equal(tree.find((node) => node.path === '项目')?.children[0].count, 1)
+})
+
+test('资源引用链接的 label 可派生，引用格式可校验', () => {
+	assert.equal(labelOf('[run.sh](knowledge/resources/card-x/run.sh)：用途：跑测试'), 'run.sh')
+	assert.equal(hasResourceReference('[run.sh](knowledge/resources/card-x/run.sh)：用途：跑测试', 'knowledge/resources/card-x/run.sh'), true)
+	assert.equal(hasResourceReference('[run.sh](knowledge/resources/card-x/run.sh)', 'knowledge/resources/card-x/run.sh'), false)
 })
 
 test('资源文件名被压成一个安全段，路径无法逃出卡片目录', () => {
@@ -144,14 +151,33 @@ test('卡片 agent：资源正文、标签查询、提升/归档/删除闭环', 
 		const doc = await agent.write({
 			label: '部署文档',
 			summary: '部署步骤',
-			body: '## 步骤\n1. 先跑测试',
+			body: '[部署文档]({{resource}})：用途：说明部署步骤；入口：阅读附件；输入：无；输出：部署步骤；关联流程：#实践/工作流。',
 			tags: ['实践/工作流'],
 			resourceName: 'deploy.md',
+			resourceContent: '## 步骤\n1. 先跑测试',
 		})
-		assert.equal(doc.body, '部署步骤')
+		assert.match(doc.body, new RegExp(`knowledge/resources/${doc.id}/deploy\\.md`))
 		assert.ok(doc.tags.includes('实践/工作流'))
 		const read = await agent.read(doc.id)
 		assert.match(read.resourceContents[0].text, /先跑测试/)
+		assert.match(read.resourceContents[0].path, /knowledge\/resources\//)
+
+		const script = await agent.write({
+			body: '[run.sh]({{resource}})：用途：跑测试；入口：bash {{resource}}；输入：无；输出：测试结果；关联流程：#实践/工具。',
+			tags: ['实践/工具'],
+			resourceName: 'run.sh',
+			resourceContent: '#!/bin/sh\necho ok\n',
+		})
+		const scriptRead = await agent.read(script.id)
+		assert.equal(scriptRead.resourceContents[0].executable, true)
+		await assert.rejects(
+			() => agent.write({ body: '没有引用', resourceName: 'bad.sh', resourceContent: '#!/bin/sh\n' }),
+			/正文必须引用附件/,
+		)
+		await assert.rejects(
+			() => agent.write({ body: '没有附件内容', resourceName: 'bad.sh' }),
+			/resourceContent/,
+		)
 
 		const memo = await agent.write({ body: '部署走 SSH。', tags: ['临时'] })
 		assert.ok(memo.tags.includes('临时'))
@@ -183,6 +209,7 @@ test('新数据目录直接种下三张种子卡', async () => {
 		assert.equal(store.status().lifecycle.permanent, 3)
 		const effective = cards.find((card) => card.label === '确认插件改动是否生效')
 		assert.ok(effective)
+		assert.match(effective.body, /knowledge\/resources\/.*\/plugin-effective\.md/)
 		const read = await store.read(effective.id)
 		assert.match(read.resourceContents[0].text, /## 现象/)
 		assert.equal(await seedStarterCards(store), 0)

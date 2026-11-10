@@ -385,6 +385,7 @@ test('卡片接口：列表、写入、读取、提升、附件、标签、归�
 				data: Buffer.from('hello resource').toString('base64'),
 			})).json()
 			assert.equal(attached.resources.length, 1)
+			assert.match(attached.body, new RegExp(`knowledge/resources/${created.id}/notes\\.md`))
 			const withResource = await (await post(routes, 'card-read', { id: created.id })).json()
 			assert.equal(withResource.card.resourceContents[0].text, 'hello resource')
 

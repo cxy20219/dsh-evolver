@@ -43,6 +43,27 @@ export function safeResourceName(value) {
 	return name
 }
 
+
+/** Names whose content is meant to be run directly. */
+const EXECUTABLE_NAME = /\.(?:sh|bash|zsh|fish|py|js|mjs|cjs|ts|rb|pl|php|lua|ps1)$/i
+
+/**
+ * The path a card body should use to refer to one resource.
+ *
+ * It is relative to the data directory, so a card body is portable while the
+ * absolute path stays available from `card_read`.
+ *
+ * @param {string} cardId - Card id.
+ * @param {string} name - The raw file name.
+ * @returns {string} `knowledge/resources/<card-id>/<safe-name>`.
+ */
+export function resourceRelativePath(cardId, name) {
+	if (!isCardId(cardId)) throw new Error('卡片 id 不合法。')
+	const safe = safeResourceName(name)
+	if (safe === '') throw new Error(`资源文件名不合法：${String(name)}`)
+	return `knowledge/resources/${cardId}/${safe}`
+}
+
 /**
  * The resources of one data folder.
  */
@@ -84,8 +105,9 @@ export class ResourceStore {
 		const target = join(folder, safe)
 		if (!isInsidePath(folder, target)) throw new Error('资源路径不安全。')
 		const temp = `${target}.${process.pid}.${Date.now()}.tmp`
+		const executable = EXECUTABLE_NAME.test(safe) || content.subarray(0, 2).toString('utf8') === '#!'
 		try {
-			await writeFile(temp, content, { mode: 0o600 })
+			await writeFile(temp, content, { mode: executable ? 0o700 : 0o600 })
 			await rename(temp, target)
 		} catch (error) {
 			await rm(temp, { force: true }).catch(() => {})
@@ -109,7 +131,8 @@ export class ResourceStore {
 		if (info === undefined || !info.isFile() || info.isSymbolicLink()) throw new Error(`找不到资源：${safe}`)
 		if (info.size > MAX_RESOURCE_BYTES) throw new Error('资源过大，无法读取。')
 		const buffer = await readFile(path)
-		const metadata = { name: safe, bytes: info.size, sha256: createHash('sha256').update(buffer).digest('hex'), path }
+		const executable = (info.mode & 0o111) !== 0
+		const metadata = { name: safe, bytes: info.size, sha256: createHash('sha256').update(buffer).digest('hex'), path, executable }
 		if (buffer.length > MAX_TEXT_READ_BYTES || buffer.includes(0)) return { ...metadata, binary: true }
 		const text = buffer.toString('utf8')
 		if (text.includes('\uFFFD')) return { ...metadata, binary: true }
@@ -130,7 +153,7 @@ export class ResourceStore {
 			if (name.endsWith('.tmp')) continue
 			const info = await lstat(join(folder, name)).catch(() => undefined)
 			if (info === undefined || !info.isFile() || info.isSymbolicLink()) continue
-			resources.push({ name, bytes: info.size })
+			resources.push({ name, bytes: info.size, executable: (info.mode & 0o111) !== 0 })
 		}
 		return resources
 	}
