@@ -467,6 +467,15 @@ window.__ModuleLoader__.load({
 			'.evrRowTitle{font-size:13px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 			'.evrRowMeta{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 			'.evrRowTime{flex:none;font-size:11.5px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}',
+			'.evrTagNode{display:flex;align-items:center;gap:2px;border-radius:var(--dsw-radius-sm)}',
+			'.evrTagToggle{width:16px;height:24px;padding:0;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1;cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center}',
+			'.evrTagToggle:hover{color:var(--dsw-alias-label-primary)}',
+			'.evrTagToggleSpacer{cursor:default;visibility:hidden}',
+			'.evrTagBtn{display:flex;align-items:center;justify-content:space-between;gap:6px;flex:1;min-width:0;padding:5px 4px;border:none;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer;text-align:left}',
+			'.evrTagBtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+			'.evrTagBtnActive{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary)}',
+			'.evrTagName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}',
+			'.evrTagCount{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
 			'.evrTag{display:inline-flex;align-items:center;height:16px;padding:0 6px;border-radius:var(--dsw-radius-xs);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary);font-size:11px;flex:none}',
 			'.evrToolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}',
 			'.evrInput{flex:1;min-width:160px;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;box-sizing:border-box}',
@@ -767,6 +776,13 @@ window.__ModuleLoader__.load({
 			var filter = props.filter ?? {};
 			var [search, setSearch] = useState(filter.query ?? '');
 			var [promoteTarget, setPromoteTarget] = useState('践行');
+			var [collapsedTags, setCollapsedTags] = useState({});
+
+			function toggleTag(path) {
+				setCollapsedTags(function (current) {
+					return { ...current, [path]: current[path] !== true };
+				});
+			}
 			if (state === null || state === undefined) return h(Spinner, null, t('state.loading'));
 			var cards = Array.isArray(state.cards) ? state.cards : [];
 			var tree = Array.isArray(state.tree) ? state.tree : [];
@@ -776,24 +792,33 @@ window.__ModuleLoader__.load({
 			function tagRows(nodes, depth) {
 				var rows = [];
 				(nodes ?? []).forEach(function (node) {
-					rows.push(h('button', {
+					var children = node.children ?? [];
+					var hasChildren = children.length > 0;
+					var collapsed = collapsedTags[node.path] === true;
+					var active = filter.tag === node.path;
+					rows.push(h('div', {
 						key: node.path,
-						type: 'button',
-						className: 'evrRow',
-						style: {
-							cursor: 'pointer',
-							width: '100%',
-							textAlign: 'left',
-							border: 'none',
-							background: filter.tag === node.path ? 'var(--dsw-alias-bg-layer-3)' : 'transparent',
-							paddingLeft: (8 + depth * 12) + 'px',
-						},
-						onClick: function () { props.onFilter({ tag: node.path, anyTags: [], archivedOnly: false }); },
+						className: 'evrTagNode',
+						style: { paddingLeft: (4 + depth * 12) + 'px' },
 					},
-						h('div', { className: 'evrRowMain' },
-							h('div', { className: 'evrRowTitle' }, node.name),
-							h('div', { className: 'evrRowMeta' }, String(node.count)))));
-					rows = rows.concat(tagRows(node.children ?? [], depth + 1));
+						hasChildren
+							? h('button', {
+								type: 'button',
+								className: 'evrTagToggle',
+								'aria-label': (collapsed ? '展开标签 ' : '收起标签 ') + node.path,
+								'aria-expanded': collapsed ? 'false' : 'true',
+								onClick: function (event) { if (event && typeof event.stopPropagation === 'function') event.stopPropagation(); toggleTag(node.path); },
+							}, collapsed ? '▸' : '▾')
+							: h('span', { className: 'evrTagToggle evrTagToggleSpacer' }),
+						h('button', {
+							type: 'button',
+							className: 'evrTagBtn' + (active ? ' evrTagBtnActive' : ''),
+							title: node.path,
+							onClick: function () { props.onFilter({ tag: node.path, anyTags: [], archivedOnly: false }); },
+						},
+							h('span', { className: 'evrTagName' }, '#' + node.name),
+							h('span', { className: 'evrTagCount' }, String(node.count)))));
+					if (hasChildren && !collapsed) rows = rows.concat(tagRows(children, depth + 1));
 				});
 				return rows;
 			}

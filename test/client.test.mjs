@@ -395,7 +395,13 @@ function apiPayload(endpoint, payload) {
 					resources: [],
 					updated: '2026-11-10T00:00:00.000Z',
 				}],
-				tree: [{ path: '验证', name: '验证', count: 1, direct: 0, children: [] }],
+				tree: [{
+					path: '践行', name: '践行', count: 2, direct: 0, children: [{
+						path: '践行/工作流', name: '工作流', count: 1, direct: 1, children: [{
+							path: '践行/工作流/部署', name: '部署', count: 1, direct: 1, children: [],
+						}],
+					}],
+				}],
 				status: { cards: 1 },
 				cardMaxChars: 1000,
 			}
@@ -609,6 +615,18 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		tree = await runtime.settle(render)
 		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.new').length === 1)
 		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.execution').length === 1)
+		assert.ok(findAll(tree, (node) => node.props?.['aria-label'] === '收起标签 践行').length === 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === '#工作流').length >= 1)
+		findAll(tree, (node) => node.props?.['aria-label'] === '收起标签 践行')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => textOf(node) === '#工作流').length, 0)
+		assert.ok(findAll(tree, (node) => node.props?.['aria-label'] === '展开标签 践行').length === 1)
+		findAll(tree, (node) => node.props?.['aria-label'] === '展开标签 践行')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(findAll(tree, (node) => textOf(node) === '#工作流').length >= 1)
+		findAll(tree, (node) => node.props?.['aria-label'] === '收起标签 践行/工作流')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => textOf(node) === '#部署').length, 0)
 		assert.ok(findAll(tree, (node) => textOf(node) === '卡片标题').length >= 1)
 
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.soul')[0].props.onClick()

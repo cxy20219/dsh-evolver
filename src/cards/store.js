@@ -395,7 +395,8 @@ export class CardStore {
 	 * @returns {Array<object>} Root nodes.
 	 */
 	tagTree({ includeArchived = false } = {}) {
-		return buildTagTree(this.all().filter((card) => includeArchived || !isArchived(card.tags)))
+		const tree = buildTagTree(this.all().filter((card) => includeArchived || !isArchived(card.tags)))
+		return tree.sort((left, right) => TOP_TAGS.indexOf(left.path) - TOP_TAGS.indexOf(right.path))
 	}
 
 	/**
