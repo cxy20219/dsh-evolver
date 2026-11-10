@@ -153,6 +153,7 @@ window.__ModuleLoader__.load({
 			'settings.action.backupNow': '立即备份',
 			'settings.action.test': '测试连接',
 			'settings.action.clearSecret': '清除密钥',
+			'settings.section.backup': '云端备份',
 			'settings.backup.status': '备份状态',
 			'settings.backup.lastBackup': '上次成功',
 			'settings.backup.lastAttempt': '上次尝试',
@@ -295,6 +296,7 @@ window.__ModuleLoader__.load({
 			'settings.action.backupNow': 'Back up now',
 			'settings.action.test': 'Test connection',
 			'settings.action.clearSecret': 'Clear the secret',
+			'settings.section.backup': 'Cloud backup',
 			'settings.backup.status': 'Backup status',
 			'settings.backup.lastBackup': 'Last success',
 			'settings.backup.lastAttempt': 'Last attempt',
@@ -347,6 +349,10 @@ window.__ModuleLoader__.load({
 			'.evrTab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
 			'.evrTab:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}',
 			'.evrTabActive{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500;border-color:var(--dsw-alias-border-l2)}',
+			'.evrSeg{display:inline-flex;gap:3px;margin:2px 0 14px;padding:3px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2)}',
+			'.evrSegItem{border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12.5px;line-height:1.4;padding:4px 12px;border-radius:var(--dsw-radius-md);cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease}',
+			'.evrSegItem:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
+			'.evrSegItemActive{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500;border-color:var(--dsw-alias-border-l2)}',
 			'.evrBody{flex:1;min-height:0;overflow:auto;padding:18px 28px 36px;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2) transparent}',
 			'.evrBody::-webkit-scrollbar{width:10px;height:10px}',
 			'.evrBody::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2);border:3px solid transparent;border-radius:6px;background-clip:content-box}',
@@ -945,6 +951,7 @@ window.__ModuleLoader__.load({
 			var [exportDir, setExportDir] = useState('');
 			var [exportName, setExportName] = useState('');
 			var [archiveList, setArchiveList] = useState(null);
+			var [section, setSection] = useState('data');
 			var [importDir, setImportDir] = useState('');
 			var [transferForce, setTransferForce] = useState(false);
 
@@ -1109,7 +1116,23 @@ window.__ModuleLoader__.load({
 					}, t('settings.action.pick')));
 			}
 
-			return h('div', null,
+			var sectionBar = h('div', { className: 'evrSeg', role: 'tablist' }, [
+				{ id: 'data', label: t('settings.data') },
+				{ id: 'transfer', label: t('settings.transfer') },
+				{ id: 'backup', label: t('settings.section.backup') },
+			].map(function (item) {
+				return h('button', {
+					key: item.id,
+					type: 'button',
+					role: 'tab',
+					'aria-selected': section === item.id,
+					className: 'evrSegItem' + (section === item.id ? ' evrSegItemActive' : ''),
+					onClick: function () { setSection(item.id); },
+				}, item.label);
+			}));
+
+			var sections = {
+				data: [
 				h('div', { className: 'evrSection' }, t('settings.data')),
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.hint')),
 				settings.dataDirWarning
@@ -1137,6 +1160,8 @@ window.__ModuleLoader__.load({
 						onClick: migrateNow,
 					}, t('settings.action.migrate'))),
 
+				],
+				transfer: [
 				h('div', { className: 'evrSection' }, t('settings.transfer')),
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.transfer.hint')),
 				h('div', { className: 'evrFieldRow' },
@@ -1181,6 +1206,8 @@ window.__ModuleLoader__.load({
 						onClick: importNow,
 					}, t('settings.action.import'))),
 
+				],
+				backup: [
 				h('div', { className: 'evrSection' }, t('settings.backup')),
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.backup.hint')),
 				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' } },
@@ -1272,8 +1299,11 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'evrSection' }, t('settings.backup.status')),
 				h('pre', { className: 'evrPre' }, statusLines.join('\n')),
 				h('div', { className: 'evrHint evrMono', style: { marginTop: '8px' } },
-					t('settings.backup.settingsPath') + ': ' + (settings.settingsPath || ''))
-			);
+					t('settings.backup.settingsPath') + ': ' + (settings.settingsPath || '')),
+				],
+			};
+
+			return h.apply(null, ['div', null, sectionBar].concat(sections[section] ?? []));
 		}
 
 		//#endregion

@@ -417,6 +417,12 @@ test('点击导出后面板显示可见的成功提示', async () => {
 		settingsTab[0].props.onClick()
 		tree = await runtime.settle(render)
 
+		// the settings page is split into sub-tabs; export lives in its own
+		const transferTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.transfer')
+		assert.equal(transferTab.length, 1)
+		transferTab[0].props.onClick()
+		tree = await runtime.settle(render)
+
 		// click export with the prefilled folder and name
 		const exportButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'settings.action.export')
 		assert.equal(exportButton.length, 1)
@@ -464,6 +470,8 @@ test('导出目录为空时点击给出明确提示，而不是静默', async ()
 		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.transfer')[0].props.onClick()
 		tree = await runtime.settle(render)
 		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'settings.action.export')[0].props.onClick()
 		tree = await runtime.settle(render)
