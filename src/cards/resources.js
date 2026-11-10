@@ -48,6 +48,23 @@ export function safeResourceName(value) {
 const EXECUTABLE_NAME = /\.(?:sh|bash|zsh|fish|py|js|mjs|cjs|ts|rb|pl|php|lua|ps1)$/i
 
 /**
+ * Whether a payload looks like a native executable.
+ *
+ * @param {Buffer} content - The file head.
+ * @returns {boolean} True for ELF, PE, Mach-O or a universal binary.
+ */
+function isNativeExecutable(content) {
+	const head = content.subarray(0, 4)
+	if (head.length < 2) return false
+	if (head[0] === 0x7f && head[1] === 0x45 && head[2] === 0x4c && head[3] === 0x46) return true
+	if (head[0] === 0x4d && head[1] === 0x5a) return true
+	if (head[0] === 0xcf && head[1] === 0xfa && head[2] === 0xed && head[3] === 0xfe) return true
+	if (head[0] === 0xfe && head[1] === 0xed && head[2] === 0xfa && (head[3] === 0xce || head[3] === 0xcf)) return true
+	if (head[0] === 0xca && head[1] === 0xfe && head[2] === 0xba && head[3] === 0xbe) return true
+	return false
+}
+
+/**
  * The path a card body should use to refer to one resource.
  *
  * It is relative to the data directory, so a card body is portable while the
@@ -105,7 +122,7 @@ export class ResourceStore {
 		const target = join(folder, safe)
 		if (!isInsidePath(folder, target)) throw new Error('资源路径不安全。')
 		const temp = `${target}.${process.pid}.${Date.now()}.tmp`
-		const executable = EXECUTABLE_NAME.test(safe) || content.subarray(0, 2).toString('utf8') === '#!'
+		const executable = EXECUTABLE_NAME.test(safe) || content.subarray(0, 2).toString('utf8') === '#!' || isNativeExecutable(content)
 		try {
 			await writeFile(temp, content, { mode: executable ? 0o700 : 0o600 })
 			await rename(temp, target)
