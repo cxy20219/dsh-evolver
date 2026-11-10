@@ -75,6 +75,9 @@ test('卡片写入：label 派生、标签、上限、提升、归档、双链�
 		assert.equal(memo.status, 'inbox')
 		assert.deepEqual(memo.tags, ['验证/浏览器', '项目/dsh-evolver'])
 
+		const edited = await store.put({ id: memo.id, type: 'fleeting', shape: 'memo', body: '换了一行\n正文也变了' })
+		assert.equal(edited.label, '换了一行')
+
 		const promoted = await store.promote(memo.id, { summary: '部署方式' })
 		assert.equal(promoted.type, 'permanent')
 		assert.equal(promoted.status, 'verified')

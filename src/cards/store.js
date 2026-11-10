@@ -263,7 +263,8 @@ export class CardStore {
 		const category = input.category ?? previous?.category ?? 'fact'
 		if (category !== '' && !CARD_CATEGORIES.includes(category)) throw new Error(`未知卡片分类：${String(category)}`)
 		const now = new Date().toISOString()
-		const label = oneLine(input.label ?? previous?.label ?? labelOf(body), 80)
+		const derivedLabel = labelOf(body)
+		const label = oneLine(input.label ?? (derivedLabel !== '' ? derivedLabel : previous?.label ?? ''), 80)
 		const summary = oneLine(input.summary ?? previous?.summary ?? (type === 'permanent' ? label : ''), 200)
 		const topic = normalizeTag(input.topic ?? previous?.topic ?? '')
 		const tags = normalizeTags(input.tags ?? previous?.tags ?? [])
