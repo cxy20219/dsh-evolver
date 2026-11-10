@@ -102,9 +102,3 @@ npm test                              # 索引生成器与数据层的单元测�
 node scripts/build-index.mjs           # 重建索引
 node scripts/build-index.mjs --check   # 只校验，结构有问题时退出码 1
 ```
-
-## 与 dsh-panel 的边界
-
-dsh-panel 只保留 skills / MCP / 设置 / 备份；记忆与个人偏好都已整体移除。
-数据从 `~/.dsh/panel/memory` 与 `~/.dsh/panel/agent.md` 迁移到本插件，
-源文件保留未删，可回滚。
