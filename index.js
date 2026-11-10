@@ -300,10 +300,20 @@ export async function apply(ctx, config) {
 	}
 
 	/**
-	 * Build the overview statistics: cards, unique tags, days and last 30 days.
+	 * Count visible characters, ignoring whitespace.
+	 *
+	 * @param {string} text - Card body.
+	 * @returns {number} Character count.
+	 */
+	function characterCount(text) {
+		return [...String(text ?? '').replace(/\s+/gu, '')].length
+	}
+
+	/**
+	 * Build overview statistics: totals, a 30-day period and a 365-day heatmap.
 	 *
 	 * @param {object[]} cards - The card views.
-	 * @returns {{cards: number, tags: number, days: number, activity: Array<{date: string, count: number}>}} The stats.
+	 * @returns {object} Totals, period metrics, year metrics and daily activity.
 	 */
 	function overviewStats(cards) {
 		const createdDays = cards
@@ -316,20 +326,49 @@ export async function apply(ctx, config) {
 			.sort((left, right) => left - right)
 		const today = new Date()
 		today.setHours(0, 0, 0, 0)
-		const counts = new Map()
-		for (const day of createdDays) counts.set(dayKey(day), (counts.get(dayKey(day)) ?? 0) + 1)
+		const days = new Map()
+		for (const card of cards) {
+			const date = new Date(card.created)
+			if (!Number.isFinite(date.getTime())) continue
+			date.setHours(0, 0, 0, 0)
+			const key = dayKey(date)
+			const entry = days.get(key) ?? { count: 0, words: 0 }
+			entry.count += 1
+			entry.words += characterCount(card.body)
+			days.set(key, entry)
+		}
 		const activity = []
-		for (let offset = 29; offset >= 0; offset -= 1) {
+		for (let offset = 364; offset >= 0; offset -= 1) {
 			const date = new Date(today)
 			date.setDate(date.getDate() - offset)
 			const key = dayKey(date)
-			activity.push({ date: key, count: counts.get(key) ?? 0 })
+			activity.push({ date: key, count: days.get(key)?.count ?? 0 })
+		}
+		const summarize = (entries) => {
+			const words = entries.reduce((sum, entry) => sum + (days.get(entry.date)?.words ?? 0), 0)
+			return {
+				days: entries.length,
+				notes: entries.reduce((sum, entry) => sum + entry.count, 0),
+				words,
+				maxNotes: entries.reduce((max, entry) => Math.max(max, entry.count), 0),
+				maxWords: entries.reduce((max, entry) => Math.max(max, days.get(entry.date)?.words ?? 0), 0),
+				activeDays: entries.filter((entry) => entry.count > 0).length,
+			}
 		}
 		const first = createdDays[0]
-		const days = first === undefined ? 0 : Math.max(1, Math.floor((today - first) / 86_400_000) + 1)
+		const span = first === undefined ? 0 : Math.max(1, Math.floor((today - first) / 86_400_000) + 1)
 		const active = cards.filter((card) => !card.tags.some((tag) => tag.endsWith('/归档')))
 		const tags = new Set(active.flatMap((card) => card.tags)).size
-		return { cards: cards.length, tags, days, activity }
+		const words = active.reduce((sum, card) => sum + characterCount(card.body), 0)
+		return {
+			cards: cards.length,
+			tags,
+			days: span,
+			words,
+			activity,
+			period: summarize(activity.slice(-30)),
+			year: summarize(activity),
+		}
 	}
 
 	const cardsApi = {
@@ -350,7 +389,9 @@ export async function apply(ctx, config) {
 			const stats = overviewStats(all)
 			return {
 				...base,
-				stats: { cards: stats.cards, tags: stats.tags, days: stats.days },
+				stats: { cards: stats.cards, tags: stats.tags, days: stats.days, words: stats.words },
+				period: stats.period,
+				year: stats.year,
 				activity: stats.activity,
 				tree: store.tagTree(),
 				projection: {

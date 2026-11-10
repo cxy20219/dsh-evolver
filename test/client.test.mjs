@@ -350,7 +350,9 @@ function apiPayload(endpoint, payload) {
 				root: '/data/evolver',
 				projection: { entries: 3, injectedBytes: 100, injectedBudget: 2048, byKind: [] },
 				cards: { total: 3 },
-				stats: { cards: 3, tags: 2, days: 10 },
+				stats: { cards: 3, tags: 2, days: 10, words: 120 },
+				period: { days: 30, notes: 3, words: 120, maxNotes: 2, maxWords: 80, activeDays: 2 },
+				year: { days: 365, notes: 3, words: 120, maxNotes: 2, maxWords: 80, activeDays: 2 },
 				activity: [{ date: '2026-11-09', count: 1 }, { date: '2026-11-10', count: 2 }],
 				tree: [{
 					path: '践行', name: '践行', count: 2, direct: 0, children: [{
@@ -623,6 +625,10 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.stats').length >= 1)
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.heatmap').length >= 1)
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.tree').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.period').length >= 1)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrMetric').length, 5)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.yearHeatmap').length >= 1)
+		assert.ok(findAll(tree, (node) => node.props?.className === 'evrHeatmapWrap evrHeatmapDense').length === 1)
 		assert.ok(findAll(tree, (node) => node.props?.className === 'evrGraph').length === 1)
 		assert.ok(findAll(tree, (node) => textOf(node).includes('#践行')).length >= 1)
 		assert.ok(tabs.includes('tab.cards'))

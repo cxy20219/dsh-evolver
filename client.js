@@ -104,6 +104,14 @@ window.__ModuleLoader__.load({
 			'overview.notesHint': '全部卡片',
 			'overview.tagsHint': '唯一标签',
 			'overview.daysHint': '自首张卡',
+			'overview.period': '最近 30 天统计',
+			'overview.period.notes': '笔记',
+			'overview.period.words': '字数',
+			'overview.period.maxNotes': '单日最多条数',
+			'overview.period.maxWords': '单日最多字数',
+			'overview.period.activeDays': '坚持记录天数',
+			'overview.yearHeatmap': '最近一年记录',
+			'overview.yearHeatmap.hint': '记录 {notes} 条笔记 · {days} 天有记录。',
 			'overview.heatmap': '最近一个月热力',
 			'overview.heatmap.hint': '按卡片创建日期统计最近 30 天。',
 			'overview.heatmap.empty': '还没有卡片活动。',
@@ -316,6 +324,14 @@ window.__ModuleLoader__.load({
 			'overview.notesHint': 'All cards',
 			'overview.tagsHint': 'Unique tags',
 			'overview.daysHint': 'Since the first card',
+			'overview.period': 'Last 30 days',
+			'overview.period.notes': 'Notes',
+			'overview.period.words': 'Characters',
+			'overview.period.maxNotes': 'Max notes/day',
+			'overview.period.maxWords': 'Max characters/day',
+			'overview.period.activeDays': 'Active days',
+			'overview.yearHeatmap': 'Last year',
+			'overview.yearHeatmap.hint': '{notes} notes · {days} active days.',
 			'overview.heatmap': 'Last 30 days',
 			'overview.heatmap.hint': 'Cards by creation date over the last 30 days.',
 			'overview.heatmap.empty': 'No card activity yet.',
@@ -492,6 +508,10 @@ window.__ModuleLoader__.load({
 			'.evrCardTitle{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}',
 			'.evrCardCount{margin-left:auto;font-size:12px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
 			'.evrCardHint{font-size:11.5px;color:var(--dsw-alias-label-tertiary);line-height:1.55}',
+			'.evrMetricRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px}',
+			'.evrMetric{padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1)}',
+			'.evrMetricValue{font-size:24px;font-weight:600;line-height:1.15;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
+			'.evrMetricLabel{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-top:4px}',
 			'.evrCardValue{font-size:22px;font-weight:600;line-height:28px;letter-spacing:-.02em;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
 			'.evrSection{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary);margin:22px 0 10px;display:flex;align-items:center;gap:10px}',
 			'.evrSection::after{content:"";flex:1;height:1px;background:var(--dsw-alias-border-l2)}',
@@ -522,13 +542,14 @@ window.__ModuleLoader__.load({
 			'.evrGraphCount{fill:var(--dsw-alias-label-tertiary);font-size:9px}',
 			'.evrGraphCenter{fill:var(--dsw-alias-bg-layer-3);stroke:var(--dsw-alias-border-l2)}',
 			'.evrGraphCenterLabel{fill:var(--dsw-alias-label-secondary);font-size:11px;font-family:inherit}',
-			'.evrHeatmapWrap{overflow-x:auto;padding:2px 0}',
+			'.evrHeatmapWrap{--eh-cell:18px;--eh-gap:4px;overflow-x:auto;padding:2px 0}',
+			'.evrHeatmapDense{--eh-cell:13px;--eh-gap:3px}',
 			'.evrHeatmapBody{display:flex;gap:6px;align-items:flex-start}',
-			'.evrHeatmapDays{display:grid;grid-template-rows:repeat(7,18px);gap:4px;font-size:9px;line-height:18px;color:var(--dsw-alias-label-tertiary);text-align:right;width:12px}',
-			'.evrHeatmapMonths{display:grid;grid-auto-flow:column;grid-auto-columns:18px;gap:4px;margin-left:18px;margin-bottom:4px;font-size:10px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}',
-			'.evrHeatmap{display:flex;gap:4px;align-items:flex-start}',
-			'.evrHeatmapWeek{display:grid;grid-template-rows:repeat(7,18px);gap:4px}',
-			'.evrHeatCell{width:18px;height:18px;border-radius:3px;background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l1);box-sizing:border-box}',
+			'.evrHeatmapDays{display:grid;grid-template-rows:repeat(7,var(--eh-cell));gap:var(--eh-gap);font-size:9px;line-height:var(--eh-cell);color:var(--dsw-alias-label-tertiary);text-align:right;width:12px}',
+			'.evrHeatmapMonths{display:grid;grid-auto-flow:column;grid-auto-columns:var(--eh-cell);gap:var(--eh-gap);margin-left:18px;margin-bottom:4px;font-size:10px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}',
+			'.evrHeatmap{display:flex;gap:var(--eh-gap);align-items:flex-start}',
+			'.evrHeatmapWeek{display:grid;grid-template-rows:repeat(7,var(--eh-cell));gap:var(--eh-gap)}',
+			'.evrHeatCell{width:var(--eh-cell);height:var(--eh-cell);border-radius:3px;background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l1);box-sizing:border-box}',
 			'.evrHeat1{background:rgba(72,187,120,.28)}',
 			'.evrHeat2{background:rgba(72,187,120,.55)}',
 			'.evrHeat3{background:rgba(47,174,114,.85)}',
@@ -909,7 +930,7 @@ window.__ModuleLoader__.load({
 				if (count === 2) return 2;
 				return 3;
 			}
-			return h('div', { className: 'evrHeatmapWrap' },
+			return h('div', { className: 'evrHeatmapWrap' + (props.dense === true ? ' evrHeatmapDense' : '') },
 				h('div', { className: 'evrHeatmapMonths' }, monthLabels.map(function (label, index) {
 					return h('span', { key: index }, label);
 				})),
@@ -934,6 +955,18 @@ window.__ModuleLoader__.load({
 					h('span', { className: 'evrHeatCell evrHeat2' }),
 					h('span', { className: 'evrHeatCell evrHeat3' }),
 					h('span', null, t('overview.heatmap.more'))));
+		}
+
+		/**
+		 * One compact overview metric.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function Metric(props) {
+			return h('div', { className: 'evrMetric' },
+				h('div', { className: 'evrMetricValue' }, props.value),
+				h('div', { className: 'evrMetricLabel' }, props.label));
 		}
 
 		/**
@@ -966,6 +999,9 @@ window.__ModuleLoader__.load({
 			if (injection === null || overview === null) return h(Spinner, null, t('state.loading'));
 			var projection = overview.projection ?? {};
 			var stats = overview.stats ?? {};
+			var period = overview.period ?? {};
+			var year = overview.year ?? {};
+			var activity = Array.isArray(overview.activity) ? overview.activity : [];
 			var tree = Array.isArray(overview.tree) ? overview.tree : [];
 			return h('div', null,
 				h('div', { className: 'evrSection' }, t('overview.stats')),
@@ -973,16 +1009,27 @@ window.__ModuleLoader__.load({
 					h(StatCard, { title: t('overview.notes'), value: String(stats.cards ?? 0), hint: t('overview.notesHint') }),
 					h(StatCard, { title: t('overview.tags'), value: String(stats.tags ?? 0), hint: t('overview.tagsHint') }),
 					h(StatCard, { title: t('overview.days'), value: String(stats.days ?? 0), hint: t('overview.daysHint') })),
+				h('div', { className: 'evrSection' }, t('overview.period')),
+				h('div', { className: 'evrMetricRow' },
+					h(Metric, { value: String(period.notes ?? 0), label: t('overview.period.notes') }),
+					h(Metric, { value: String(period.words ?? 0), label: t('overview.period.words') }),
+					h(Metric, { value: String(period.maxNotes ?? 0), label: t('overview.period.maxNotes') }),
+					h(Metric, { value: String(period.maxWords ?? 0), label: t('overview.period.maxWords') }),
+					h(Metric, { value: String(period.activeDays ?? 0), label: t('overview.period.activeDays') })),
 				h('div', { className: 'evrOverviewSplit' },
 					h('div', { className: 'evrOverviewPane evrOverviewHeat' },
 						h('div', { className: 'evrSection' }, t('overview.heatmap')),
 						h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.heatmap.hint')),
-						h(Heatmap, { t: t, activity: overview.activity })),
+						h(Heatmap, { t: t, activity: activity.slice(-30) })),
 					h('div', { className: 'evrOverviewPane evrOverviewTags' },
 						h('div', { className: 'evrSection' }, t('overview.tree')),
 						tree.length === 0
 							? h('div', { className: 'evrHint' }, t('overview.tree.empty'))
 							: h(TagGraph, { t: t, nodes: tree }))),
+				h('div', { className: 'evrSection' }, t('overview.yearHeatmap')),
+				h('div', { className: 'evrHint', style: { marginBottom: '8px' } },
+					t('overview.yearHeatmap.hint').replace('{notes}', String(year.notes ?? 0)).replace('{days}', String(year.activeDays ?? 0))),
+				h(Heatmap, { t: t, activity: activity, dense: true }),
 				h('div', { className: 'evrSection' }, t('overview.injection')),
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('overview.injection.hint')),
 				h('div', { className: 'evrGrid' },
