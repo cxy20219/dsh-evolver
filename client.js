@@ -30,6 +30,8 @@ window.__ModuleLoader__.load({
 			'tab.overview': '概览',
 			'tab.practice': '实践',
 			'tab.sight': '见闻',
+			'sight.section.soul': '灵魂',
+			'sight.section.memory': '记忆',
 			'tab.preferences': '偏好',
 			'tab.suggestions': '建议',
 			'tab.settings': '设置',
@@ -210,6 +212,8 @@ window.__ModuleLoader__.load({
 			'tab.overview': 'Overview',
 			'tab.practice': 'Practice',
 			'tab.sight': 'Sight',
+			'sight.section.soul': 'Soul',
+			'sight.section.memory': 'Memories',
 			'tab.preferences': 'Preferences',
 			'tab.suggestions': 'Suggestions',
 			'tab.settings': 'Settings',
@@ -860,55 +864,72 @@ window.__ModuleLoader__.load({
 			var t = props.t;
 			var soul = props.soul;
 			var memories = props.memories ?? [];
+			var [section, setSection] = useState('soul');
+			var sections = [
+				{ id: 'soul', label: t('sight.section.soul') },
+				{ id: 'memory', label: t('sight.section.memory') },
+			];
 			return h('div', null,
-				h('div', { className: 'evrSection' }, t('soul.content')),
-				h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('soul.hint')),
-				h('textarea', {
-					className: 'evrTextarea',
-					value: soul?.content ?? '',
-					onChange: function (event) { props.onSoulChange(event.target.value); },
-				}),
-				h('div', { className: 'evrEditorFoot' },
-					h('button', {
+				h('div', { className: 'evrToolbar', role: 'tablist' }, sections.map(function (item) {
+					return h('button', {
+						key: item.id,
 						type: 'button',
-						className: 'evrBtn evrBtnPrimary',
-						disabled: props.busy,
-						onClick: function () { props.onSoulSave(); },
-					}, t('action.save')),
-					props.status === undefined || props.status === null
-						? null
-						: h('span', { className: 'evrStatus' + (props.status.error ? ' evrStatusError' : ' evrStatusOk') }, props.status.message)),
-				h('div', { className: 'evrSection' }, t('memory.list')),
-				h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('memory.hint')),
-				h('div', { className: 'evrToolbar' },
-					h('input', {
-						className: 'evrInput',
-						type: 'search',
-						value: props.query ?? '',
-						placeholder: t('memory.query'),
-						onChange: function (event) { props.onQuery(event.target.value); },
+						role: 'tab',
+						'aria-selected': section === item.id,
+						className: 'evrTab' + (section === item.id ? ' evrTabActive' : ''),
+						onClick: function () { setSection(item.id); },
+					}, item.label);
+				})),
+				section === 'soul' ? h('div', null,
+					h('div', { className: 'evrSection' }, t('soul.content')),
+					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('soul.hint')),
+					h('textarea', {
+						className: 'evrTextarea',
+						value: soul?.content ?? '',
+						onChange: function (event) { props.onSoulChange(event.target.value); },
 					}),
-					h('button', {
-						type: 'button',
-						className: 'evrBtn',
-						disabled: props.busy,
-						onClick: function () { props.onRecall(); },
-					}, t('action.recall'))),
-				memories.length === 0
-					? h(Empty, null, t('memory.empty'))
-					: h('div', null, memories.map(function (item) {
-						return h('div', {
-							key: item.id,
-							className: 'evrRow',
-							style: { cursor: 'default' },
-						},
-							h('div', { className: 'evrRowMain' },
-								h('div', { className: 'evrRowTitle' }, item.text ?? ''),
-								h('div', { className: 'evrRowMeta' },
-									h('span', { className: 'evrTag' }, item.kind),
-									h('span', null, item.scope ?? ''))),
-							h('div', { className: 'evrRowTime' }, item.score === undefined ? '' : String(item.score)));
-					})));
+					h('div', { className: 'evrEditorFoot' },
+						h('button', {
+							type: 'button',
+							className: 'evrBtn evrBtnPrimary',
+							disabled: props.busy,
+							onClick: function () { props.onSoulSave(); },
+						}, t('action.save')),
+						props.status === undefined || props.status === null
+							? null
+							: h('span', { className: 'evrStatus' + (props.status.error ? ' evrStatusError' : ' evrStatusOk') }, props.status.message))) : null,
+				section === 'memory' ? h('div', null,
+					h('div', { className: 'evrSection' }, t('memory.list')),
+					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('memory.hint')),
+					h('div', { className: 'evrToolbar' },
+						h('input', {
+							className: 'evrInput',
+							type: 'search',
+							value: props.query ?? '',
+							placeholder: t('memory.query'),
+							onChange: function (event) { props.onQuery(event.target.value); },
+						}),
+						h('button', {
+							type: 'button',
+							className: 'evrBtn',
+							disabled: props.busy,
+							onClick: function () { props.onRecall(); },
+						}, t('action.recall'))),
+					memories.length === 0
+						? h(Empty, null, t('memory.empty'))
+						: h('div', null, memories.map(function (item) {
+							return h('div', {
+								key: item.id,
+								className: 'evrRow',
+								style: { cursor: 'default' },
+							},
+								h('div', { className: 'evrRowMain' },
+									h('div', { className: 'evrRowTitle' }, item.text ?? ''),
+									h('div', { className: 'evrRowMeta' },
+										h('span', { className: 'evrTag' }, item.kind),
+										h('span', null, item.scope ?? ''))),
+								h('div', { className: 'evrRowTime' }, item.score === undefined ? '' : String(item.score)));
+						}))) : null);
 		}
 
 		/**

@@ -548,6 +548,38 @@ test('已下载的模型显示绿色不可点的“已下载”', async () => {
 	}
 })
 
+test('见闻拆成灵魂和记忆两个子标签，一次只显示一个', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.sight')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const subTabs = findAll(tree, (node) => node.props?.role === 'tab' && String(textOf(node)).startsWith('sight.section.'))
+		assert.deepEqual(subTabs.map((node) => textOf(node)), ['sight.section.soul', 'sight.section.memory'])
+		assert.equal(findAll(tree, (node) => node.type === 'textarea').length, 1)
+
+		subTabs[1].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.type === 'textarea').length, 0)
+		assert.equal(findAll(tree, (node) => node.type === 'input' && node.props?.type === 'search').length, 1)
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
 test('实践只有文档、工具、资源三个子标签', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
