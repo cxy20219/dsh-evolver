@@ -3,3 +3,6 @@
 
 - [Harness 开发指南](harness/harness.md)：插件仓库总览：两边代码、数据目录、测试与重启约束
 - [插件改动后的验证顺序](harness/workflow/verify-after-change.md)：改完插件的标准验证顺序：语法单测→重启或刷新→真实界面→接口字段核对
+- [索引里的标签与顺序按路径收编，改名要先改写索引](harness/experience/index-harvest-by-path.md)：改目录名必须先改写根 AGENTS.md 再重建索引，否则标签与用途全部退化成占位符
+- [校验器不许有副作用](harness/experience/validators-have-no-side-effects.md)：校验器只能读：py_compile 会写 __pycache__，改用内存 compile 并排除构建产物
+- [探针不能挂在请求路径上](harness/experience/probes-off-the-request-path.md)：状态接口现场探针 410ms；改成缓存 60 秒 + 后台刷新后 6.7ms
