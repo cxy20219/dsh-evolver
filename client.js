@@ -654,7 +654,9 @@ window.__ModuleLoader__.load({
 			'.evrBtn[disabled]{opacity:.5;cursor:default}',
 			'.evrTextarea{width:100%;min-height:220px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:12.5px;line-height:1.7;resize:vertical;box-sizing:border-box;tab-size:2}',
 			'.evrTextarea:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}',
-			'.evrEditorFoot{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}',
+			'.evrEditorPage{display:flex;flex-direction:column;height:100%;min-height:0}',
+			'.evrEditorPage .evrTextarea{flex:1;min-height:180px;resize:none}',
+			'.evrEditorFoot{flex:none;display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--dsw-alias-border-l2)}',
 			'.evrField{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}',
 			'.evrFieldRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}',
 			'.evrLabel{font-size:12px;font-weight:500;color:var(--dsw-alias-label-secondary)}',
@@ -2134,7 +2136,7 @@ window.__ModuleLoader__.load({
 		 */
 		function SoulTab(props) {
 			var t = props.t;
-			return h('div', null,
+			return h('div', { className: 'evrEditorPage' },
 				h('div', { className: 'evrSection' }, t('soul.content')),
 				h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('soul.hint')),
 				h('textarea', {
@@ -2391,7 +2393,7 @@ window.__ModuleLoader__.load({
 			// shown as such, and replacing it stays a deliberate takeover.
 			var foreign = link.kind === 'link' && link.ours === false;
 			var linkLabel = t(foreign ? 'prefs.link.foreign' : 'prefs.link.' + link.kind);
-			return h('div', null,
+			return h('div', { className: 'evrEditorPage' },
 				h('div', { className: 'evrSection' }, t('prefs.content')),
 				h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('prefs.hint')),
 				h('textarea', {
