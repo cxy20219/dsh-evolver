@@ -537,6 +537,7 @@ window.__ModuleLoader__.load({
 			'.evrLinkNodeOn circle{stroke:var(--dsw-alias-label-primary);stroke-width:1.5}',
 			'.evrLinkEdge{fill:none;stroke:var(--dsw-alias-label-tertiary);stroke-width:1;stroke-opacity:.5}',
 			'.evrLinkEdgeMutual{stroke-opacity:.85;stroke-width:1.4}',
+			'.evrLinkArrow{fill:var(--dsw-alias-label-tertiary);fill-opacity:.6}',
 			'.evrLinkNode circle{stroke:var(--dsw-alias-bg-base);stroke-width:1}',
 			'.evrGraphWrap{position:relative}',
 			'.evrGraph{width:100%;height:auto;max-width:460px;display:block;margin:0 auto;cursor:grab;touch-action:none}',
@@ -1544,6 +1545,11 @@ window.__ModuleLoader__.load({
 			var cx = width / 2;
 			var cy = height / 2;
 			var degree = {};
+			// The node dot and the arrow gap have to agree on how big a node
+			// is, so the size lives in one place.
+			var radiusOf = function (id) {
+				return 3.5 + Math.min(4, (degree[id] ?? 0) * 1.1);
+			};
 			edges.forEach(function (edge) {
 				degree[edge.source] = (degree[edge.source] ?? 0) + 1;
 				degree[edge.target] = (degree[edge.target] ?? 0) + 1;
@@ -1627,7 +1633,7 @@ window.__ModuleLoader__.load({
 						color: linkColorOf(node.card),
 						x: node.x,
 						y: node.y,
-						r: 3.5 + Math.min(4, count * 1.1),
+						r: radiusOf(node.card.id),
 						degree: count,
 					};
 				}),
@@ -1640,13 +1646,24 @@ window.__ModuleLoader__.load({
 					var bend = edge.mutual === true ? 14 : 6;
 					var qx = (source.x + target.x) / 2 - (dy / length) * bend;
 					var qy = (source.y + target.y) / 2 + (dx / length) * bend;
+					// Stop short of the target's circle, or the arrowhead sits
+					// under the dot and the direction stays invisible. The
+					// tangent at the end of a quadratic curve points from the
+					// control point to the end point, so that is the direction
+					// to back off along.
+					var trim = radiusOf(edge.target) + 3;
+					var ux = target.x - qx;
+					var uy = target.y - qy;
+					var span = Math.max(0.001, Math.sqrt(ux * ux + uy * uy));
+					var endX = target.x - (ux / span) * trim;
+					var endY = target.y - (uy / span) * trim;
 					return {
 						source: edge.source,
 						target: edge.target,
 						mutual: edge.mutual === true,
 						d: 'M ' + source.x.toFixed(1) + ' ' + source.y.toFixed(1)
 							+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
-							+ ' ' + target.x.toFixed(1) + ' ' + target.y.toFixed(1),
+							+ ' ' + endX.toFixed(1) + ' ' + endY.toFixed(1),
 					};
 				}),
 				neighbours: edges.reduce(function (map, edge) {
@@ -1723,6 +1740,7 @@ window.__ModuleLoader__.load({
 						key: 'e-' + index,
 						d: edge.d,
 						className: 'evrLinkEdge' + (edge.mutual === true ? ' evrLinkEdgeMutual' : ''),
+						markerEnd: 'url(#evrLinkArrow)',
 						opacity: lit ? (focus === null ? 1 : 0.9) : 0.12,
 					});
 				});
@@ -1796,6 +1814,22 @@ window.__ModuleLoader__.load({
 					},
 					onPointerLeave: function () { dragRef.current = null; },
 				},
+					// The arrowhead is a marker so it follows the curve's own
+					// direction: a link is a statement about who cites whom, and
+					// a plain line cannot say that. `userSpaceOnUse` keeps the
+					// head the same size whatever the stroke width is.
+					h('defs', null,
+						h('marker', {
+							id: 'evrLinkArrow',
+							viewBox: '0 0 10 10',
+							refX: 8.5,
+							refY: 5,
+							markerWidth: 7,
+							markerHeight: 7,
+							markerUnits: 'userSpaceOnUse',
+							orient: 'auto',
+						},
+							h('path', { d: 'M 0 1 L 9 5 L 0 9 z', className: 'evrLinkArrow' }))),
 					h('g', {
 						style: {
 							transform: 'translate(' + view.x.toFixed(1) + 'px,' + view.y.toFixed(1) + 'px) scale(' + view.s.toFixed(3) + ')',
