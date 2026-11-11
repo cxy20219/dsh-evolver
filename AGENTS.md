@@ -7,3 +7,4 @@
 - [校验器不许有副作用](harness/experience/validators-have-no-side-effects.md)：校验器只能读：py_compile 会写 __pycache__，改用内存 compile 并排除构建产物
 - [探针不能挂在请求路径上](harness/experience/probes-off-the-request-path.md)：状态接口现场探针 410ms；改成缓存 60 秒 + 后台刷新后 6.7ms
 - [布局是双份契约：插件改了，技能必须跟着改](harness/experience/layout-is-a-two-sided-contract.md)：harness 布局是插件与技能共有的契约，改一边必须同步改另一边并用两套校验器互验
+- [缓存命中率不归注入块管，归模型选择管](harness/experience/cache-hits-follow-model-selection.md)：命中率 97.5%，缺口全来自换模型与重启；写卡与写 harness 对前缀零影响
