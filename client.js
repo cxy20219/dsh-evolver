@@ -507,7 +507,7 @@ window.__ModuleLoader__.load({
 			'.evrBody{flex:1;min-height:0;overflow:auto;padding:18px 28px 36px;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2) transparent}',
 			'.evrBody::-webkit-scrollbar{width:10px;height:10px}',
 			'.evrBody::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2);border:3px solid transparent;border-radius:6px;background-clip:content-box}',
-			'.evrEnter{animation:evrEnter .22s cubic-bezier(.2,.7,.3,1) both}',
+			'.evrEnter{animation:evrEnter .22s cubic-bezier(.2,.7,.3,1) both;height:100%}',
 			'@keyframes evrEnter{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}',
 			'@media (prefers-reduced-motion:reduce){.evrEnter{animation:none}}',
 			'.evrGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}',
@@ -557,6 +557,12 @@ window.__ModuleLoader__.load({
 			'.evrMdPre code{padding:0;background:transparent}',
 			'.evrMd hr{border:0;border-top:1px solid var(--dsw-alias-border-l2);margin:14px 0}',
 			'.evrMd a{color:var(--dsw-alias-state-business-primary)}',
+			'.evrCardsLayout{position:relative;display:grid;grid-template-columns:190px minmax(0,1fr);gap:18px;align-items:start;min-height:100%}',
+			'.evrCardsTree{width:190px}',
+			'.evrCardsBody{position:absolute;left:208px;right:0;top:0;bottom:0;display:flex;flex-direction:column;min-width:0}',
+			'.evrCardsScroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:6px;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-scrollbar-bg-l2) transparent}',
+			'.evrCardsScroll::-webkit-scrollbar{width:10px;height:10px}',
+			'.evrCardsScroll::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2);border:3px solid transparent;border-radius:6px;background-clip:content-box}',
 			'.evrOverviewSplit{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}',
 			'.evrOverviewGraph{flex:1 1 520px;min-width:0}',
 			'.evrOverviewTree{flex:0 1 320px;min-width:260px}',
@@ -1839,8 +1845,8 @@ window.__ModuleLoader__.load({
 						}, t('cards.cancel'))));
 			}
 
-			return h('div', { style: { display: 'flex', gap: '18px', alignItems: 'flex-start' } },
-				h('div', { style: { width: '190px', flexShrink: 0 } },
+			return h('div', { className: 'evrCardsLayout' },
+				h('div', { className: 'evrCardsTree' },
 					h('div', { className: 'evrSection' }, t('cards.tags')),
 					h('button', {
 						type: 'button',
@@ -1853,7 +1859,7 @@ window.__ModuleLoader__.load({
 						activePath: filter.tag,
 						onSelect: function (path) { props.onFilter({ tag: path, anyTags: [], archivedOnly: false }); },
 					})),
-				h('div', { style: { flex: 1, minWidth: 0 } },
+				h('div', { className: 'evrCardsBody' },
 					h('div', { className: 'evrToolbar' },
 						filterButton(t('cards.filter.all'), { tag: '', anyTags: [], archivedOnly: false }, filter.tag === '' && (filter.anyTags ?? []).length === 0 && filter.archivedOnly !== true),
 						filterButton(t('cards.filter.execution'), { tag: '践行', anyTags: [], archivedOnly: false }, filter.tag === '践行'),
@@ -1917,10 +1923,10 @@ window.__ModuleLoader__.load({
 								: t('sight.ingest.unavailable')))
 						: null,
 					props.editor !== null && props.editor !== undefined
-						? renderEditor()
+						? h('div', { className: 'evrCardsScroll' }, renderEditor())
 						: props.detail !== null && props.detail !== undefined
-							? renderDetail()
-							: renderList()));
+							? h('div', { className: 'evrCardsScroll' }, renderDetail())
+							: h('div', { className: 'evrCardsScroll' }, renderList())));
 		}
 
 		/**

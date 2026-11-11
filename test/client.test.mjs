@@ -710,6 +710,11 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		tree = await runtime.settle(render)
 		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.new').length === 1)
 		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.execution').length === 1)
+		// The card list scrolls inside a column that follows the tag tree height.
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrCardsLayout').length, 1)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrCardsTree').length, 1)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrCardsBody').length, 1)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrCardsScroll').length, 1)
 		// The list time is relative while fresh, exact once the card is old.
 		const rowTime = findAll(tree, (node) => node.props?.className === 'evrRowTime')
 		assert.equal(rowTime.length, 2)
