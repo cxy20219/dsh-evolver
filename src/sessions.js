@@ -22,7 +22,6 @@ import { redactSecrets } from './secrets.js'
 export const SESSION_MARKER = '[evolver-ingest]'
 
 /** Rough bounds that keep one digest around six thousand tokens. */
-const MAX_SESSION_CHARS = 4_000
 const MAX_MESSAGE_CHARS = 800
 const MAX_TOTAL_CHARS = 24_000
 const MAX_SCAN = 40

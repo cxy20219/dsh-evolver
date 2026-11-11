@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -7,7 +7,6 @@ import assert from 'node:assert/strict'
 import { MemoryDatabase, tokenize } from '../src/memory/db.js'
 import { createCardAgent } from '../src/cards/agent.js'
 import { hybridRetrieve, textOverlap } from '../src/memory/hybrid.js'
-import { MemoryStore } from '../src/memory/store.js'
 import { CardStore } from '../src/cards/store.js'
 
 /**

@@ -24,9 +24,6 @@ const INTERVAL_MAX = 10_080
 /** A backup prefix is one safe object-name segment. */
 const PREFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
-/** An access key id is an identifier, not a secret, but still has a shape. */
-const KEY_ID_PATTERN = /^[A-Za-z0-9_=+-]{3,128}$/
-
 /**
  * The default backup configuration.
  *

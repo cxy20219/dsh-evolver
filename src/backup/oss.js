@@ -188,15 +188,6 @@ export class OssClient {
 	}
 
 	/**
-	 * Whether the configured connection has everything a request needs.
-	 *
-	 * @returns {boolean} True when it can be used.
-	 */
-	configured() {
-		return this.endpoint !== '' && this.bucket !== '' && this.accessKeyId !== '' && this.accessKeySecret !== ''
-	}
-
-	/**
 	 * Build the URL for one object key.
 	 *
 	 * @param {string} key - Object key.

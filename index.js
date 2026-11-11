@@ -395,10 +395,6 @@ export async function apply(ctx, config) {
 	}
 
 	const cardsApi = {
-		async status() {
-			const store = cardStoreRef.current
-			return { ...store.status(), cardMaxChars: settings.get().cardMaxChars }
-		},
 		setCardMaxChars(value) {
 			const store = cardStoreRef.current
 			if (store !== undefined) store.cardMaxChars = value

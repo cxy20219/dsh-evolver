@@ -598,9 +598,6 @@ window.__ModuleLoader__.load({
 			'.evrToastError{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}',
 			'.evrToastText{white-space:pre-wrap;word-break:break-word}',
 			'.evrToastClose{flex:none;border:0;background:transparent;color:inherit;cursor:pointer;font-size:16px;line-height:1;padding:0 2px}',
-			'.evrBtnOk{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary);background:transparent}',
-			'.evrBtnOk:disabled{opacity:1;cursor:default}',
-			'.evrBar{height:6px;border-radius:99px;background:var(--dsw-alias-bg-layer-3);overflow:hidden;margin:6px 0 8px}',
 		].join('\n');
 
 		//#endregion
@@ -2327,8 +2324,15 @@ window.__ModuleLoader__.load({
 			var link = preferences?.link ?? { kind: 'missing' };
 			// A link the plugin did not create belongs to somebody else: it is
 			// shown as such, and replacing it stays a deliberate takeover.
-			var foreign = link.kind === 'link' && link.ours === false;
-			var linkLabel = t(foreign ? 'prefs.link.foreign' : 'prefs.link.' + link.kind);
+			// The host reports one of link / file / other / missing; only the
+			// first and the last have a label of their own. A plain file or a
+			// directory sitting at that path belongs to somebody else, so it
+			// reads as "linked elsewhere" instead of showing a raw key.
+			var linked = link.kind === 'link';
+			var foreign = (linked && link.ours === false) || link.kind === 'file' || link.kind === 'other';
+			var linkLabel = foreign
+				? t('prefs.link.foreign')
+				: (link.kind === 'missing' ? t('prefs.link.missing') : t('prefs.link.linked'));
 			return h('div', { className: 'evrEditorPage' },
 				h('div', { className: 'evrSection' }, t('prefs.content')),
 				h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('prefs.hint')),

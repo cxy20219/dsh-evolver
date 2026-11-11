@@ -139,9 +139,8 @@ export class BackupService {
 			// Flush the debounced card log before the snapshot, otherwise the
 			// newest cards can be missing from a backup taken right after a write.
 			await this.flush?.()
-			// Weights live in the data folder now, so a snapshot can be
-			// hundreds of megabytes: write the tar to disk and upload the file
-			// instead of holding the whole archive in memory.
+			// Attachments make a snapshot large enough to matter: write the tar
+			// to disk and upload the file instead of holding it in memory.
 			const packed = await writeTarFile(this.root(), tarPath)
 			const key = `${config.prefix}/backup-${keyStamp(startedAt)}.tar`
 			const client = this.client()

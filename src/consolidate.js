@@ -283,7 +283,6 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 		lastBatch: 0,
 		lastError: '',
 		running: false,
-		dayKey: '',
 	}
 
 	/**
@@ -615,7 +614,6 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 		state.lastBatch = batch.length
 		state.lastApplied = counts.updated + counts.merged + counts.deleted
 		state.lastError = ''
-		state.dayKey = ledger.dayKey
 		logger?.info?.(`dsh-evolver: consolidation reviewed ${batch.length} card(s), applied ${state.lastApplied} action(s)`)
 		return {
 			success: true,

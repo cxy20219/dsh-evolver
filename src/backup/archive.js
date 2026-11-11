@@ -7,10 +7,10 @@
  * gzip is built into Node, and both `tar -xzf` and our own importer can read
  * the result.
  *
- * Everything streams. Model weights are data now and can be hundreds of
- * megabytes; building the tar (and then the gzip) in memory would duplicate
- * the whole folder. The writer reads one file at a time; the importer parses
- * headers and writes each entry as it arrives.
+ * Everything streams. A data folder holds card attachments and can grow to
+ * hundreds of megabytes; building the tar (and then the gzip) in memory would
+ * duplicate the whole folder. The writer reads one file at a time; the
+ * importer parses headers and writes each entry as it arrives.
  *
  * Importing accepts plain tar too, because that is what the cloud backup
  * stores — a downloaded snapshot can be imported without converting it.

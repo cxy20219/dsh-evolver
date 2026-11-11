@@ -70,26 +70,6 @@ function text(payload, field, fallback = '') {
 }
 
 /**
- * Read one bounded count from a request payload.
- *
- * A missing or non-numeric field falls back to the default instead of turning
- * into `NaN`, which `slice` reads as zero and silently answers with nothing.
- *
- * @param {unknown} payload - The request payload.
- * @param {string} field - Field name.
- * @param {number} fallback - Value used when the field is absent or invalid.
- * @param {number} max - The largest accepted value.
- * @returns {number} The count.
- */
-function count(payload, field, fallback, max) {
-	const value = payload?.[field]
-	if (value === undefined || value === null || value === '') return fallback
-	const number = Number(value)
-	if (!Number.isFinite(number)) return fallback
-	return Math.min(Math.max(Math.trunc(number), 1), max)
-}
-
-/**
  * Build the endpoint handler for the evolver.
  *
  * @param {{evolver: object, settings: object, backup: object, workspace: object, view: Function, ingest: object, cards: object}} deps - The services the endpoints use.
@@ -144,8 +124,7 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 					return {
 						ok: true,
 						value: await workspace.exportTo({
-							file: text(payload, 'file'),
-							dir: text(payload, 'dir'),
+									dir: text(payload, 'dir'),
 							name: text(payload, 'name'),
 							force: payload?.force === true,
 						}),

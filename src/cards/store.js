@@ -22,7 +22,6 @@ import { findSecret } from '../secrets.js'
 import {
 	archiveTags,
 	buildTagTree,
-	descriptionOf,
 	isArchived,
 	isUnder,
 	normalizeCardTags,
@@ -149,17 +148,6 @@ export function charCount(value) {
 	return [...String(value ?? '')].length
 }
 
-/**
- * One line, scrubbed for storage.
- *
- * @param {unknown} value - The text.
- * @param {number} max - Maximum code points.
- * @returns {string} The sanitised line.
- */
-function oneLine(value, max) {
-	return [...String(value ?? '').replace(/\s+/g, ' ').trim()].slice(0, max).join('')
-}
-
 
 /**
  * Escape a string for a regular expression.
@@ -211,7 +199,6 @@ export class CardStore {
 	 */
 	constructor({ dataDir, logger, cardMaxChars = DEFAULT_CARD_MAX_CHARS }) {
 		this.dataDir = dataDir
-		this.logger = logger
 		this.cardMaxChars = Math.max(1, Math.min(4000, Math.round(Number(cardMaxChars) || DEFAULT_CARD_MAX_CHARS)))
 		this.cards = new MemoryStore({
 			dataDir,
@@ -379,17 +366,6 @@ export class CardStore {
 	 */
 	async saveConsolidationLedger(ledger) {
 		await writeJsonAtomic(this.consolidationPath(), ledger)
-	}
-
-	/**
-	 * The description of one branch.
-	 *
-	 * @param {string} tag - The tag path.
-	 * @param {Record<string, string>} descriptions - The effective map.
-	 * @returns {string} The description, or an empty string.
-	 */
-	tagDescription(tag, descriptions) {
-		return descriptionOf(tag, descriptions)
 	}
 
 	/**

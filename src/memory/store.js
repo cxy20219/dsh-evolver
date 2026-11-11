@@ -15,8 +15,6 @@ export class MemoryStore {
 	 * @param {{dataDir: string, logger?: object, folder?: string, logName?: string}} deps - Store dependencies.
 	 */
 	constructor({ dataDir, logger, folder, logName }) {
-		this.dataDir = dataDir
-		this.logger = logger
 		this.db = new MemoryDatabase({ dataDir, logger, folder, logName })
 	}
 
@@ -29,17 +27,7 @@ export class MemoryStore {
 		await this.db.init()
 	}
 
-	/**
-	 * What the store currently holds.
-	 *
-	 * @returns {{entries: number}} The state.
-	 */
-	status() {
-		return { entries: this.db.memories.size }
-	}
-
 	async close() {
-		await this.ready?.catch(() => {})
 		await this.db.close()
 	}
 

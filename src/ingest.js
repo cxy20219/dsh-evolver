@@ -401,7 +401,6 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 	}
 
 	return {
-		available,
 		check,
 		status,
 		save,

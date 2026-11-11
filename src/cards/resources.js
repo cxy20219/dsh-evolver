@@ -206,23 +206,6 @@ export class ResourceStore {
 	}
 
 	/**
-	 * Delete one resource.
-	 *
-	 * @param {string} cardId - Card id.
-	 * @param {string} name - The resource name.
-	 * @returns {Promise<boolean>} Whether it existed.
-	 */
-	async remove(cardId, name) {
-		const safe = safeResourceName(name)
-		if (safe === '') return false
-		const path = join(this.folderOf(cardId), safe)
-		const info = await lstat(path).catch(() => undefined)
-		if (info === undefined || info.isSymbolicLink()) return false
-		await rm(path, { force: true })
-		return true
-	}
-
-	/**
 	 * Delete every resource of one card.
 	 *
 	 * @param {string} cardId - Card id.
@@ -253,16 +236,4 @@ export class ResourceStore {
 		return true
 	}
 
-	/**
-	 * The absolute path of one resource, without reading it.
-	 *
-	 * @param {string} cardId - Card id.
-	 * @param {string} name - The resource name.
-	 * @returns {string} The path.
-	 */
-	pathOf(cardId, name) {
-		const safe = safeResourceName(name)
-		if (safe === '') throw new Error('资源文件名不合法。')
-		return join(this.folderOf(cardId), safe)
-	}
 }

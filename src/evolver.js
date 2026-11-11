@@ -63,7 +63,7 @@ export class Evolver {
 		 * The injected soul text, cached. The prompt section is synchronous,
 		 * so the latest read lives here and is refreshed after every write.
 		 */
-		this.cache = { soul: '', updatedAt: null }
+		this.cache = { soul: '' }
 	}
 
 	/**
@@ -78,7 +78,6 @@ export class Evolver {
 		} catch (error) {
 			this.logger?.warn?.(`dsh-evolver: soul refresh failed: ${error instanceof Error ? error.message : String(error)}`)
 		}
-		this.cache.updatedAt = new Date().toISOString()
 		return { soul: this.cache.soul }
 	}
 
