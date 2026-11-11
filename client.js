@@ -1397,20 +1397,69 @@ window.__ModuleLoader__.load({
 			}));
 		}
 
+		/** The branch colours of the card graph, keyed by top-level tag. */
+		var LINK_BRANCH_COLORS = {
+			'践行': '#4f8a6e',
+			'见闻': '#657ea6',
+			'即兴': '#a77b55',
+			'复盘': '#87679a',
+			'觉察': '#4f8794',
+			'试错': '#9b6b6b',
+		};
+
 		/**
-		 * A graph of the cards and the links between them.
+		 * The colour of one card, by its top-level branch.
 		 *
-		 * Every card that links to another card, or is linked back to, becomes
-		 * a node and a link becomes an edge. The layout is a small
-		 * deterministic force simulation, so the picture is stable between
-		 * renders and needs no animation.
-		 *
-		 * @param {object} props - Component props.
-		 * @returns {object} The element tree.
+		 * @param {object} card - The card view.
+		 * @returns {string} The colour.
 		 */
-		function LinkGraph(props) {
-			var t = props.t;
-			var list = Array.isArray(props.cards) ? props.cards : [];
+		function linkColorOf(card) {
+			var root = (card.tags ?? [])[0];
+			var branch = root === undefined ? '' : root.split('/')[0];
+			return LINK_BRANCH_COLORS[branch] ?? '#8a8f98';
+		}
+
+		/**
+		 * Layouts already computed, keyed by the card array they came from.
+		 *
+		 * The panel replaces that array only when the library is reloaded, so a
+		 * cache hit means "same library". It outlives the component, which
+		 * matters because leaving the sub-tab unmounts the graph and coming
+		 * back would otherwise pay for the simulation again.
+		 *
+		 * @type {WeakMap<object[], object | null>}
+		 */
+		var linkLayoutCache = new WeakMap();
+
+		/**
+		 * Lay the card graph out once.
+		 *
+		 * This is the expensive half: a force simulation over the linked cards,
+		 * O(n²) per step and 220 steps. It belongs behind a memo, because the
+		 * overview re-renders whenever a sub-tab, the heatmap range or a tag
+		 * description changes — none of which move a node.
+		 *
+		 * The simulation is deterministic (no random seeding), so the picture is
+		 * identical between runs and needs no animation.
+		 *
+		 * @param {object[]} cards - Every card in the library.
+		 * @returns {object | null} The laid-out graph, or null when nothing links.
+		 */
+		function linkLayout(cards) {
+			if (Array.isArray(cards) && linkLayoutCache.has(cards)) return linkLayoutCache.get(cards);
+			var layout = computeLinkLayout(cards);
+			if (Array.isArray(cards)) linkLayoutCache.set(cards, layout);
+			return layout;
+		}
+
+		/**
+		 * Compute one layout from scratch.
+		 *
+		 * @param {object[]} cards - Every card in the library.
+		 * @returns {object | null} The laid-out graph, or null when nothing links.
+		 */
+		function computeLinkLayout(cards) {
+			var list = Array.isArray(cards) ? cards : [];
 			var byId = {};
 			list.forEach(function (card) { byId[card.id] = card; });
 			var seen = {};
@@ -1433,10 +1482,8 @@ window.__ModuleLoader__.load({
 				involved[edge.source] = true;
 				involved[edge.target] = true;
 			});
-			var nodes = list.filter(function (card) { return involved[card.id] === true; });
-			if (nodes.length === 0) {
-				return h('div', { className: 'evrHint' }, t('overview.linkGraph.empty'));
-			}
+			var linked = list.filter(function (card) { return involved[card.id] === true; });
+			if (linked.length === 0) return null;
 			var width = 320;
 			var height = 300;
 			var cx = width / 2;
@@ -1446,8 +1493,8 @@ window.__ModuleLoader__.load({
 				degree[edge.source] = (degree[edge.source] ?? 0) + 1;
 				degree[edge.target] = (degree[edge.target] ?? 0) + 1;
 			});
-			var placed = nodes.map(function (card, index) {
-				var angle = (index / nodes.length) * Math.PI * 2;
+			var placed = linked.map(function (card, index) {
+				var angle = (index / linked.length) * Math.PI * 2;
 				return {
 					card: card,
 					x: cx + Math.cos(angle) * 90,
@@ -1514,72 +1561,88 @@ window.__ModuleLoader__.load({
 				node.x = offsetX + (node.x - minX) * scale;
 				node.y = offsetY + (node.y - minY) * scale;
 			});
-			var branchColors = {
-				'践行': '#4f8a6e',
-				'见闻': '#657ea6',
-				'即兴': '#a77b55',
-				'复盘': '#87679a',
-				'觉察': '#4f8794',
-				'试错': '#9b6b6b',
-			};
-			function colorOf(card) {
-				var root = (card.tags ?? [])[0];
-				var branch = root === undefined ? '' : root.split('/')[0];
-				return branchColors[branch] ?? '#8a8f98';
-			}
-			var paths = edges.map(function (edge, edgeIndex) {
-				var source = index[edge.source];
-				var target = index[edge.target];
-				var mx = (source.x + target.x) / 2;
-				var my = (source.y + target.y) / 2;
-				var dx = target.x - source.x;
-				var dy = target.y - source.y;
-				var length = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-				var bend = edge.mutual === true ? 14 : 6;
-				var qx = mx - (dy / length) * bend;
-				var qy = my + (dx / length) * bend;
-				return h('path', {
-					key: 'e-' + edgeIndex,
-					d: 'M ' + source.x.toFixed(1) + ' ' + source.y.toFixed(1)
-						+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
-						+ ' ' + target.x.toFixed(1) + ' ' + target.y.toFixed(1),
-					className: 'evrLinkEdge' + (edge.mutual === true ? ' evrLinkEdgeMutual' : ''),
-				});
-			});
-			var dots = placed.map(function (node) {
-				var card = node.card;
-				var count = degree[card.id] ?? 0;
-				return h('g', {
-					key: card.id,
-					className: 'evrLinkNode',
-				},
-					h('circle', {
-						cx: node.x,
-						cy: node.y,
+			var mutual = edges.filter(function (edge) { return edge.mutual === true; }).length;
+			return {
+				width: width,
+				height: height,
+				nodes: placed.map(function (node) {
+					var count = degree[node.card.id] ?? 0;
+					return {
+						id: node.card.id,
+						label: node.card.label,
+						color: linkColorOf(node.card),
+						x: node.x,
+						y: node.y,
 						r: 3.5 + Math.min(4, count * 1.1),
-						fill: colorOf(card),
-					}),
-					h('title', null, card.label + ' · ' + count + ' ' + t('overview.linkGraph.links')));
-			});
+						degree: count,
+					};
+				}),
+				edges: edges.map(function (edge) {
+					var source = index[edge.source];
+					var target = index[edge.target];
+					var dx = target.x - source.x;
+					var dy = target.y - source.y;
+					var length = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+					var bend = edge.mutual === true ? 14 : 6;
+					var qx = (source.x + target.x) / 2 - (dy / length) * bend;
+					var qy = (source.y + target.y) / 2 + (dx / length) * bend;
+					return {
+						mutual: edge.mutual === true,
+						d: 'M ' + source.x.toFixed(1) + ' ' + source.y.toFixed(1)
+							+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
+							+ ' ' + target.x.toFixed(1) + ' ' + target.y.toFixed(1),
+					};
+				}),
+				summary: { cards: placed.length, links: edges.length, mutual: mutual },
+			};
+		}
+
+		/**
+		 * A graph of the cards and the links between them.
+		 *
+		 * Every card that links to another card, or is linked back to, becomes
+		 * a node and a link becomes an edge.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function LinkGraph(props) {
+			var t = props.t;
+			// The layout depends on the cards alone, so it is computed once per
+			// library change rather than once per render.
+			var layout = useMemo(function () { return linkLayout(props.cards); }, [props.cards]);
+			if (layout === null) {
+				return h('div', { className: 'evrHint' }, t('overview.linkGraph.empty'));
+			}
 			return h('div', null,
 				h('svg', {
 					className: 'evrLinkGraph',
-					viewBox: '0 0 ' + width + ' ' + height,
+					viewBox: '0 0 ' + layout.width + ' ' + layout.height,
 					role: 'img',
 					'aria-label': t('overview.linkGraph.label'),
 				},
-					h('g', null, paths),
-					h('g', null, dots)),
+					h('g', null, layout.edges.map(function (edge, edgeIndex) {
+						return h('path', {
+							key: 'e-' + edgeIndex,
+							d: edge.d,
+							className: 'evrLinkEdge' + (edge.mutual ? ' evrLinkEdgeMutual' : ''),
+						});
+					})),
+					h('g', null, layout.nodes.map(function (node) {
+						return h('g', { key: node.id, className: 'evrLinkNode' },
+							h('circle', { cx: node.x, cy: node.y, r: node.r, fill: node.color }),
+							h('title', null, node.label + ' · ' + node.degree + ' ' + t('overview.linkGraph.links')));
+					}))),
 				h('div', { className: 'evrHint', style: { marginTop: '6px' } },
 					t('overview.linkGraph.summary')
-						.replace('{cards}', String(nodes.length))
-						.replace('{links}', String(edges.length))
-						.replace('{mutual}', String(edges.filter(function (edge) { return edge.mutual === true; }).length))),
-				h('div', { className: 'evrLinkList' }, nodes.map(function (card) {
-					return h('div', { key: card.id, className: 'evrLinkItem' },
-						h('span', { className: 'evrLinkDot', style: { background: colorOf(card) } }),
-						h('span', { className: 'evrLinkName', title: card.label }, card.label),
-						h('span', { className: 'evrLinkCount' }, String(degree[card.id] ?? 0)));
+						.replace('{cards}', String(layout.summary.cards))
+						.replace('{links}', String(layout.summary.links))
+						.replace('{mutual}', String(layout.summary.mutual))),
+				h('div', { className: 'evrLinkList' }, layout.nodes.map(function (node) {
+					return h('div', { key: node.id, className: 'evrLinkItem' },
+						h('span', { className: 'evrLinkDot', style: { background: node.color } }),
+						h('span', { className: 'evrLinkName', title: node.label }, node.label),
+						h('span', { className: 'evrLinkCount' }, String(node.degree)));
 				})));
 		}
 
@@ -1718,7 +1781,7 @@ window.__ModuleLoader__.load({
 						h('div', { className: 'evrOverviewPane evrOverviewTree' },
 							h('div', { className: 'evrSection' }, t('overview.linkGraph')),
 							h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.linkGraph.hint')),
-							h(LinkGraph, { t: t, cards: props.cards?.cards ?? [] }))));
+							h(LinkGraph, { t: t, cards: props.cards?.cards }))));
 			}
 
 			return h('div', null,

@@ -711,6 +711,25 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkGraph').length, 1)
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkEdge').length, 1)
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkNode').length, 2)
+
+		// The layout is memoised: an unrelated re-render must reproduce it
+		// exactly rather than drifting on a fresh simulation.
+		const edgePath = () => findAll(tree, (node) => node.props?.className === 'evrLinkEdge')[0].props.d
+		const positions = () => findAll(tree, (node) => node.type === 'circle' && node.props?.fill !== undefined)
+			.filter((node) => typeof node.props.cx === 'number')
+			.map((node) => `${node.props.cx.toFixed(3)},${node.props.cy.toFixed(3)}`)
+			.sort()
+		const before = { edge: edgePath(), nodes: positions() }
+		// Leaving the sub-tab and coming back must reproduce the same picture,
+		// not jitter on a fresh simulation.
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.descriptions')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.stats')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(edgePath(), before.edge, '重渲染后连线不能漂移')
+		assert.deepEqual(positions(), before.nodes, '重渲染后节点位置不能漂移')
 		assert.equal(findAll(tree, (node) => textOf(node) === 'overview.yearHeatmap').length, 0)
 		// The version sits next to the panel title; the injected-context cards are gone.
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrVersion' && textOf(node) === 'v9.9.9').length, 1)
