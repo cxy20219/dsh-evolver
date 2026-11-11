@@ -11,13 +11,14 @@
  * the prompt injects only the tag tree, never card bodies.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 
 import { MemoryStore } from '../memory/store.js'
 import { hybridRetrieve } from '../memory/hybrid.js'
 import { cardCreatedAt, cardId, isCardId } from './ids.js'
 import { ResourceStore, resourceRelativePath, safeResourceName } from './resources.js'
+import { findSecret } from '../secrets.js'
 import {
 	archiveTags,
 	buildTagTree,
@@ -34,6 +35,50 @@ import {
 
 /** The default body budget, in Unicode code points. */
 export const DEFAULT_CARD_MAX_CHARS = 1000
+
+/**
+ * How long one branch description may be.
+ *
+ * A description is appended to a line of the injected tag map, so it competes
+ * with the branches themselves for the prompt budget. Sixty characters is
+ * about what the built-in descriptions use.
+ */
+const MAX_TAG_DESCRIPTION_CHARS = 60
+
+/**
+ * Make one description safe to put on a line of the injected map.
+ *
+ * The file can arrive from somewhere else — an imported archive, a hand edit —
+ * so the read path applies the same rule as the write path instead of trusting
+ * what is on disk. A newline here would add a line of its own to the system
+ * prompt, which is how a tag description becomes an instruction.
+ *
+ * @param {string} value - The raw description.
+ * @returns {string} A single line, or '' when nothing usable is left.
+ */
+function sanitizeDescription(value) {
+	const clean = String(value ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim()
+	if (clean === '') return ''
+	return clean.length > MAX_TAG_DESCRIPTION_CHARS ? clean.slice(0, MAX_TAG_DESCRIPTION_CHARS) : clean
+}
+
+/**
+ * Write one JSON document without ever leaving a half-written file.
+ *
+ * `writeFile` truncates first, so a crash in between leaves an empty or
+ * truncated file — and both of these documents are read back as "no data"
+ * rather than as "broken", which silently forgets instead of complaining.
+ *
+ * @param {string} path - Destination.
+ * @param {object} value - The value to serialise.
+ * @returns {Promise<void>} Resolves once the file is in place.
+ */
+async function writeJsonAtomic(path, value) {
+	await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+	const temp = `${path}.${process.pid}.tmp`
+	await writeFile(temp, `${JSON.stringify(value, null, '\t')}\n`, { mode: 0o600 })
+	await rename(temp, path)
+}
 
 /**
  * Derive a card label from its body.
@@ -190,7 +235,8 @@ export class CardStore {
 			const map = {}
 			for (const [tag, description] of Object.entries(parsed)) {
 				if (typeof description !== 'string') continue
-				map[tag] = description.trim()
+				const clean = sanitizeDescription(description)
+				if (clean !== '') map[tag] = clean
 			}
 			return map
 		} catch {
@@ -213,6 +259,14 @@ export class CardStore {
 			if (typeof description !== 'string') throw new Error(`标签 ${tag} 的说明必须是文字。`)
 			const clean = description.trim()
 			if (clean === '') continue
+			// The description is appended to a line of the injected tag map, so
+			// a newline in it would add a line of its own to the system prompt.
+			if (/[\u0000-\u001f\u007f\u2028\u2029]/.test(clean)) {
+				throw new Error(`标签 ${tag} 的说明只能是单行。`)
+			}
+			if (clean.length > MAX_TAG_DESCRIPTION_CHARS) {
+				throw new Error(`标签 ${tag} 的说明超过 ${MAX_TAG_DESCRIPTION_CHARS} 字。`)
+			}
 			const segments = tag.split('/')
 			if (!TOP_TAGS.includes(segments[0])) {
 				throw new Error(`标签 ${tag} 不在六大枝干里。`)
@@ -220,8 +274,7 @@ export class CardStore {
 			if (segments.some((segment) => segment === '')) throw new Error(`标签 ${tag} 路径不合法。`)
 			map[tag] = clean
 		}
-		await mkdir(join(this.dataDir, 'knowledge'), { recursive: true, mode: 0o700 })
-		await writeFile(this.tagDescriptionsPath(), `${JSON.stringify(map, null, '\t')}\n`, { mode: 0o600 })
+		await writeJsonAtomic(this.tagDescriptionsPath(), map)
 		return map
 	}
 
@@ -277,8 +330,7 @@ export class CardStore {
 	 * @returns {Promise<void>} Resolves when written.
 	 */
 	async saveConsolidationLedger(ledger) {
-		await mkdir(join(this.dataDir, 'knowledge'), { recursive: true, mode: 0o700 })
-		await writeFile(this.consolidationPath(), `${JSON.stringify(ledger, null, '\t')}\n`, { mode: 0o600 })
+		await writeJsonAtomic(this.consolidationPath(), ledger)
 	}
 
 	/**
@@ -368,6 +420,11 @@ export class CardStore {
 		const existing = this.cards.getEntry(id)
 		const previous = existing === undefined ? undefined : this.cardOf(existing)
 		let body = String(input.body ?? previous?.body ?? '')
+		// The tool path checks this before calling; the panel and the HTTP API
+		// reach `put` directly, so the check belongs at the one write entrance
+		// rather than at one of its callers.
+		const secret = findSecret(body)
+		if (secret !== undefined) throw new Error(`正文里像是${secret}：卡片库不保存密钥，请删掉后重写。`)
 		const tags = normalizeCardTags(input.tags ?? previous?.tags ?? [])
 		const now = new Date().toISOString()
 		const links = Array.isArray(input.links) ? [...new Set(input.links.map(String))] : (previous?.links ?? [])
@@ -567,9 +624,15 @@ export class CardStore {
 	 * @param {string} id - Card id.
 	 * @returns {Promise<boolean>} Whether it existed.
 	 */
-	async remove(id) {
+	async remove(id, { archiveResources = false } = {}) {
 		const existed = await this.cards.deleteMemory(id)
-		await this.resources.removeCard(id)
+		if (archiveResources) {
+			// The organiser promises that nothing leaves without a copy; a card's
+			// attachments are part of the card.
+			await this.resources.archiveCard(id, join(this.dataDir, 'knowledge', 'trash-resources')).catch(() => {})
+		} else {
+			await this.resources.removeCard(id)
+		}
 		return existed
 	}
 }

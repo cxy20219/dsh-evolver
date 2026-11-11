@@ -266,3 +266,36 @@ test('整理设置被夹在合理范围，默认关闭且每天 15 张', () => {
 	assert.equal(normalizeConsolidate({ enabled: 'yes' }).enabled, false)
 	assert.equal(normalizeConsolidate({ enabled: true, dailyCards: '7' }).dailyCards, 7)
 })
+
+test('整理任务不会并发跑两次', async () => {
+	const { dir, store, settings } = await fixture({ enabled: true, dailyCards: 2, hour: 3 })
+	try {
+		await store.put({ body: '第一张待整理的卡片', tags: ['践行/经验'] })
+		await store.put({ body: '第二张待整理的卡片', tags: ['见闻/事实'] })
+		let release
+		const gate = new Promise((resolve) => { release = resolve })
+		let calls = 0
+		const controller = createConsolidationController({
+			settings,
+			store: () => store,
+			llm: {
+				async *stream() {
+					calls += 1
+					await gate
+					yield { type: 'text-delta', text: '{"actions":[]}' }
+					yield { type: 'finish', reason: { kind: 'stop' } }
+				},
+			},
+			modelSelection,
+			now: () => new Date(2026, 10, 11, 4, 0, 0).getTime(),
+		})
+		const first = controller.run()
+		await assert.rejects(() => controller.run(), /正在进行/)
+		release()
+		await first
+		assert.equal(calls, 1, '只调一次模型')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})

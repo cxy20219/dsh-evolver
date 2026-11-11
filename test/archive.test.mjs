@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 
 import { extractArchiveFile, isGzip, writeArchiveFile, writeTarFile } from '../src/backup/archive.js'
 import { createTar, readTar } from '../src/backup/tar.js'
+import { safeResourceName } from '../src/cards/resources.js'
 
 /** A 3 MB resource: big enough that the writer has to stream it. */
 const BIG_BYTES = Buffer.alloc(3 * 1024 * 1024, 7)
@@ -128,5 +129,15 @@ test('路径穿越、损坏包和空包都会被拒绝', async () => {
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 		await rm(target, { recursive: true, force: true })
+	}
+})
+
+test('附件名按字节截断，不会让导出永久失败', () => {
+	// The ustar name field is 100 bytes; the card folder takes 52 of the path,
+	// so a 63-character Chinese name (189 bytes) used to break every export.
+	for (const raw of ['汉'.repeat(63) + '.md', 'a'.repeat(200), '正常的名字.md']) {
+		const safe = safeResourceName(raw)
+		assert.ok(safe !== '', `${raw.slice(0, 8)}… 应当得到一个可用名字`)
+		assert.ok(Buffer.byteLength(safe) <= 88, `${raw.slice(0, 8)}… 超长：${Buffer.byteLength(safe)} 字节`)
 	}
 })

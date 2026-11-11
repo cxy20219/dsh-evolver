@@ -25,6 +25,35 @@ export const MAX_TEXT_READ_BYTES = 512 * 1024
 const RESOURCE_NAME = /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,119}$/u
 
 /**
+ * How many bytes one resource name may take.
+ *
+ * The backup writer emits ustar, whose name field is 100 bytes; with the card
+ * folder in the prefix that leaves ~90 for the file name. A longer name is
+ * accepted by the filesystem and then makes every export and every cloud
+ * backup fail — for the whole library, not just that card.
+ */
+const MAX_RESOURCE_NAME_BYTES = 88
+
+/**
+ * Shorten a name to a byte budget, keeping a short extension.
+ *
+ * Truncating by characters is not enough: a Chinese name is three bytes per
+ * character, so 120 characters can be 360 bytes.
+ *
+ * @param {string} name - The sanitised name.
+ * @param {number} budget - Maximum UTF-8 bytes.
+ * @returns {string} A name that fits.
+ */
+function clipToBytes(name, budget) {
+	const dot = name.lastIndexOf('.')
+	const suffix = dot > 0 && name.length - dot <= 8 ? name.slice(dot) : ''
+	const stemBudget = budget - Buffer.byteLength(suffix)
+	let stem = suffix === '' ? name : name.slice(0, dot)
+	while (Buffer.byteLength(stem) > stemBudget) stem = stem.slice(0, -1)
+	return stem === '' ? 'file' + suffix : stem + suffix
+}
+
+/**
  * Turn an arbitrary file name into one safe path segment.
  *
  * @param {unknown} value - The raw name.
@@ -32,12 +61,13 @@ const RESOURCE_NAME = /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,119}$/u
  */
 export function safeResourceName(value) {
 	const raw = String(value ?? '').replace(/\\/g, '/')
-	const name = basename(raw)
+	let name = basename(raw)
 		.normalize('NFC')
 		.replace(/[^\p{L}\p{N}._-]+/gu, '-')
 		.replace(/-+/g, '-')
 		.replace(/^[-_]+|[-_]+$/g, '')
 		.slice(0, 120)
+	if (Buffer.byteLength(name) > MAX_RESOURCE_NAME_BYTES) name = clipToBytes(name, MAX_RESOURCE_NAME_BYTES)
 	if (name === '' || name === '.' || name === '..') return ''
 	if (!RESOURCE_NAME.test(name)) return ''
 	return name
@@ -200,6 +230,27 @@ export class ResourceStore {
 	 */
 	async removeCard(cardId) {
 		await rm(this.folderOf(cardId), { recursive: true, force: true }).catch(() => {})
+	}
+
+	/**
+	 * Move one card's resources into a trash folder instead of deleting them.
+	 *
+	 * A card's body can be recovered from the trash log; its attachments
+	 * cannot, and an attachment may be a script the tool description invites
+	 * the agent to run. Renaming keeps one copy and is a single filesystem
+	 * operation.
+	 *
+	 * @param {string} cardId - Card id.
+	 * @param {string} trashRoot - Folder to move the card's folder into.
+	 * @returns {Promise<boolean>} Whether anything was moved.
+	 */
+	async archiveCard(cardId, trashRoot) {
+		const from = this.folderOf(cardId)
+		const info = await lstat(from).catch(() => undefined)
+		if (info === undefined || !info.isDirectory()) return false
+		await mkdir(trashRoot, { recursive: true, mode: 0o700 })
+		await rename(from, join(trashRoot, cardId))
+		return true
 	}
 
 	/**

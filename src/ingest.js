@@ -188,6 +188,8 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 		checking: false,
 	}
 	let timer
+	// The run in progress, shared by the timer and the panel button.
+	let inFlight = null
 
 	/**
 	 * Whether the harness exposes everything the job needs.
@@ -206,6 +208,25 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 	 * @returns {Promise<object>} What was ingested.
 	 */
 	async function runNow() {
+		// The panel button and the timer reach the same job. Without a shared
+		// guard two clicks (or a click during the nightly run) would both call
+		// the model on the same batch — double the tokens, and two writers
+		// racing over the same cards and ledger.
+		if (inFlight !== null) throw new Error('整理正在进行，请等它结束。')
+		inFlight = performRun()
+		try {
+			return await inFlight
+		} finally {
+			inFlight = null
+		}
+	}
+
+	/**
+	 * The work itself.
+	 *
+	 * @returns {Promise<object>} The run result.
+	 */
+	async function performRun() {
 		if (!available()) throw new Error('这个宿主没有提供会话读取或模型调用能力。')
 		const digest = await digestSessions({ query, ledger, sinceDays: PROBE_DAYS, limit: MAX_SESSIONS, commit: false, now: now() })
 		if (digest.sessions.length === 0) {

@@ -62,6 +62,25 @@ export function tokenize(text) {
 }
 
 /**
+ * Whether one log record has the field types the index expects.
+ *
+ * The log is append-only and written by this process, but it also arrives via
+ * import and can be edited by hand. Parsing tells us it is JSON, not that it is
+ * a record.
+ *
+ * @param {object} record - The parsed record.
+ * @returns {boolean} True when every present field has the expected type.
+ */
+function isWellShaped(record) {
+	if (record.tags !== undefined && !Array.isArray(record.tags)) return false
+	if (record.tags !== undefined && record.tags.some((tag) => typeof tag !== 'string')) return false
+	for (const field of ['body', 'text', 'label', 'summary']) {
+		if (record[field] !== undefined && typeof record[field] !== 'string') return false
+	}
+	return true
+}
+
+/**
  * The memory store: records and a keyword index.
  */
 export class MemoryDatabase {
@@ -134,6 +153,7 @@ export class MemoryDatabase {
 	 */
 	async readMemories() {
 		const records = new Map()
+		let broken = 0
 		let raw
 		try {
 			raw = await readFile(join(this.folder, this.logName), 'utf8')
@@ -147,11 +167,21 @@ export class MemoryDatabase {
 			try {
 				const record = JSON.parse(trimmed)
 				if (!record || typeof record.id !== 'string') continue
+				// A line that parses but has the wrong shapes would blow up the
+				// index build, and a throw here means the whole plugin fails to
+				// activate. One bad record must cost one record, not the store.
+				if (!isWellShaped(record)) {
+					broken += 1
+					continue
+				}
 				if (record.deleted === true) records.delete(record.id)
 				else records.set(record.id, record)
 			} catch {
 				// A broken line is skipped; the rest of the log still loads.
 			}
+		}
+		if (broken > 0) {
+			this.logger?.warn?.(`dsh-evolver: 跳过了 ${broken} 条结构异常的记忆记录（字段类型不对），其余照常加载。`)
 		}
 		return records
 	}

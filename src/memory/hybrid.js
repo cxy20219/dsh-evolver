@@ -188,13 +188,25 @@ export async function hybridRetrieve({ db, query, limit = 8, minScore = HARD_MIN
 	// MMR only reorders; it does not remove. Two memories that say the same
 	// thing would still both be shown, so the near-duplicates go. Both use the
 	// same index-time token sets, so this costs no extra tokenisation.
+	// MMR and the duplicate filter ask the same question about the same pair
+	// many times — every round of selection re-tests every candidate against
+	// everything already chosen. Caching the answer by id pair turns that from
+	// O(candidates² × selected) intersections into one per distinct pair.
+	const pairs = new Map()
 	const similarityOf = (left, right) => {
+		const key = left.id < right.id ? `${left.id}\u0000${right.id}` : `${right.id}\u0000${left.id}`
+		const cached = pairs.get(key)
+		if (cached !== undefined) return cached
 		const a = db.tokenSet(left.id)
 		const b = db.tokenSet(right.id)
-		if (a.size === 0 || b.size === 0) return 0
-		let shared = 0
-		for (const token of a) if (b.has(token)) shared += 1
-		return shared / Math.min(a.size, b.size)
+		let value = 0
+		if (a.size > 0 && b.size > 0) {
+			let shared = 0
+			for (const token of a) if (b.has(token)) shared += 1
+			value = shared / Math.min(a.size, b.size)
+		}
+		pairs.set(key, value)
+		return value
 	}
 	const selected = []
 	for (const item of mmrSelect(scored, { limit, similarity: similarityOf })) {

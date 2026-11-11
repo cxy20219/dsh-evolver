@@ -274,6 +274,9 @@ export function parseActions(text) {
  * @returns {object} The controller.
  */
 export function createConsolidationController({ settings, store, llm, modelSelection, logger, now = () => Date.now() }) {
+	// The run in progress, shared by the timer and the panel button.
+	let inFlight = null
+
 	const state = {
 		lastRunAt: 0,
 		lastApplied: 0,
@@ -446,6 +449,25 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 	 * @returns {Promise<object>} What was done.
 	 */
 	async function runNow() {
+		// The panel button and the timer reach the same job. Without a shared
+		// guard two clicks (or a click during the nightly run) would both call
+		// the model on the same batch — double the tokens, and two writers
+		// racing over the same cards and ledger.
+		if (inFlight !== null) throw new Error('整理正在进行，请等它结束。')
+		inFlight = performRun()
+		try {
+			return await inFlight
+		} finally {
+			inFlight = null
+		}
+	}
+
+	/**
+	 * The work itself.
+	 *
+	 * @returns {Promise<object>} The run result.
+	 */
+	async function performRun() {
 		const current = store()
 		if (current === undefined) throw new Error('卡片库还没有打开。')
 		if (!available()) throw new Error('这个宿主没有提供模型调用能力。')
@@ -507,7 +529,7 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 					if (!allowed.has(action.id) || touched.has(action.id)) { counts.skipped += 1; continue }
 					const card = byId.get(action.id)
 					removed.push({ at: new Date(now()).toISOString(), op: 'delete', reason: action.reason, card })
-					await current.remove(action.id)
+					await current.remove(action.id, { archiveResources: true })
 					touched.add(action.id)
 					counts.deleted += 1
 					continue
@@ -546,7 +568,7 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 					await current.put({ id: keep, body, tags, links })
 					for (const id of drop) {
 						removed.push({ at: new Date(now()).toISOString(), op: 'merge', reason: action.reason, card: byId.get(id), into: keep })
-						await current.remove(id)
+						await current.remove(id, { archiveResources: true })
 						touched.add(id)
 					}
 					touched.add(keep)
