@@ -142,11 +142,43 @@ export function normalizeIngest(value, fallback = defaultIngest()) {
 	}
 }
 
+/** The most cards one daily consolidation may take. */
+const CONSOLIDATE_MAX = 100
+
+/**
+ * The default daily card consolidation.
+ *
+ * Off by default: it rewrites and deletes cards, so it is switched on
+ * deliberately rather than as a surprise after an upgrade.
+ *
+ * @returns {object} A fresh object.
+ */
+export function defaultConsolidate() {
+	return { enabled: false, dailyCards: 15, hour: 3 }
+}
+
+/**
+ * Normalise the daily card consolidation.
+ *
+ * @param {unknown} value - The raw value.
+ * @param {object} [fallback] - What to use for missing fields.
+ * @returns {object} The normalised value.
+ */
+export function normalizeConsolidate(value, fallback = defaultConsolidate()) {
+	const source = value !== null && typeof value === 'object' ? value : {}
+	const cards = Math.round(Number(source.dailyCards))
+	const hour = Math.round(Number(source.hour))
+	return {
+		enabled: typeof source.enabled === 'boolean' ? source.enabled : fallback.enabled,
+		dailyCards: Number.isFinite(cards) ? Math.min(CONSOLIDATE_MAX, Math.max(1, cards)) : fallback.dailyCards,
+		hour: Number.isFinite(hour) ? Math.min(23, Math.max(0, hour)) : fallback.hour,
+	}
+}
+
 /** The default card body budget, in Unicode code points. */
 export function defaultCardMaxChars() {
 	return 1000
 }
-
 /**
  * Normalise the card body budget.
  *
@@ -172,6 +204,7 @@ export function defaultSettings() {
 		status: defaultStatus(),
 		embedding: defaultEmbedding(),
 		ingest: defaultIngest(),
+		consolidate: defaultConsolidate(),
 	}
 }
 
@@ -318,6 +351,7 @@ export class SettingsStore {
 				status: normalizeStatus(parsed?.status),
 				embedding: normalizeEmbedding(parsed?.embedding),
 				ingest: normalizeIngest(parsed?.ingest),
+				consolidate: normalizeConsolidate(parsed?.consolidate),
 			}
 		} catch (error) {
 			// Keep the broken file around: it explains what happened after a
@@ -369,6 +403,10 @@ export class SettingsStore {
 		const ingest = patch.ingest
 		if (ingest !== null && typeof ingest === 'object') {
 			this.data.ingest = normalizeIngest({ ...this.data.ingest, ...ingest })
+		}
+		const consolidate = patch.consolidate
+		if (consolidate !== null && typeof consolidate === 'object') {
+			this.data.consolidate = normalizeConsolidate({ ...this.data.consolidate, ...consolidate })
 		}
 		const backup = patch.backup
 		if (backup !== null && typeof backup === 'object') {
@@ -452,6 +490,7 @@ export class SettingsStore {
 			},
 			status: { ...this.data.status },
 			ingest: { ...this.data.ingest },
+			consolidate: { ...this.data.consolidate },
 			embedding: {
 				provider: this.data.embedding.provider,
 				model: this.data.embedding.model,

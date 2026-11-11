@@ -204,6 +204,20 @@ window.__ModuleLoader__.load({
 			'settings.action.backupNow': '立即备份',
 			'settings.action.test': '测试连接',
 			'settings.action.clearSecret': '清除密钥',
+			'settings.section.organize': '整理',
+			'settings.organize.hint': '两个整理器做的是不同的事：会话整理读聊天记录、写出新卡片；卡片整理改的是已有的卡片库。',
+			'settings.organize.ingestHint': '闲时读 DSH 会话，把值得留下的判断、偏好、踩坑和工具怪癖写成 #即兴 卡。',
+			'settings.consolidate.title': '每天整理卡片',
+			'settings.consolidate.hint': '每天挑一批卡片复查：用自己的话重写、找关联做双向链接、合并重复、删掉以后用不上的，并让标签树有序生长。被删掉的内容会先写进回收站日志。',
+			'settings.consolidate.cards': '每天整理张数',
+			'settings.consolidate.at': '执行时间',
+			'settings.consolidate.hourUnit': '点（本机时区）',
+			'settings.consolidate.run': '立即整理',
+			'settings.consolidate.due': '待复查',
+			'settings.consolidate.lastRun': '上次整理',
+			'settings.consolidate.never': '还没整理过',
+			'settings.consolidate.done': '整理完成 · 复查 {batch} 张 · 改动 {applied} 处',
+			'settings.consolidate.trashHint': '回收站：数据目录的 knowledge/trash.jsonl；整理记录：knowledge/consolidation.json',
 			'settings.section.backup': '云端备份',
 			'settings.section.embedding': '向量模型',
 			'settings.embedding.title': '见闻向量模型',
@@ -436,6 +450,20 @@ window.__ModuleLoader__.load({
 			'settings.action.backupNow': 'Back up now',
 			'settings.action.test': 'Test connection',
 			'settings.action.clearSecret': 'Clear the secret',
+			'settings.section.organize': 'Organise',
+			'settings.organize.hint': 'Two different jobs: the session ingest reads conversations and writes new cards; the card consolidation edits the library that already exists.',
+			'settings.organize.ingestHint': 'Reads DSH sessions when idle and turns durable judgements, preferences, failures and tool quirks into #即兴 cards.',
+			'settings.consolidate.title': 'Daily card consolidation',
+			'settings.consolidate.hint': 'Reviews a batch of cards every day: rewrite in your own words, link related cards both ways, merge duplicates, delete what has no future use, and keep the tag tree growing in order. Removed content lands in a trash log first.',
+			'settings.consolidate.cards': 'Cards per day',
+			'settings.consolidate.at': 'Runs at',
+			'settings.consolidate.hourUnit': ':00 local time',
+			'settings.consolidate.run': 'Consolidate now',
+			'settings.consolidate.due': 'Due for review',
+			'settings.consolidate.lastRun': 'Last run',
+			'settings.consolidate.never': 'never',
+			'settings.consolidate.done': 'Done · reviewed {batch} · applied {applied}',
+			'settings.consolidate.trashHint': 'Trash: knowledge/trash.jsonl in the data folder; review ledger: knowledge/consolidation.json',
 			'settings.section.backup': 'Cloud backup',
 			'settings.section.embedding': 'Embeddings',
 			'settings.embedding.title': 'Memory embeddings',
@@ -635,6 +663,7 @@ window.__ModuleLoader__.load({
 			'.evrToolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}',
 			'.evrInput{flex:1;min-width:160px;height:30px;padding:0 10px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;box-sizing:border-box}',
 			'.evrInput:focus{outline:none;border-color:var(--dsw-alias-state-business-primary)}',
+			'.evrInputNarrow{flex:none;width:88px;min-width:0}',
 			'.evrBtn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;transition:background .15s ease,border-color .15s ease}',
 			'.evrBtn:hover{background:var(--dsw-alias-interactive-bg-hover);border-color:var(--dsw-alias-border-l3)}',
 			'.evrBtn:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}',
@@ -1833,8 +1862,6 @@ window.__ModuleLoader__.load({
 			if (state === null || state === undefined) return h(Spinner, null, t('state.loading'));
 			var cards = Array.isArray(state.cards) ? state.cards : [];
 			var tree = Array.isArray(state.tree) ? state.tree : [];
-			var ingest = props.ingest;
-			var ingestDraft = props.ingestDraft;
 
 			function filterButton(label, patch, active) {
 				return h('button', {
@@ -2026,39 +2053,6 @@ window.__ModuleLoader__.load({
 							disabled: props.busy,
 							onClick: props.onNew,
 						}, t('cards.new'))),
-					ingest !== null && ingest !== undefined && ingestDraft !== null && ingestDraft !== undefined
-						? h('div', { className: 'evrCard' },
-							h('div', { className: 'evrCardHead' },
-								h('span', { className: 'evrCardTitle' }, t('sight.ingest.auto')),
-								h('span', { className: 'evrCardCount' }, ingest.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
-							h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-								h('input', {
-									type: 'checkbox',
-									checked: ingestDraft.enabled,
-									onChange: function (event) { props.onIngestDraft({ enabled: event.target.checked }); },
-								}),
-								t('sight.ingest.enable')),
-							h('div', { className: 'evrToolbar' },
-								h('input', {
-									className: 'evrInput',
-									type: 'number',
-									min: 5,
-									max: 240,
-									value: ingestDraft.idleMinutes,
-									onChange: function (event) { props.onIngestDraft({ idleMinutes: Number(event.target.value) }); },
-								}),
-								h('span', { className: 'evrHint' }, t('sight.ingest.idleUnit')),
-								h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onIngestSave(ingestDraft); } }, t('action.save')),
-								h('button', {
-									type: 'button',
-									className: 'evrBtn',
-									disabled: props.busy || !ingest.available,
-									onClick: props.onIngestRun,
-								}, t('sight.ingest.run'))),
-							h('div', { className: 'evrHint' }, ingest.available
-								? t('sight.ingest.pending') + ': ' + (ingest.pending ?? 0) + ' · ' + t('sight.ingest.processed') + ': ' + (ingest.ledger?.processed ?? 0)
-								: t('sight.ingest.unavailable')))
-						: null,
 					props.editor !== null && props.editor !== undefined
 						? h('div', { className: 'evrCardsScroll' }, renderEditor())
 						: props.detail !== null && props.detail !== undefined
@@ -2172,6 +2166,20 @@ window.__ModuleLoader__.load({
 			return {
 				enabled: status?.enabled !== false,
 				idleMinutes: status?.idleMinutes ?? 15,
+			};
+		}
+
+		/**
+		 * The form values of the daily card consolidation.
+		 *
+		 * @param {object | null | undefined} status - The consolidation status.
+		 * @returns {object} The form values.
+		 */
+		function consolidateFormOf(status) {
+			return {
+				enabled: status?.enabled === true,
+				dailyCards: status?.dailyCards ?? 15,
+				hour: status?.hour ?? 3,
 			};
 		}
 
@@ -2539,6 +2547,7 @@ window.__ModuleLoader__.load({
 			var sectionBar = h('div', { className: 'evrToolbar', role: 'tablist' }, [
 				{ id: 'data', label: t('settings.data') },
 				{ id: 'transfer', label: t('settings.transfer') },
+				{ id: 'organize', label: t('settings.section.organize') },
 				{ id: 'backup', label: t('settings.section.backup') },
 				{ id: 'embedding', label: t('settings.section.embedding') },
 			].map(function (item) {
@@ -2551,6 +2560,115 @@ window.__ModuleLoader__.load({
 					onClick: function () { setSection(item.id); },
 				}, item.label);
 			}));
+
+			/**
+			 * The two organisers, each with its own switch and schedule.
+			 *
+			 * They are kept apart because they do different work on different
+			 * material: the session ingest reads conversations and writes new
+			 * fleeting cards, while the card consolidation edits the library
+			 * that is already there.
+			 *
+			 * @returns {object[]} The section content.
+			 */
+			function renderOrganize() {
+				var ingestStatus = props.ingest;
+				var ingestForm = props.ingestDraft;
+				var consolidateStatus = props.consolidate;
+				var consolidateForm = props.consolidateDraft;
+				var ingestReady = ingestStatus !== null && ingestStatus !== undefined && ingestForm !== null && ingestForm !== undefined;
+				var consolidateReady = consolidateStatus !== null && consolidateStatus !== undefined && consolidateForm !== null && consolidateForm !== undefined;
+				return [
+					h('div', { className: 'evrSection' }, t('settings.section.organize')),
+					h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.organize.hint')),
+					ingestReady
+						? h('div', { className: 'evrCard', style: { marginBottom: '12px' } },
+							h('div', { className: 'evrCardHead' },
+								h('span', { className: 'evrCardTitle' }, t('sight.ingest.auto')),
+								h('span', { className: 'evrCardCount' }, ingestStatus.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
+							h('div', { className: 'evrCardHint', style: { marginBottom: '8px' } }, t('settings.organize.ingestHint')),
+							h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+								h('input', {
+									type: 'checkbox',
+									checked: ingestForm.enabled,
+									onChange: function (event) { props.onIngestDraft({ enabled: event.target.checked }); },
+								}),
+								t('sight.ingest.enable')),
+							h('div', { className: 'evrToolbar' },
+								h('input', {
+									className: 'evrInput evrInputNarrow',
+									type: 'number',
+									min: 5,
+									max: 240,
+									value: ingestForm.idleMinutes,
+									onChange: function (event) { props.onIngestDraft({ idleMinutes: Number(event.target.value) }); },
+								}),
+								h('span', { className: 'evrHint' }, t('sight.ingest.idleUnit')),
+								h('span', { style: { flex: '1' } }),
+								h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onIngestSave(ingestForm); } }, t('action.save')),
+								h('button', {
+									type: 'button',
+									className: 'evrBtn',
+									disabled: props.busy || !ingestStatus.available,
+									onClick: props.onIngestRun,
+								}, t('sight.ingest.run'))),
+							h('div', { className: 'evrHint' }, ingestStatus.available
+								? t('sight.ingest.pending') + ': ' + (ingestStatus.pending ?? 0) + ' · ' + t('sight.ingest.processed') + ': ' + (ingestStatus.ledger?.processed ?? 0)
+								: t('sight.ingest.unavailable')))
+						: null,
+					consolidateReady
+						? h('div', { className: 'evrCard' },
+							h('div', { className: 'evrCardHead' },
+								h('span', { className: 'evrCardTitle' }, t('settings.consolidate.title')),
+								h('span', { className: 'evrCardCount' }, consolidateStatus.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
+							h('div', { className: 'evrCardHint', style: { marginBottom: '8px' } }, t('settings.consolidate.hint')),
+							h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+								h('input', {
+									type: 'checkbox',
+									checked: consolidateForm.enabled,
+									onChange: function (event) { props.onConsolidateDraft({ enabled: event.target.checked }); },
+								}),
+								t('sight.ingest.enable')),
+							h('div', { className: 'evrToolbar' },
+								h('span', { className: 'evrHint' }, t('settings.consolidate.cards')),
+								h('input', {
+									className: 'evrInput evrInputNarrow',
+									type: 'number',
+									min: 1,
+									max: 100,
+									value: consolidateForm.dailyCards,
+									onChange: function (event) { props.onConsolidateDraft({ dailyCards: Number(event.target.value) }); },
+								}),
+								h('span', { className: 'evrHint' }, t('settings.consolidate.at')),
+								h('input', {
+									className: 'evrInput evrInputNarrow',
+									type: 'number',
+									min: 0,
+									max: 23,
+									value: consolidateForm.hour,
+									onChange: function (event) { props.onConsolidateDraft({ hour: Number(event.target.value) }); },
+								}),
+								h('span', { className: 'evrHint' }, t('settings.consolidate.hourUnit')),
+								h('span', { style: { flex: '1' } }),
+								h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onConsolidateSave(consolidateForm); } }, t('action.save')),
+								h('button', {
+									type: 'button',
+									className: 'evrBtn',
+									disabled: props.busy || !consolidateStatus.available,
+									onClick: props.onConsolidateRun,
+								}, t('settings.consolidate.run'))),
+							h('div', { className: 'evrHint' }, consolidateStatus.available
+								? t('settings.consolidate.due') + ': ' + (consolidateStatus.due ?? 0) + ' / ' + (consolidateStatus.total ?? 0)
+									+ ' · ' + t('settings.consolidate.lastRun') + ': '
+									+ (consolidateStatus.lastRunAt === null || consolidateStatus.lastRunAt === undefined
+										? t('settings.consolidate.never')
+										: relativeTime(consolidateStatus.lastRunAt, t))
+									+ (consolidateStatus.lastError === '' ? '' : ' · ' + consolidateStatus.lastError)
+								: t('sight.ingest.unavailable')))
+						: null,
+					h('div', { className: 'evrHint evrMono', style: { marginTop: '10px' } }, t('settings.consolidate.trashHint'))
+				];
+			}
 
 			var sections = {
 				data: [
@@ -2739,6 +2857,7 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'evrHint evrMono', style: { marginTop: '8px' } },
 					t('settings.backup.settingsPath') + ': ' + (settings.settingsPath || '')),
 				],
+				organize: renderOrganize(),
 				embedding: [renderEmbedding()],
 			};
 
@@ -2771,6 +2890,8 @@ window.__ModuleLoader__.load({
 			var [embeddingDraft, setEmbeddingDraft] = useState(null);
 			var [ingest, setIngest] = useState(null);
 			var [ingestDraft, setIngestDraft] = useState(null);
+			var [consolidate, setConsolidate] = useState(null);
+			var [consolidateDraft, setConsolidateDraft] = useState(null);
 			var [cards, setCards] = useState(null);
 			var [descriptions, setDescriptions] = useState(null);
 			var [cardFilter, setCardFilter] = useState({ tag: '', anyTags: [], archivedOnly: false, query: '' });
@@ -2804,6 +2925,7 @@ window.__ModuleLoader__.load({
 					call('settings'),
 					call('embedding-status'),
 					call('ingest-status'),
+					call('consolidate-status').catch(function () { return null; }),
 					call('card-list', {}),
 					// A host from before this feature answers with an unknown-endpoint
 					// error; the panel then simply has no descriptions to edit.
@@ -2818,8 +2940,10 @@ window.__ModuleLoader__.load({
 					setEmbeddingDraft(function (current) { return current === null || current === undefined ? embeddingFormOf(results[5]) : current; });
 					setIngest(results[6]);
 					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(results[6]) : current; });
-					setCards(results[7]);
-					setDescriptions(results[8]?.descriptions ?? null);
+					setConsolidate(results[7]);
+					setConsolidateDraft(function (current) { return current === null || current === undefined ? consolidateFormOf(results[7]) : current; });
+					setCards(results[8]);
+					setDescriptions(results[9]?.descriptions ?? null);
 					setError(null);
 				}).catch(function (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
@@ -3083,6 +3207,47 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, notify, t]);
 
+			var patchConsolidateDraft = useCallback(function (patch) {
+				setConsolidateDraft(function (current) { return { ...(current ?? consolidateFormOf(consolidate)), ...patch }; });
+			}, [consolidate]);
+
+			var saveConsolidate = useCallback(function (form) {
+				setBusy(true);
+				return call('consolidate-save', { consolidate: form }).then(function (value) {
+					setConsolidate(value);
+					setConsolidateDraft(consolidateFormOf(value));
+					notify(t('state.saved'), false);
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, t]);
+
+			var runConsolidate = useCallback(function () {
+				setBusy(true);
+				return call('consolidate-run', {}, 600000).then(function (value) {
+					var message = value && value.message
+						? value.message
+						: t('settings.consolidate.done')
+							.replace('{batch}', String(value?.batch ?? 0))
+							.replace('{applied}', String((value?.updated ?? 0) + (value?.merged ?? 0) + (value?.deleted ?? 0)));
+					notify(message, false);
+					return Promise.all([
+						call('consolidate-status').catch(function () { return null; }),
+						call('card-list', {}).catch(function () { return null; }),
+						call('overview').catch(function () { return null; }),
+					]).then(function (results) {
+						if (results[0] !== null) {
+							setConsolidate(results[0]);
+							setConsolidateDraft(consolidateFormOf(results[0]));
+						}
+						if (results[1] !== null) setCards(results[1]);
+						if (results[2] !== null) setOverview(results[2]);
+					}).catch(function () {});
+				}).catch(function (reason) {
+					notify(reason instanceof Error ? reason.message : String(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, t]);
+
 			var refreshCards = useCallback(function (nextFilter) {
 				var filter = nextFilter ?? cardFilter;
 				var payload = {
@@ -3257,8 +3422,6 @@ window.__ModuleLoader__.load({
 					detail: cardDetail,
 					editor: cardEditor,
 					busy: busy,
-					ingest: ingest,
-					ingestDraft: ingestDraft,
 					onFilter: changeCardFilter,
 					onOpen: openCard,
 					onNew: newCard,
@@ -3270,9 +3433,6 @@ window.__ModuleLoader__.load({
 					onArchive: archiveCard,
 					onDelete: deleteCard,
 					onAttach: attachCard,
-					onIngestDraft: patchIngestDraft,
-					onIngestSave: saveIngest,
-					onIngestRun: runIngest,
 				});
 			} else if (tab === 'soul') {
 				body = h(SoulTab, {
@@ -3311,6 +3471,16 @@ window.__ModuleLoader__.load({
 					onTestBackup: testBackup,
 					onPickDirectory: pickDirectory,
 					onBrowseArchives: browseArchives,
+					ingest: ingest,
+					ingestDraft: ingestDraft,
+					onIngestDraft: patchIngestDraft,
+					onIngestSave: saveIngest,
+					onIngestRun: runIngest,
+					consolidate: consolidate,
+					consolidateDraft: consolidateDraft,
+					onConsolidateDraft: patchConsolidateDraft,
+					onConsolidateSave: saveConsolidate,
+					onConsolidateRun: runConsolidate,
 					embedding: embedding,
 					embeddingDraft: embeddingDraft,
 					onEmbeddingDraft: patchEmbeddingDraft,

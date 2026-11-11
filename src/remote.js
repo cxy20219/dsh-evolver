@@ -97,7 +97,7 @@ function count(payload, field, fallback, max) {
  * @param {{evolver: object, settings: object, backup: object, workspace: object, view: Function, embedding: object, ingest: object, cards: object}} deps - The services the endpoints use.
  * @returns {(endpoint: string, payload: unknown) => Promise<object>} The handler.
  */
-export function createEvolverHandler({ evolver, settings, backup, workspace, view, embedding, ingest, cards }) {
+export function createEvolverHandler({ evolver, settings, backup, workspace, view, embedding, ingest, consolidate, cards }) {
 	return async function handleEvolver(endpoint, payload) {
 		try {
 			switch (endpoint) {
@@ -187,6 +187,15 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 				}
 				case 'ingest-run': {
 					return { ok: true, value: await ingest.run() }
+				}
+				case 'consolidate-status': {
+					return { ok: true, value: await consolidate.status() }
+				}
+				case 'consolidate-save': {
+					return { ok: true, value: await consolidate.save(payload?.consolidate ?? {}) }
+				}
+				case 'consolidate-run': {
+					return { ok: true, value: await consolidate.run() }
 				}
 				case 'card-status': {
 					return { ok: true, value: await cards.status() }

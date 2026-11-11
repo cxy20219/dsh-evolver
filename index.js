@@ -24,6 +24,7 @@ import { MAX_IMPORT_BYTES, extractArchiveFile, writeArchiveFile } from './src/ba
 import { BackupService } from './src/backup/service.js'
 import { EMBEDDING_MODELS, ModelDownloader, embeddingConfig, embeddingLocations, modelPresent, probeEmbedding, runtimeState } from './src/embedding.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
+import { createConsolidationController } from './src/consolidate.js'
 import { createIngestController } from './src/ingest.js'
 import { SessionLedger, digestSessions } from './src/sessions.js'
 import { createEmbedder } from './src/memory/embed.js'
@@ -573,6 +574,14 @@ export async function apply(ctx, config) {
 		logger: ctx.logger,
 	})
 
+	const consolidate = createConsolidationController({
+		settings,
+		store: () => cardStoreRef.current,
+		llm: ctx.get('llm'),
+		modelSelection: ctx.get('agentDefaultModel'),
+		logger: ctx.logger,
+	})
+
 	const backup = new BackupService({
 		settings,
 		root: () => evolver.root,
@@ -889,6 +898,7 @@ export async function apply(ctx, config) {
 		}
 	}
 	disposers.push(ingest.start())
+	disposers.push(consolidate.start())
 
 	ctx.effect(() => {
 		backup.start()
@@ -939,7 +949,12 @@ export async function apply(ctx, config) {
 		save: (patch) => ingest.save(patch),
 		run: () => ingest.run(),
 	}
-	const handler = createEvolverHandler({ evolver, settings, backup, workspace, view, embedding, ingest: ingestApi, cards: cardsApi })
+	const consolidateApi = {
+		status: () => consolidate.status(),
+		save: (patch) => consolidate.save(patch),
+		run: () => consolidate.run(),
+	}
+	const handler = createEvolverHandler({ evolver, settings, backup, workspace, view, embedding, ingest: ingestApi, consolidate: consolidateApi, cards: cardsApi })
 	for (const endpoint of ENDPOINTS) {
 		disposers.push(connection.fetch.register({
 			path: `${API_PREFIX}/${endpoint}`,

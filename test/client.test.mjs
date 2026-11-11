@@ -360,6 +360,22 @@ function apiPayload(endpoint, payload) {
 				}],
 				suggestions: [],
 			}
+		case 'consolidate-status':
+			return {
+				enabled: true,
+				dailyCards: 15,
+				hour: 3,
+				available: true,
+				due: 4,
+				total: 9,
+				lastRunAt: '2026-11-10T03:00:00.000Z',
+				lastApplied: 3,
+				lastBatch: 15,
+				lastError: '',
+				running: false,
+			}
+		case 'consolidate-save':
+			return { ...apiPayload('consolidate-status', payload), ...(payload.consolidate ?? {}) }
 		case 'tag-descriptions':
 			return {
 				path: '/data/evolver/knowledge/tags.json',
@@ -616,6 +632,53 @@ test('已下载的模型显示绿色不可点的“已下载”', async () => {
 		assert.equal(done.length, 1)
 		assert.equal(done[0].props.disabled, true)
 		assert.equal(textOf(done[0]), 'settings.embedding.downloaded')
+	} finally {
+		embeddingPresent = false
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('两个整理器都在设置里，卡片页不再自带整理块', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+
+		// The cards tab no longer carries the organiser.
+		assert.equal(findAll(tree, (node) => textOf(node) === 'sight.ingest.auto').length, 0)
+
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const organizeTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.section.organize')
+		assert.equal(organizeTab.length, 1)
+		organizeTab[0].props.onClick()
+		tree = await runtime.settle(render)
+
+		// Both organisers live here: the session ingest and the daily cards.
+		assert.ok(findAll(tree, (node) => textOf(node) === 'sight.ingest.auto').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'settings.consolidate.title').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node).includes('settings.consolidate.due')).length >= 1)
+
+		// The daily batch defaults to 15 and can be changed before saving.
+		const numbers = findAll(tree, (node) => node.type === 'input' && node.props?.type === 'number')
+		assert.ok(numbers.length >= 2)
+		const batch = numbers.find((node) => node.props.value === 15)
+		assert.ok(batch, '每天张数默认为 15')
+		batch.props.onChange({ target: { value: '30' } })
+		tree = await runtime.settle(render)
+		assert.ok(findAll(tree, (node) => node.type === 'input' && node.props?.value === 30).length >= 1)
 	} finally {
 		embeddingPresent = false
 		globalThis.fetch = previousFetch
