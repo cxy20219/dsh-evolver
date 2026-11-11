@@ -123,13 +123,10 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.more': '多',
 			'overview.graph': '标签关系图',
 			'overview.linkGraph': '链接关系图',
-			'overview.linkGraph.hint': '卡片之间的双向链接，像 Obsidian 的关系图；悬停节点看卡片名。',
 			'overview.linkGraph.label': '卡片链接关系图',
 			'overview.linkGraph.empty': '还没有卡片之间的链接。',
 			'overview.linkGraph.links': '条链接',
 			'overview.tree.graphLabel': '标签关系图',
-			'overview.tree.hint': '整棵树一次画完，标签沿射线排布。',
-			'overview.tree.zoomHint': '滚轮缩放、拖动平移；点节点放大那一枝，点空白回到全貌。',
 			'overview.graph.center': '标签',
 			'overview.tree.empty': '还没有标签。',
 			'overview.descriptions': '标签描述',
@@ -361,13 +358,10 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.more': 'More',
 			'overview.graph': 'Tag graph',
 			'overview.linkGraph': 'Link graph',
-			'overview.linkGraph.hint': 'The links between cards, like the graph in Obsidian; hover a node for its name.',
 			'overview.linkGraph.label': 'Card link graph',
 			'overview.linkGraph.empty': 'No links between cards yet.',
 			'overview.linkGraph.links': 'links',
 			'overview.tree.graphLabel': 'Tag relationship graph',
-			'overview.tree.hint': 'The whole tree, drawn once; labels follow their spoke.',
-			'overview.tree.zoomHint': 'Scroll to zoom, drag to pan; click a node to frame its branch, click the empty space to fit the tree.',
 			'overview.graph.center': 'Tags',
 			'overview.tree.empty': 'No tags yet.',
 			'overview.descriptions': 'Tag descriptions',
@@ -1217,8 +1211,7 @@ window.__ModuleLoader__.load({
 						left: (tipAt.x / layout.width) * 100 + '%',
 						top: (tipAt.y / layout.height) * 100 + '%',
 					},
-				}, tip.path),
-				h('div', { className: 'evrHint', style: { marginTop: '4px' } }, t('overview.tree.zoomHint')));
+				}, tip.path));
 		}
 
 		/**
@@ -1883,8 +1876,7 @@ window.__ModuleLoader__.load({
 						},
 					},
 						h('g', null, edgeEls),
-						h('g', null, nodeEls))),
-				h('div', { className: 'evrHint', style: { marginTop: '6px' } }, t('overview.linkGraph.hint')));
+						h('g', null, nodeEls))));
 		}
 
 		/**
@@ -2017,11 +2009,9 @@ window.__ModuleLoader__.load({
 					h('div', { className: 'evrOverviewSplit' },
 						h('div', { className: 'evrOverviewPane evrOverviewGraph' },
 							h('div', { className: 'evrSection' }, t('overview.graph')),
-							h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.tree.hint')),
 							h(TagGraph, { t: t, nodes: tree })),
 						h('div', { className: 'evrOverviewPane evrOverviewTree' },
 							h('div', { className: 'evrSection' }, t('overview.linkGraph')),
-							h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.linkGraph.hint')),
 							h(LinkGraph, { t: t, cards: props.cards?.cards }))));
 			}
 

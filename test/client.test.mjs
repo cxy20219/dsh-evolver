@@ -798,7 +798,12 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.ok(findAll(tree, (node) => typeof node.props?.className === 'string'
 			&& node.props.className.includes('evrOverviewTree')).length === 1)
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.graph').length >= 1)
-		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.linkGraph.hint').length >= 1)
+		// Both graphs carry a title and nothing else: the explanatory lines
+		// were removed, so no hint text may sit above or below either canvas.
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.linkGraph').length >= 1)
+		assert.equal(findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.includes('evrOverviewPane'))
+			.some((pane) => findAll(pane, (node) => node.props?.className === 'evrHint').length > 0), false)
 		const cardsSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.cards')
 		assert.equal(cardsSubTab.length, 1)
 		cardsSubTab[0].props.onClick()
