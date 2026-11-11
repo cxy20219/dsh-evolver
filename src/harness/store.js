@@ -200,6 +200,15 @@ export async function catalog(root) {
 	}
 	state.overview = await exists(join(harnessDir, OVERVIEW))
 	if (!state.overview) state.missing.push(OVERVIEW)
+	else {
+		const { meta, body } = splitFrontmatter(await readText(join(harnessDir, OVERVIEW)))
+		state.resources.push({
+			path: `harness/${OVERVIEW}`,
+			layer: 'overview',
+			title: meta.title ?? firstHeading(body) ?? OVERVIEW,
+			summary: meta.summary ?? '',
+		})
+	}
 
 	for (const layer of LAYERS) {
 		const dir = join(harnessDir, layer)
@@ -300,7 +309,10 @@ export function renderIndex(state) {
 		const summary = resource.summary || '待补充 summary'
 		return `- [${label}](${resource.path})：${summary}`
 	}
-	lines.push(`- [Harness 开发指南](harness/harness.md)：项目总览、关键约束、常用入口和注意事项`)
+	const overview = state.resources.find((resource) => resource.path === `harness/${OVERVIEW}`)
+	lines.push(
+		`- [Harness 开发指南](harness/harness.md)：${overview?.summary || '项目总览、关键约束、常用入口和注意事项'}`,
+	)
 	const layerIndex = (resource) => LAYERS.indexOf(resource.layer)
 	const ordered = state.resources
 		.filter((resource) => resource.path !== 'harness/harness.md')

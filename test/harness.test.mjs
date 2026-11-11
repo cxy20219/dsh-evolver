@@ -41,6 +41,9 @@ async function project() {
 	const root = await mkdtemp(join(tmpdir(), 'harness-proj-'))
 	await mkdir(join(root, '.git'), { recursive: true })
 	await initHarness(root)
+	// The state a project is in after `harness_catalog({ init: true })`: the
+	// skeleton exists and the index already describes it.
+	await ensureIndex(root)
 	return root
 }
 
@@ -130,7 +133,9 @@ test('写入拒绝非法落点，也不会留下半个文件', async () => {
 			/只能更新/,
 		)
 		const state = await catalog(root)
-		assert.equal(state.resources.length, 0, '失败的写入不留资源')
+		// The overview counts as a resource (it is indexed like any other), so
+		// "nothing was written" means no layered file.
+		assert.equal(state.resources.filter((item) => item.layer !== 'overview').length, 0, '失败的写入不留资源')
 	} finally {
 		await rm(root, { recursive: true, force: true })
 	}
