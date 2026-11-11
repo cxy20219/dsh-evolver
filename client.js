@@ -126,7 +126,6 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.empty': '还没有卡片之间的链接。',
 			'overview.linkGraph.links': '条链接',
 			'overview.tree.graphLabel': '标签关系图',
-			'overview.graph.center': '标签',
 			'overview.tree.empty': '还没有标签。',
 			'overview.descriptions': '标签描述',
 			'overview.descriptions.hint': '这些说明就写进 Agent 每次拿到的标签树；新分支出现后在这里补一句，注入立刻生效。',
@@ -322,7 +321,6 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.empty': 'No links between cards yet.',
 			'overview.linkGraph.links': 'links',
 			'overview.tree.graphLabel': 'Tag relationship graph',
-			'overview.graph.center': 'Tags',
 			'overview.tree.empty': 'No tags yet.',
 			'overview.descriptions': 'Tag descriptions',
 			'overview.descriptions.hint': 'These notes are what the injected tag tree says; a new branch can be described here and the prompt picks it up immediately.',
@@ -598,11 +596,9 @@ window.__ModuleLoader__.load({
 			'.evrToastError{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}',
 			'.evrToastText{white-space:pre-wrap;word-break:break-word}',
 			'.evrToastClose{flex:none;border:0;background:transparent;color:inherit;cursor:pointer;font-size:16px;line-height:1;padding:0 2px}',
-			'.evrError{border-left:3px solid var(--dsw-alias-state-error-primary);padding-left:10px}',
 			'.evrBtnOk{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary);background:transparent}',
 			'.evrBtnOk:disabled{opacity:1;cursor:default}',
 			'.evrBar{height:6px;border-radius:99px;background:var(--dsw-alias-bg-layer-3);overflow:hidden;margin:6px 0 8px}',
-			'.evrBarFill{height:100%;background:var(--dsw-alias-state-business-primary,currentColor);border-radius:99px;transition:width .3s ease}',
 		].join('\n');
 
 		//#endregion

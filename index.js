@@ -479,10 +479,6 @@ export async function apply(ctx, config) {
 			if (data.length > 10 * 1024 * 1024) throw new Error('附件超过 10 MB 上限。')
 			return store.attach(id, name, data)
 		},
-		tags() {
-			const store = cardStoreRef.current
-			return store.tagTree()
-		},
 		/**
 		 * The tag descriptions and the branches still missing one.
 		 *

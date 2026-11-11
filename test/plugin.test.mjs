@@ -397,8 +397,9 @@ test('卡片接口：列表、写入、读取、提升、附件、标签、归�
 			const withResource = await (await post(routes, 'card-read', { id: created.id })).json()
 			assert.equal(withResource.card.resourceContents[0].text, 'hello resource')
 
-			const tags = await (await post(routes, 'card-tags', {})).json()
-			assert.ok(Array.isArray(tags))
+			// The tree travels with the list; there is no separate endpoint.
+			const listed = await (await post(routes, 'card-list', {})).json()
+			assert.ok(Array.isArray(listed.tree))
 			const archived = await (await post(routes, 'card-archive', { id: created.id })).json()
 			assert.ok(archived.tags.some((tag) => tag.endsWith('/归档')))
 			const removed = await (await post(routes, 'card-remove', { id: created.id })).json()

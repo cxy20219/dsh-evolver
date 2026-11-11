@@ -233,16 +233,6 @@ export function isArchived(tags = []) {
 }
 
 /**
- * Whether a card is still in the improvised branch.
- *
- * @param {string[]} tags - The tags.
- * @returns {boolean} True when it has an #即兴 branch.
- */
-export function isImprovised(tags = []) {
-	return tags.some((tag) => rootOf(tag) === '即兴')
-}
-
-/**
  * Whether a card has a settled top-level branch other than #即兴.
  *
  * @param {string[]} tags - The tags.

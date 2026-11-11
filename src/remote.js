@@ -34,7 +34,6 @@ export const ENDPOINTS = [
 	'consolidate-status',
 	'consolidate-save',
 	'consolidate-run',
-	'card-status',
 	'card-list',
 	'card-read',
 	'card-write',
@@ -42,7 +41,6 @@ export const ENDPOINTS = [
 	'card-archive',
 	'card-remove',
 	'card-attach',
-	'card-tags',
 	'tag-descriptions',
 	'tag-descriptions-save',
 ]
@@ -185,9 +183,6 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 				case 'consolidate-run': {
 					return { ok: true, value: await consolidate.run() }
 				}
-				case 'card-status': {
-					return { ok: true, value: await cards.status() }
-				}
 				case 'card-list': {
 					return { ok: true, value: await cards.list(payload ?? {}) }
 				}
@@ -208,9 +203,6 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 				}
 				case 'card-attach': {
 					return { ok: true, value: await cards.attach(payload ?? {}) }
-				}
-				case 'card-tags': {
-					return { ok: true, value: cards.tags() }
 				}
 				case 'tag-descriptions': {
 					return { ok: true, value: await cards.tagDescriptionsView() }
