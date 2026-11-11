@@ -41,10 +41,6 @@ export const REQUIRED_INDEX_TEXT = [
 	'harness/harness.md',
 ]
 
-/** The marker that opens and closes the block this plugin owns. */
-export const BLOCK_START = '<!-- dsh-evolver:harness:start -->'
-export const BLOCK_END = '<!-- dsh-evolver:harness:end -->'
-
 const OVERVIEW_TEMPLATE = `# Harness 项目资源总览
 
 ## 项目总览
@@ -330,31 +326,18 @@ export function renderIndex(state) {
 }
 
 /**
- * Replace the block this plugin owns, or append it.
+ * Build the whole AGENTS.md.
  *
- * Anything outside the markers is left byte for byte, which is what makes it
- * safe to run on a file a person also edits.
+ * The index *is* the file: every AGENTS.md in this user's projects is generated
+ * and none of them carries hand-written content, so there is nothing to protect
+ * with markers and nothing to merge. The previous text is only read to keep the
+ * order and the wording that are already there.
  *
- * @param {string} text - The current AGENTS.md.
- * @param {string} block - The rendered block.
- * @returns {string} The new document.
+ * @param {string} block - The rendered index.
+ * @returns {string} The document.
  */
-export function spliceBlock(text, block) {
-	const source = String(text ?? '')
-	const start = source.indexOf(BLOCK_START)
-	const end = source.indexOf(BLOCK_END)
-	const body = `${BLOCK_START}\n${block}\n${BLOCK_END}`
-	if (start !== -1 && end > start) {
-		return `${source.slice(0, start)}${body}${source.slice(end + BLOCK_END.length)}`
-	}
-	const trimmed = source.replace(/\s+$/, '')
-	if (trimmed === '') return `${body}\n`
-	// An index written by an older tool has no markers. Wrapping it would
-	// leave two copies of every entry, so a document that is *only* an index
-	// is replaced; anything with other content keeps it and gets the block
-	// appended below.
-	if (isBareIndex(trimmed)) return `${body}\n`
-	return `${trimmed}\n\n${body}\n`
+export function documentOf(block) {
+	return `${String(block ?? '').trimEnd()}\n`
 }
 
 /**
@@ -370,7 +353,7 @@ export function isBareIndex(text) {
 		if (trimmed.startsWith('- [')) continue
 		if (trimmed.startsWith('#')) continue
 		if (trimmed.startsWith('>')) continue
-		if (trimmed === BLOCK_START || trimmed === BLOCK_END) continue
+		if (trimmed.startsWith('<!--') && trimmed.endsWith('-->')) continue
 		return false
 	}
 	return true
@@ -389,7 +372,12 @@ export async function ensureIndex(root) {
 	const state = await catalog(root)
 	const agentsPath = join(root, 'AGENTS.md')
 	const current = await readFile(agentsPath, 'utf8').catch(() => '')
-	const next = spliceBlock(current, renderIndex(state))
+	if (current.trim() !== '' && !isBareIndex(current)) {
+		throw new Error(
+			'AGENTS.md 里有不是索引的内容，拒绝整篇覆盖；先手动清掉那些内容，或把它挪到 harness/harness.md。',
+		)
+	}
+	const next = documentOf(renderIndex(state))
 	if (next !== current) {
 		const temp = `${agentsPath}.${process.pid}.${Date.now()}.tmp`
 		await writeFile(temp, next, { mode: 0o600 })

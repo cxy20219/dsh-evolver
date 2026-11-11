@@ -13,8 +13,6 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import {
-	BLOCK_END,
-	BLOCK_START,
 	catalog,
 	ensureIndex,
 	firstHeading,
@@ -25,7 +23,7 @@ import {
 	projectRootOf,
 	renderIndex,
 	splitFrontmatter,
-	spliceBlock,
+	documentOf,
 	withFrontmatter,
 } from '../src/harness/store.js'
 import { createHarnessTools } from '../src/harness/tools.js'
@@ -75,28 +73,29 @@ test('索引既能读回用途与顺序，也能认出带扩展名的脚本路�
 	assert.equal(entries.get('harness/scripts/check.py').order, 1)
 })
 
-test('托管块只替换自己那一块，块外一个字节都不动', () => {
-	const owned = `${BLOCK_START}\n旧索引\n${BLOCK_END}`
-	const source = `# 我的说明\n\n手写内容。\n\n${owned}\n\n底部说明。`
-	const next = spliceBlock(source, '新索引')
-	assert.match(next, /# 我的说明\n\n手写内容。\n\n/)
-	assert.match(next, /底部说明。/)
-	assert.match(next, /新索引/)
-	assert.equal(next.includes('旧索引'), false)
-	assert.equal(next.split(BLOCK_START).length, 2, '只有一个托管块')
+test('索引即文件：整篇由目录生成，不靠标记', () => {
+	const document = documentOf('> 抬头\n# 文档索引，按需查阅\n\n- [甲](harness/workflow/a.md)：用途')
+	assert.equal(document.endsWith('\n'), true)
+	assert.equal(document.includes('<!--'), false, '不再有托管标记')
 })
 
-test('首次迁移：纯索引整体接管，混合内容只追加', () => {
+test('首次迁移只接管纯索引；有别的正文就拒绝，不悄悄覆盖', async () => {
 	const bare = '> 抬头\n# 文档索引，按需查阅\n\n- [甲](harness/workflow/a.md)：用途'
 	assert.equal(isBareIndex(bare), true)
-	assert.equal(spliceBlock(bare, 'INDEX').startsWith(BLOCK_START), true)
-	assert.equal(spliceBlock(bare, 'INDEX').includes('用途'), false)
+	// Comments left by the marker design are not "someone's prose".
+	assert.equal(isBareIndex(`<!-- x:start -->\n${bare}\n<!-- x:end -->`), true)
 
 	const mixed = `# 项目说明\n\n人写的一段话。\n\n${bare}`
 	assert.equal(isBareIndex(mixed), false)
-	const kept = spliceBlock(mixed, 'INDEX')
-	assert.match(kept, /人写的一段话。/)
-	assert.match(kept, /INDEX/)
+
+	const root = await project()
+	try {
+		await writeFile(join(root, 'AGENTS.md'), mixed)
+		await assert.rejects(() => ensureIndex(root), /不是索引的内容/)
+		assert.equal(await readFile(join(root, 'AGENTS.md'), 'utf8'), mixed, '被拒绝时不改动原文件')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
 })
 
 test('写入一条资源后，索引立刻包含它且校验通过', async () => {

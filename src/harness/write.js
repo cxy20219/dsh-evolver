@@ -10,7 +10,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { LAYERS, OVERVIEW, catalog, renderIndex, spliceBlock, withFrontmatter } from './store.js'
+import { LAYERS, OVERVIEW, catalog, documentOf, isBareIndex, renderIndex, withFrontmatter } from './store.js'
 import { validate } from './validate.js'
 
 /** The name a resource file may have: one segment, no traversal. */
@@ -82,7 +82,12 @@ export async function writeResource({ root, layer, slug, title, summary, body, p
 	const state = await catalog(root)
 	const agentsPath = join(root, 'AGENTS.md')
 	const agents = await readFile(agentsPath, 'utf8').catch(() => '')
-	await writeAtomic(agentsPath, spliceBlock(agents, renderIndex(state)))
+	if (agents.trim() !== '' && !isBareIndex(agents)) {
+		// Nothing is written: replacing the file would drop whatever a person
+		// put in it, and rewriting it half-way would leave two indexes.
+		throw new Error('AGENTS.md 里有不是索引的内容，没有写入。先把它挪到 harness/harness.md 再重试。')
+	}
+	await writeAtomic(agentsPath, documentOf(renderIndex(state)))
 
 	const report = await validate(root)
 	if (!report.ok) {
@@ -92,7 +97,7 @@ export async function writeResource({ root, layer, slug, title, summary, body, p
 			await writeAtomic(target, previous)
 		}
 		const restored = await catalog(root)
-		await writeAtomic(agentsPath, spliceBlock(agents, renderIndex(restored)))
+		await writeAtomic(agentsPath, documentOf(renderIndex(restored)))
 		throw new Error(`校验未通过，已回滚：${report.errors.slice(0, 3).join('；')}`)
 	}
 
