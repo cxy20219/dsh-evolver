@@ -12,7 +12,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { LAYERS, OVERVIEW, REFERENCED_LAYERS, REQUIRED_INDEX_TEXT, TOOL_LAYER, catalog } from './store.js'
+import { LAYERS, OVERVIEW, REFERENCED_LAYERS, REQUIRED_INDEX_TEXT, TOOL_LAYER, catalog, indexRefs } from './store.js'
 
 const run = promisify(execFile)
 
@@ -61,6 +61,19 @@ export async function validate(root) {
 	for (const resource of state.resources) {
 		if (resource.summary === '') {
 			warnings.push(`${resource.path} has no summary: frontmatter; the index will show a placeholder`)
+		}
+	}
+
+	// Every `harness/...` path a document names has to exist. A workflow that
+	// says `python3 harness/tool/x.py` after `x.py` moved is worse than no
+	// workflow at all: it looks authoritative and fails.
+	const documents = [`harness/${OVERVIEW}`, ...(state.layers.workflow ?? []), ...(state.layers.experience ?? [])]
+	const documentsInResources = (state.layers.resources ?? []).filter((path) => path.endsWith('.md'))
+	for (const path of [...documents, ...documentsInResources]) {
+		const text = await readFile(join(root, path), 'utf8').catch(() => '')
+		for (const ref of indexRefs(text)) {
+			if (ref === `harness/${OVERVIEW}`) continue
+			if (!(await exists(join(root, ref)))) errors.push(`${path} references missing resource: ${ref}`)
 		}
 	}
 

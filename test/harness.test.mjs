@@ -301,3 +301,37 @@ test('旧布局迁到四层：scripts→tool，references/assets→resources', a
 		await rm(root, { recursive: true, force: true })
 	}
 })
+
+test('文档里写了不存在的 harness 路径要报错', async () => {
+	const root = await project()
+	try {
+		// The write tool refuses to create one: a workflow that names a script
+		// that is not there is worse than no workflow, so it rolls back.
+		await assert.rejects(
+			() => writeResource({
+				root, layer: 'workflow', slug: 'run', title: '跑一下', summary: '怎么跑',
+				body: '# 跑一下\n\n```\npython3 harness/tool/ghost.py\n```\n',
+			}),
+			/references missing resource: harness\/tool\/ghost\.py/,
+		)
+
+		// A document that arrives by another route is caught by the validator.
+		await writeFile(
+			join(root, 'harness/workflow/hand-written.md'),
+			'---\nsummary: 手写的\n---\n# 手写的\n\n```\npython3 harness/tool/ghost.py\n```\n',
+		)
+		await ensureIndex(root)
+		const report = await validate(root)
+		assert.equal(report.ok, false)
+		assert.ok(report.errors.some((error) => error.includes('references missing resource: harness/tool/ghost.py')))
+
+		// A placeholder is not a path, so it is not a dangling reference.
+		const ok = await writeResource({
+			root, path: 'harness/workflow/hand-written.md', summary: '手写的',
+			body: '# 手写的\n\n```\npython3 harness/<层>/ghost.py\n```\n',
+		})
+		assert.equal(ok.path, 'harness/workflow/hand-written.md')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})

@@ -18,7 +18,7 @@ summary: 改目录名必须先改写根 AGENTS.md 再重建索引，否则标签
 const known = harvested.get(resource.path)
 ```
 
-路径一改，`harness/scripts/x.py` 与 `harness/tool/x.py` 就对不上，收编落空，
+路径一改，`harness/<旧层>/x.py` 与 `harness/<新层>/x.py` 就对不上，收编落空，
 `renderIndex` 便退回「文件名 + 待补充 summary」。
 
 新目录名不是错，错在**改写顺序**：先动目录、后重建索引，中间那一步路径已经变了
@@ -49,5 +49,5 @@ if (agents !== undefined) {
 ## 验证
 
 给 `migrateLayout` 的回归测试写一个夹具：旧布局 + 一段提到旧路径的文档 + 一份带
-标签的旧索引，迁移后断言索引里仍是 `- [检查器](harness/tool/check.py)：查语法`。
+标签的旧索引，迁移后断言索引里仍是 `- [检查器](harness/<新层>/check.py)：查语法`。
 这条断言红了，就说明改写顺序又被改坏了。

@@ -47,5 +47,5 @@ await run('python3', [
 跑一次 `harness_validate`，然后确认项目里没有新增目录：
 
 ```bash
-ls harness/tool/__pycache__ 2>/dev/null | wc -l   # 期望 0
+ls harness/<层>/__pycache__ 2>/dev/null | wc -l   # 期望 0
 ```
