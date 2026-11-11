@@ -129,7 +129,7 @@ export class Evolver {
 			await this.writeIfMissing(this.soulPath, STARTER_SOUL)
 			return
 		}
-		if (existing === STARTER_SOUL || !isStarterSoul(existing)) return
+		if (!isStarterSoul(existing)) return
 		await this.writeDocument(this.soulPath, STARTER_SOUL)
 		this.logger?.info?.('dsh-evolver: souled the agent with the current starter template')
 	}

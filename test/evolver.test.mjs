@@ -29,7 +29,9 @@ test('ensure 只建文档骨架，不再生成旧实践树', async () => {
 	try {
 		await evolver.ensure()
 		const soul = await readFile(join(root, 'sight/soul.md'), 'utf8')
-		assert.match(soul, /灵魂/)
+		// Asserted against the template rather than a word from it: the soul is
+		// meant to get shorter over time, and the shape is what matters.
+		assert.equal(soul, STARTER_SOUL)
 		const prefs = await readFile(join(root, 'preferences/AGENTS.md'), 'utf8')
 		assert.match(prefs, /个人偏好/)
 		await assert.rejects(() => access(join(root, 'practice')), { code: 'ENOENT' })
@@ -58,12 +60,15 @@ test('ensure 把没编辑过的旧灵魂升级到当前模板', async () => {
 	const { evolver, root, home } = await fixture()
 	try {
 		const path = join(root, 'sight/soul.md')
-		// An installation seeded by an older release: the file exists, the
-		// template behind it has since improved.
 		await evolver.ensure()
-		await writeFile(path, STARTER_SOUL_HISTORY[0], 'utf8')
-		await evolver.ensure()
-		assert.equal(await readFile(path, 'utf8'), STARTER_SOUL)
+		// Every generation ever shipped, oldest first: an installation seeded
+		// by any of them must end up on the current template. The newest entry
+		// is the one most installations are actually holding.
+		for (const template of STARTER_SOUL_HISTORY) {
+			await writeFile(path, template, 'utf8')
+			await evolver.ensure()
+			assert.equal(await readFile(path, 'utf8'), STARTER_SOUL)
+		}
 
 		// The next boot has nothing left to do.
 		await evolver.ensure()
@@ -134,7 +139,7 @@ test('injectionPreview 只给灵魂和偏好，卡片投影由 card API 提供',
 		await evolver.ensure()
 		const preview = await evolver.injectionPreview()
 		assert.equal(preview.practice, undefined)
-		assert.match(preview.soul.text, /灵魂/)
+		assert.equal(preview.soul.text, STARTER_SOUL)
 		assert.match(preview.preferences.text, /个人偏好/)
 		assert.equal(preview.soul.budget, MAX_SOUL_BYTES)
 		assert.ok(preview.totalBytes > 0)
