@@ -11,6 +11,11 @@ test('主动性协议覆盖卡片触发点且保持精简', () => {
 	// Injected on every request, so it has to stay around a kilobyte: the
 	// trigger needs its examples to be actionable, nothing else earns a line.
 	assert.ok(Buffer.byteLength(PROACTIVE_PROTOCOL, 'utf8') < 1024, '主动性协议会注入每次请求，不能吃掉太多上下文')
+	// The two landing spots were not enough: with only "card or harness" named,
+	// the obvious third place — the instruction file — looked allowed. The
+	// boundary has to be written down or it gets re-invented.
+	assert.match(PROACTIVE_PROTOCOL, /全局 AGENTS\.md 只读/)
+	assert.match(PROACTIVE_PROTOCOL, /被纠正后也算/)
 })
 
 test('工具集只有卡片与诊断工具，没有旧的 practice/memory 名称', () => {
