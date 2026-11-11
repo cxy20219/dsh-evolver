@@ -5,6 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { Evolver, MAX_PREFERENCES_BYTES, MAX_SOUL_BYTES, resolveDshHome } from '../src/evolver.js'
+import { isStarterSoul, normalizeSoul, STARTER_SOUL, STARTER_SOUL_HISTORY } from '../src/soul-template.js'
 
 /**
  * Build an evolver on a temporary home.
@@ -33,6 +34,54 @@ test('ensure 只建文档骨架，不再生成旧实践树', async () => {
 		assert.match(prefs, /个人偏好/)
 		await assert.rejects(() => access(join(root, 'practice')), { code: 'ENOENT' })
 		assert.equal(evolver.globalPath, join(home, 'AGENTS.md'))
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
+})
+
+test('灵魂模板升级：认得出没被编辑过的旧版本，也认得出用户自己写的', () => {
+	// Every shipped generation is recognised as "not written by a person"...
+	for (const template of [STARTER_SOUL, ...STARTER_SOUL_HISTORY]) {
+		assert.equal(isStarterSoul(template), true)
+	}
+	// ...and the artefacts an editor adds do not count as editing.
+	assert.equal(isStarterSoul(`\uFEFF${STARTER_SOUL.replace(/\n/g, '\r\n')}\n\n`), true)
+	// One character outside the template is enough to make it the user's.
+	assert.equal(isStarterSoul(`${STARTER_SOUL}多出来的一行`), false)
+	assert.equal(isStarterSoul(STARTER_SOUL.replace('小鱼', '小鲸')), false)
+	assert.equal(isStarterSoul(''), false)
+	assert.equal(isStarterSoul('# 我自己的灵魂\n'), false)
+	assert.equal(normalizeSoul('\uFEFFa\r\nb\n'), 'a\nb')
+})
+
+test('ensure 把没编辑过的旧灵魂升级到当前模板', async () => {
+	const { evolver, root, home } = await fixture()
+	try {
+		const path = join(root, 'sight/soul.md')
+		// An installation seeded by an older release: the file exists, the
+		// template behind it has since improved.
+		await evolver.ensure()
+		await writeFile(path, STARTER_SOUL_HISTORY[0], 'utf8')
+		await evolver.ensure()
+		assert.equal(await readFile(path, 'utf8'), STARTER_SOUL)
+
+		// The next boot has nothing left to do.
+		await evolver.ensure()
+		assert.equal(await readFile(path, 'utf8'), STARTER_SOUL)
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
+})
+
+test('ensure 一个字都不碰用户自己写的灵魂', async () => {
+	const { evolver, root, home } = await fixture()
+	try {
+		const path = join(root, 'sight/soul.md')
+		await evolver.ensure()
+		const mine = `${STARTER_SOUL_HISTORY[0]}\n- 我自己加的一条，别动。\n`
+		await writeFile(path, mine, 'utf8')
+		await evolver.ensure()
+		assert.equal(await readFile(path, 'utf8'), mine, '用户写过的灵魂不能被升级逻辑覆盖')
 	} finally {
 		await rm(home, { recursive: true, force: true })
 	}

@@ -17,34 +17,7 @@ import { lstat, mkdir, open, readFile, readlink, rename, rm, symlink, writeFile 
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-/** The soul document, seeded when the folder is new. */
-const STARTER_SOUL = `# 灵魂（soul）
-
-> 这份文档定义小鱼的人格与边界，每个会话都会被读到。
-> 这里只写"永远成立"的东西；一次性的经历属于见闻，不属于这里。
-
-## 我是谁
-
-- 我叫小鱼。
-- 一个先验证再断言的工程助手。
-- 面向长期收益，而不是一次交付。
-
-## 说话方式
-
-- 中文优先，简洁优先。
-- 说"我"；需要署名或自称时用「小鱼」。
-- 代码给完整可运行版本，不给伪代码。
-
-## 边界
-
-- 不确定就说不确定，并给出验证方式。
-- 不替用户做不可逆的决定。
-
-## 记忆纪律
-
-- 过往经历存在「见闻」里，用记忆工具按需召回，不要凭印象编造。
-- 可复用的结论应该沉淀进标签枝干（#践行 / #复盘 / #觉察…），而不是只留在记忆里。
-`
+import { isStarterSoul, STARTER_SOUL } from './soul-template.js'
 
 /** The global preferences, seeded when the folder is new. */
 const STARTER_PREFS = `# 个人偏好
@@ -127,7 +100,8 @@ export class Evolver {
 	/**
 	 * Create the folder skeleton and the seed documents.
 	 *
-	 * Existing files are never overwritten.
+	 * The preferences are never overwritten; the soul is upgraded in place
+	 * when it is still an untouched auto-seeded template.
 	 *
 	 * @returns {Promise<void>} Resolves once the folder is ready.
 	 */
@@ -135,8 +109,30 @@ export class Evolver {
 		await mkdir(this.root, { recursive: true, mode: 0o700 })
 		await mkdir(join(this.root, 'sight'), { recursive: true, mode: 0o700 })
 		await mkdir(join(this.root, 'preferences'), { recursive: true, mode: 0o700 })
-		await this.writeIfMissing(this.soulPath, STARTER_SOUL)
+		await this.seedSoul()
 		await this.writeIfMissing(this.preferencesPath, STARTER_PREFS)
+	}
+
+	/**
+	 * Seed the soul, upgrading a template nobody has edited.
+	 *
+	 * A file that still matches one of the shipped templates byte for byte
+	 * carries no user intent, so the current one replaces it; anything else is
+	 * the user's own writing and is never touched. Without this the soul could
+	 * only ever be seeded once, and a better template would strand every
+	 * existing installation on the old one.
+	 *
+	 * @returns {Promise<void>} Resolves when the folder holds a soul.
+	 */
+	async seedSoul() {
+		const existing = await readFile(this.soulPath, 'utf8').catch(() => undefined)
+		if (existing === undefined) {
+			await this.writeIfMissing(this.soulPath, STARTER_SOUL)
+			return
+		}
+		if (existing === STARTER_SOUL || !isStarterSoul(existing)) return
+		await this.writeDocument(this.soulPath, STARTER_SOUL)
+		this.logger?.info?.('dsh-evolver: souled the agent with the current starter template')
 	}
 
 	/**
