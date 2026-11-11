@@ -18,7 +18,7 @@ import { isArchived, rootOf } from './tags.js'
 export const REPORT_TAGS = ['践行/验证方法']
 
 /** How many days the card keeps. */
-export const MAX_ROWS = 14
+export const MAX_ROWS = 10
 
 /** The first line of the report card; also how it is found again. */
 export const REPORT_TITLE = '卡片库健康度：即兴积压与链接率'
@@ -77,6 +77,8 @@ export function formatRow(row) {
 		`${String(row.outbound).padStart(3)} ${share(row.outbound).padStart(4)}`,
 		`${String(row.inbound).padStart(3)} ${share(row.inbound).padStart(4)}`,
 		String(row.islands).padStart(3),
+		row.cacheHit === undefined || row.cacheHit === null ? '   —' : `${String(Math.round(row.cacheHit)).padStart(3)}%`,
+		row.cacheMisses === undefined || row.cacheMisses === null ? '  —' : String(row.cacheMisses).padStart(3),
 	].join('  ')
 }
 
@@ -102,10 +104,13 @@ export function renderReport(rows) {
 		'',
 		`带 #即兴 ${Math.round((last.fleeting / Math.max(1, last.cards)) * 100)}%，` +
 			`有出链 ${Math.round((last.outbound / Math.max(1, last.cards)) * 100)}%，` +
-			`孤岛 ${last.islands} 张。`,
+			`孤岛 ${last.islands} 张。` +
+			(last.cacheHit === undefined || last.cacheHit === null
+				? ''
+				: ` 提示词缓存 ${Math.round(last.cacheHit)}%，重建 ${last.cacheMisses} 次。`),
 		'',
 		'```',
-		'日期    卡  即兴     未归档  出链      入链      孤岛',
+		'日期    卡  即兴     未归档  出链      入链      孤岛  命中  重建',
 		...rows.map(formatRow),
 		'```',
 		'',
@@ -113,5 +118,6 @@ export function renderReport(rows) {
 		'',
 		'即兴=仍带 #即兴 的卡；未归档=其中没有归枝干的；孤岛=既无出链也无入链的卡。',
 		'这三个数下降，说明写卡习惯在变好——只看总数看不出这件事。',
+		'命中=当天会话的提示词缓存命中率，重建=整段前缀被重读的次数（换模型或缓存过期）。',
 	].join('\n')
 }

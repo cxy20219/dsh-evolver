@@ -24,8 +24,8 @@ import { MAX_IMPORT_BYTES, extractArchiveFile, writeArchiveFile } from './src/ba
 import { BackupService } from './src/backup/service.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
 import { createConsolidationController } from './src/consolidate.js'
-import { createHealthJob } from './src/health.js'
-import { assistantEvents, summarizeUsage } from './src/cache.js'
+import { createHealthJob, dayKeyOf } from './src/health.js'
+import { assistantEvents, cacheForDay, summarizeUsage } from './src/cache.js'
 import { createHarnessTools } from './src/harness/tools.js'
 import { projectRootOf } from './src/harness/store.js'
 import { createIngestController } from './src/ingest.js'
@@ -613,6 +613,9 @@ export async function apply(ctx, config) {
 	const health = createHealthJob({
 		store: () => cardStoreRef.current,
 		logger: ctx.logger,
+		// The daily row also records how the prompt cache behaved, which only
+		// the session service can answer.
+		cache: (day) => cacheForDay({ query: ctx.get('sessionQuery'), day, dayKeyOf }),
 	})
 
 	const backup = new BackupService({

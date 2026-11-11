@@ -168,7 +168,7 @@ function isMessageEvent(event) {
  * @param {object} record - A SessionRecord.
  * @returns {boolean} True for a top-level, user-visible session.
  */
-function eligible(record) {
+export function eligible(record) {
 	const header = record?.header
 	if (header === null || typeof header !== 'object' || typeof header.id !== 'string') return false
 	if (header.isSeeded === true) return false

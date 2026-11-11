@@ -21,7 +21,7 @@ const CHECK_INTERVAL_MS = 10 * 60_000
 const REPORT_HOUR = 9
 
 /** The local calendar key of a date. */
-function dayKeyOf(stamp) {
+export function dayKeyOf(stamp) {
 	const date = new Date(stamp)
 	const month = String(date.getMonth() + 1).padStart(2, '0')
 	const day = String(date.getDate()).padStart(2, '0')
@@ -31,10 +31,10 @@ function dayKeyOf(stamp) {
 /**
  * Create the daily health card job.
  *
- * @param {{store: Function, logger?: object, now?: Function}} deps - The services the job uses.
+ * @param {{store: Function, logger?: object, now?: Function, cache?: Function}} deps - The services the job uses.
  * @returns {{available: Function, check: Function, runNow: Function, status: Function, start: Function}} The job.
  */
-export function createHealthJob({ store, logger, now = () => Date.now() }) {
+export function createHealthJob({ store, logger, now = () => Date.now(), cache }) {
 	let timer
 	let inFlight = null
 
@@ -116,15 +116,30 @@ export function createHealthJob({ store, logger, now = () => Date.now() }) {
 		const cards = current.all().filter((card) => !String(card.label ?? '').startsWith(REPORT_TITLE))
 		const metrics = healthMetrics(cards, current.backlinks())
 		const date = dayKeyOf(now())
+		// The cache numbers are a probe of the day's sessions, not of the card
+		// store, so they are optional: an unavailable provider leaves the
+		// columns empty rather than greeting the day with zeros.
+		const cacheStats = typeof cache === 'function'
+			? await cache(date).catch(() => null)
+			: null
 		const rows = ledger.rows.filter((row) => row.date !== date)
-		rows.push({ date, ...metrics })
+		rows.push({
+			date,
+			...metrics,
+			...(cacheStats === null || cacheStats === undefined
+				? {}
+				: { cacheHit: cacheStats.hit, cacheMisses: cacheStats.misses, cacheSessions: cacheStats.sessions }),
+		})
 		// Keep the newest MAX_ROWS; the oldest fall off rather than the card
 		// growing until it hits the body cap.
 		const kept = rows.slice(-MAX_ROWS)
 		await saveCard(current, ledger, renderReport(kept))
 		await current.flush?.()
 		await writeLedger({ cardId: ledger.cardId, rows: kept, lastRunAt: new Date(now()).toISOString() })
-		logger?.info?.(`dsh-evolver: health ${date} cards=${metrics.cards} improvised=${metrics.improvised} outbound=${metrics.outbound}`)
+		logger?.info?.(
+			`dsh-evolver: health ${date} cards=${metrics.cards} improvised=${metrics.fleeting} outbound=${metrics.outbound}` +
+				(cacheStats === null || cacheStats === undefined ? '' : ` cache=${Math.round(cacheStats.hit)}% misses=${cacheStats.misses}`),
+		)
 		return { date, cardId: ledger.cardId, ...metrics }
 	}
 

@@ -104,3 +104,50 @@ test('日报只在设定时间之后写，且不并发', async () => {
 		await rm(dir, { recursive: true, force: true })
 	}
 })
+
+test('当天接了缓存数据就把命中与重建写进表格', async () => {
+	const { dir, store } = await fixture()
+	let clock = new Date(2026, 10, 14, 10, 0, 0).getTime()
+	const job = createHealthJob({
+		store: () => store,
+		now: () => clock,
+		cache: async (day) => ({ sessions: 2, hit: 97.42, misses: 0, day }),
+	})
+	try {
+		await store.put({ body: '一张卡', tags: ['践行/经验'] })
+		await job.runNow()
+		clock += 24 * 60 * 60 * 1000
+		await job.runNow()
+		const ledger = JSON.parse(await readFile(join(dir, 'knowledge', 'health.json'), 'utf8'))
+		assert.equal(ledger.rows.length, 2)
+		assert.equal(ledger.rows[0].cacheMisses, 0)
+		assert.equal(Math.round(ledger.rows[0].cacheHit), 97)
+		const body = store.get(ledger.cardId).body
+		assert.match(body, /提示词缓存 97%，重建 0 次/)
+		assert.match(body, /命中  重建/)
+		// Two rows keep their positions; the newest is last.
+		assert.match(body, /11-14.*97%/)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('拿不到缓存数据时这两列留空，不写 0 冒充', async () => {
+	const { dir, store } = await fixture()
+	try {
+		await store.put({ body: '一张卡', tags: ['践行/经验'] })
+		const job = createHealthJob({ store: () => store, now: () => new Date(2026, 10, 14, 10).getTime() })
+		await job.runNow()
+		const ledger = JSON.parse(await readFile(join(dir, 'knowledge', 'health.json'), 'utf8'))
+		assert.equal(ledger.rows[0].cacheHit, undefined)
+		const body = store.get(ledger.cardId).body
+		// The footer always explains the columns; what must be absent is the
+		// summary sentence that would claim a number we do not have.
+		assert.equal(/提示词缓存 \d+%/.test(body), false)
+		assert.match(body, /—/) // 表格里的空列
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})

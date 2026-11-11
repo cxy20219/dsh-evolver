@@ -107,3 +107,52 @@ export function assistantEvents(snapshot) {
 	const events = Array.isArray(snapshot?.events) ? snapshot.events : []
 	return events.filter((event) => event?.type === 'assistant/message')
 }
+
+/**
+ * Cache numbers for every session that was active on one day.
+ *
+ * Only sessions whose last event falls inside the day are read, and only a
+ * handful of them: a snapshot carries the whole event log, so this is the one
+ * place where the cost is worth capping.
+ *
+ * @param {object} options - What to read.
+ * @param {object} options.query - The Host `sessionQuery` service.
+ * @param {string} options.day - The local day key, `YYYY-MM-DD`.
+ * @param {(date: number) => string} options.dayKeyOf - How to key a timestamp.
+ * @param {number} [options.limit] - How many sessions to read.
+ * @returns {Promise<object | null>} The aggregate, or null when unavailable.
+ */
+export async function cacheForDay({ query, day, dayKeyOf, limit = 5 }) {
+	if (query === undefined || typeof query.listSessions !== 'function') return null
+	const records = await query.listSessions().catch(() => [])
+	const today = []
+	for (const record of records ?? []) {
+		const id = record?.header?.id
+		if (typeof id !== 'string') continue
+		const events = await query.listEvents(id).catch(() => [])
+		if (!Array.isArray(events) || events.length === 0) continue
+		if (dayKeyOf(Number(events[events.length - 1].time)) !== day) continue
+		today.push(id)
+		if (today.length >= limit) break
+	}
+	let cacheRead = 0
+	let prompt = 0
+	let misses = 0
+	let read = 0
+	for (const id of today) {
+		const snapshot = await query.readSession(id).catch(() => undefined)
+		if (snapshot === undefined || snapshot === null) continue
+		const report = summarizeUsage(assistantEvents(snapshot))
+		if (report.messages === 0) continue
+		read += 1
+		cacheRead += report.totals.cacheRead
+		prompt += report.prompt
+		misses += report.misses.length
+	}
+	if (read === 0) return null
+	return {
+		sessions: read,
+		hit: prompt === 0 ? null : (cacheRead / prompt) * 100,
+		misses,
+	}
+}
