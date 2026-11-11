@@ -6,3 +6,4 @@
 - [索引里的标签与顺序按路径收编，改名要先改写索引](harness/experience/index-harvest-by-path.md)：改目录名必须先改写根 AGENTS.md 再重建索引，否则标签与用途全部退化成占位符
 - [校验器不许有副作用](harness/experience/validators-have-no-side-effects.md)：校验器只能读：py_compile 会写 __pycache__，改用内存 compile 并排除构建产物
 - [探针不能挂在请求路径上](harness/experience/probes-off-the-request-path.md)：状态接口现场探针 410ms；改成缓存 60 秒 + 后台刷新后 6.7ms
+- [布局是双份契约：插件改了，技能必须跟着改](harness/experience/layout-is-a-two-sided-contract.md)：harness 布局是插件与技能共有的契约，改一边必须同步改另一边并用两套校验器互验
