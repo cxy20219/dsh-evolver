@@ -638,6 +638,7 @@ window.__ModuleLoader__.load({
 			'.evrHeatmap{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(var(--eh-min),1fr);gap:var(--eh-gap);max-width:var(--eh-width)}',
 			'.evrHeatmapWeek{display:grid;grid-template-rows:repeat(7,auto);gap:var(--eh-gap)}',
 			'.evrHeatCell{width:100%;height:var(--eh-h);aspect-ratio:var(--eh-ar);border-radius:3px;background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l1);box-sizing:border-box}',
+			'.evrHeatBlank{background:none;border-color:transparent}',
 			'.evrHeat1{background:rgba(72,187,120,.28)}',
 			'.evrHeat2{background:rgba(72,187,120,.55)}',
 			'.evrHeat3{background:rgba(47,174,114,.85)}',
@@ -1138,8 +1139,9 @@ window.__ModuleLoader__.load({
 			var last = parse(activity[activity.length - 1].date);
 			var start = new Date(first);
 			start.setDate(start.getDate() - start.getDay());
+			// The strip ends today, not at the end of the week: cells for days
+			// that have not happened yet are blank space, not empty days.
 			var end = new Date(last);
-			end.setDate(end.getDate() + (6 - end.getDay()));
 			var weeks = [];
 			var cursor = new Date(start);
 			while (cursor <= end) {
@@ -1180,7 +1182,7 @@ window.__ModuleLoader__.load({
 						return h('div', { key: week[0].key, className: 'evrHeatmapWeek' }, week.map(function (cell) {
 							return h('div', {
 								key: cell.key,
-								className: 'evrHeatCell evrHeat' + level(cell.count),
+								className: cell.inside ? 'evrHeatCell evrHeat' + level(cell.count) : 'evrHeatCell evrHeatBlank',
 								title: cell.inside ? cell.key + ' · ' + (cell.count ?? 0) + ' ' + t('overview.heatmap.unit') : '',
 								'aria-label': cell.inside ? cell.key + ' · ' + (cell.count ?? 0) : '',
 							});
