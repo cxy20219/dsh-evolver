@@ -18,6 +18,7 @@ import {
 	firstHeading,
 	indexRefs,
 	initHarness,
+	migrateLayout,
 	isBareIndex,
 	parseIndexEntries,
 	projectRootOf,
@@ -59,18 +60,18 @@ test('frontmatter 读回来和写进去一致', () => {
 test('索引既能读回用途与顺序，也能认出带扩展名的脚本路径', () => {
 	const text = [
 		'- [Harness 开发指南](harness/harness.md)：总览',
-		'- [甲](harness/scripts/check.py)：查语法',
-		'- [乙](harness/experience/002-x.md)：一个坑；见 [甲](harness/scripts/check.py)',
+		'- [甲](harness/tool/check.py)：查语法',
+		'- [乙](harness/experience/002-x.md)：一个坑；见 [甲](harness/tool/check.py)',
 	].join('\n')
 	assert.deepEqual(indexRefs(text), [
 		'harness/harness.md',
-		'harness/scripts/check.py',
+		'harness/tool/check.py',
 		'harness/experience/002-x.md',
 	])
 	const entries = parseIndexEntries(text)
-	assert.equal(entries.get('harness/scripts/check.py').label, '甲')
-	assert.equal(entries.get('harness/scripts/check.py').summary, '查语法')
-	assert.equal(entries.get('harness/scripts/check.py').order, 1)
+	assert.equal(entries.get('harness/tool/check.py').label, '甲')
+	assert.equal(entries.get('harness/tool/check.py').summary, '查语法')
+	assert.equal(entries.get('harness/tool/check.py').order, 1)
 })
 
 test('索引即文件：整篇由目录生成，不靠标记', () => {
@@ -175,11 +176,11 @@ test('校验能抓出缺失的层、未索引的资源、以及没有文档的�
 		report = await validate(root)
 		assert.equal(report.ok, true, report.errors.join(' / '))
 
-		// A script with no workflow entry pointing at it is a resource island.
-		await writeFile(join(root, 'harness/scripts', 'tool.py'), 'print(1)\n')
+		// A tool with no workflow entry pointing at it is a resource island.
+		await writeFile(join(root, 'harness/tool', 'helper.py'), 'print(1)\n')
 		await ensureIndex(root)
 		report = await validate(root)
-		assert.ok(report.errors.some((error) => error.includes('harness/scripts/tool.py is not documented')))
+		assert.ok(report.errors.some((error) => error.includes('harness/tool/helper.py is not documented')))
 
 		await rm(join(root, 'harness/workflow'), { recursive: true, force: true })
 		report = await validate(root)
@@ -192,9 +193,9 @@ test('校验能抓出缺失的层、未索引的资源、以及没有文档的�
 test('脚本与资源不会把构建产物当成资源', async () => {
 	const root = await project()
 	try {
-		await mkdir(join(root, 'harness/scripts/__pycache__'), { recursive: true })
-		await writeFile(join(root, 'harness/scripts/__pycache__/x.cpython-314.pyc'), 'bin')
-		await writeFile(join(root, 'harness/scripts/.hidden'), 'x')
+		await mkdir(join(root, 'harness/tool/__pycache__'), { recursive: true })
+		await writeFile(join(root, 'harness/tool/__pycache__/x.cpython-314.pyc'), 'bin')
+		await writeFile(join(root, 'harness/tool/.hidden'), 'x')
 		const state = await catalog(root)
 		assert.equal(state.resources.some((item) => item.path.includes('__pycache__')), false)
 		assert.equal(state.resources.some((item) => item.path.includes('.hidden')), false)
@@ -254,4 +255,49 @@ test('slug 只留小写英文与连字符', () => {
 test('标题取第一行标题，没有就用文件名兜底', () => {
 	assert.equal(firstHeading('前言\n\n## 真正的标题\n'), '真正的标题')
 	assert.equal(firstHeading('没有标题'), '')
+})
+
+test('旧布局迁到四层：scripts→tool，references/assets→resources', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'harness-migrate-'))
+	try {
+		await mkdir(join(root, '.git'), { recursive: true })
+		await mkdir(join(root, 'harness/scripts'), { recursive: true })
+		await mkdir(join(root, 'harness/references'), { recursive: true })
+		await mkdir(join(root, 'harness/assets'), { recursive: true })
+		await mkdir(join(root, 'harness/workflow'), { recursive: true })
+		await mkdir(join(root, 'harness/experience'), { recursive: true })
+		await writeFile(join(root, 'harness/harness.md'), '# 总览\n')
+		await writeFile(join(root, 'harness/scripts/check.py'), 'print(1)\n')
+		await writeFile(join(root, 'harness/references/spec.md'), '# 规范\n')
+		await writeFile(join(root, 'harness/assets/tpl.json'), '{}\n')
+		// A document that names the old path, in both of the shapes it is written.
+		await writeFile(
+			join(root, 'harness/workflow/run.md'),
+			'# 跑一下\n\n```\npython3 harness/scripts/check.py\n```\n\n见 [check](../scripts/check.py) 与 `references/spec.md`。\n',
+		)
+		await writeFile(
+			join(root, 'AGENTS.md'),
+			'> 抬头\n# 文档索引，按需查阅\n\n- [跑一下](harness/workflow/run.md)：怎么跑\n- [检查器](harness/scripts/check.py)：查语法\n',
+		)
+
+		const result = await migrateLayout(root)
+		assert.deepEqual(result.moved.sort(), ['assets/ → resources/ (1)', 'references/ → resources/ (1)', 'scripts/ → tool/ (1)'])
+
+		const workflow = await readFile(join(root, 'harness/workflow/run.md'), 'utf8')
+		assert.match(workflow, /python3 harness\/tool\/check\.py/)
+		assert.match(workflow, /\.\.\/tool\/check\.py/)
+		assert.equal(workflow.includes('scripts/'), false)
+
+		// The project index is rewritten before it is rebuilt, so the entry
+		// keeps its label and its purpose instead of becoming a placeholder.
+		const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
+		assert.match(agents, /- \[检查器\]\(harness\/tool\/check\.py\)：查语法/)
+
+		const state = await catalog(root)
+		assert.deepEqual(Object.keys(state.layers).sort(), ['experience', 'resources', 'tool', 'workflow'])
+		assert.equal(state.layers.tool.length, 1)
+		assert.equal(state.layers.resources.length, 2, 'references 与 assets 都进了 resources')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
 })

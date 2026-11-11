@@ -7,7 +7,7 @@
  * cannot skip a tool that returns an error.
  */
 
-import { catalog, ensureIndex, initHarness, renderIndex } from './store.js'
+import { catalog, ensureIndex, initHarness, migrateLayout, renderIndex } from './store.js'
 import { validate } from './validate.js'
 import { writeResource } from './write.js'
 
@@ -89,7 +89,7 @@ export function createHarnessTools({ resolveProject }) {
 				type: 'object',
 				properties: {
 					project: { type: 'string', description: '项目根绝对路径；留空则用当前会话的工作目录推断' },
-					init: { type: 'boolean', description: '缺骨架时建立，并把 AGENTS.md 索引迁进托管块，默认 false' },
+					init: { type: 'boolean', description: '缺骨架时建立；旧布局迁到 tool/resources；重算 AGENTS.md。默认 false' },
 				},
 			},
 			output: OBJECT_OUTPUT,
@@ -98,6 +98,7 @@ export function createHarnessTools({ resolveProject }) {
 				const root = await rootFor(exec, input.project)
 				if (input.init === true) {
 					await initHarness(root)
+					await migrateLayout(root)
 					// Migration for a folder indexed by an older tool: the first
 					// init replaces the hand-written index with the managed block.
 					await ensureIndex(root)
@@ -114,8 +115,8 @@ export function createHarnessTools({ resolveProject }) {
 			parameters: {
 				type: 'object',
 				properties: {
-					layer: { type: 'string', enum: ['workflow', 'experience', 'scripts', 'references', 'assets'], description: '资源层级；用 path 更新已有资源时可不传' },
-					slug: { type: 'string', description: '文件名（不含扩展名），小写英文与连字符' },
+					layer: { type: 'string', enum: ['workflow', 'experience', 'tool', 'resources'], description: '资源层级：workflow 流程 / experience 经验 / tool 可执行的东西 / resources 工具要读的东西' },
+					slug: { type: 'string', description: '文件名，小写英文与连字符；workflow/experience 自动补 .md，tool/resources 按你给的名字原样用' },
 					title: { type: 'string', description: '文档标题' },
 					summary: { type: 'string', description: '一句话用途，写进 AGENTS.md 索引，必填' },
 					body: { type: 'string', description: '完整正文（markdown；脚本层放脚本正文）' },

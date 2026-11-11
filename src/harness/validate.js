@@ -12,7 +12,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { LAYERS, OVERVIEW, REQUIRED_INDEX_TEXT, catalog } from './store.js'
+import { LAYERS, OVERVIEW, REFERENCED_LAYERS, REQUIRED_INDEX_TEXT, TOOL_LAYER, catalog } from './store.js'
 
 const run = promisify(execFile)
 
@@ -64,7 +64,7 @@ export async function validate(root) {
 		}
 	}
 
-	for (const layer of ['scripts', 'assets']) {
+	for (const layer of REFERENCED_LAYERS) {
 		for (const path of state.layers[layer] ?? []) {
 			const documented = await documentedBy(root, state, path)
 			if (documented === undefined) {
@@ -77,7 +77,7 @@ export async function validate(root) {
 		}
 	}
 
-	for (const path of state.layers.scripts ?? []) {
+	for (const path of state.layers[TOOL_LAYER] ?? []) {
 		if (!path.endsWith('.py')) continue
 		try {
 			// Compile in memory: `-m py_compile` writes a __pycache__ folder

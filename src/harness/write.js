@@ -10,7 +10,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { LAYERS, OVERVIEW, catalog, documentOf, isBareIndex, renderIndex, withFrontmatter } from './store.js'
+import { LAYERS, OVERVIEW, RESOURCE_LAYER, TOOL_LAYER, catalog, documentOf, isBareIndex, renderIndex, withFrontmatter } from './store.js'
 import { validate } from './validate.js'
 
 /** The name a resource file may have: one segment, no traversal. */
@@ -133,7 +133,9 @@ async function resolveTarget({ root, layer, slug, path }) {
 	}
 	const name = slugOf(slug)
 	if (name === '') throw new Error(`文件名不合法：${String(slug ?? '')}`)
-	const extension = layer === 'scripts' || layer === 'assets' ? '' : '.md'
+	// A workflow or an experience is a document; a tool or a resource is
+	// whatever the file is, extension included.
+	const extension = layer === TOOL_LAYER || layer === RESOURCE_LAYER ? '' : '.md'
 	const file = extension === '' ? name : `${name}${extension}`
 	return join(root, 'harness', String(layer), file)
 }

@@ -14,22 +14,31 @@
  *   harness/harness.md          the project overview
  *   harness/workflow/           stable, executable procedures
  *   harness/experience/         reusable judgements
- *   harness/scripts/            runnable tools
- *   harness/references/         long background
- *   harness/assets/             templates and fixtures
+ *   harness/tool/               anything runnable: a script, a binary, a CLI
+ *   harness/resources/          everything it reads: specs, templates, fixtures
+ *
+ * Four layers, not five: `references/` and `assets/` were the same question —
+ * "what does the tooling read" — answered twice, and `scripts/` was too narrow
+ * for a folder that also holds compiled helpers.
  */
 
-import { lstat, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
-/** The five resource layers, in the order the index lists them. */
-export const LAYERS = ['workflow', 'experience', 'scripts', 'references', 'assets']
+/** The four resource layers, in the order the index lists them. */
+export const LAYERS = ['workflow', 'experience', 'tool', 'resources']
 
-/** The layers whose entries are prose documents. */
-export const DOC_LAYERS = ['workflow', 'experience', 'references']
+/** The layer that holds anything runnable. */
+export const TOOL_LAYER = 'tool'
+
+/** The layer that holds everything a tool reads. */
+export const RESOURCE_LAYER = 'resources'
 
 /** The layers whose entries must be referenced by a document. */
-export const REFERENCED_LAYERS = ['scripts', 'assets']
+export const REFERENCED_LAYERS = [TOOL_LAYER, RESOURCE_LAYER]
+
+/** Where each retired layer lived, for migration. */
+export const RETIRED_LAYERS = { scripts: TOOL_LAYER, references: RESOURCE_LAYER, assets: RESOURCE_LAYER }
 
 /** The overview file every harness folder carries. */
 export const OVERVIEW = 'harness.md'
@@ -51,9 +60,8 @@ const OVERVIEW_TEMPLATE = `# Harness 项目资源总览
 
 - workflow：稳定可执行流程。
 - experience：可复用判断经验。
-- scripts：可重复执行、检查、迁移、生成、验证的动作。
-- references：长背景、外部规范、版本差异、原理说明。
-- assets：模板、示例输入、静态资源。
+- tool：可重复执行的东西——脚本、可执行文件、CLI 都算。
+- resources：工具要读的东西——外部规范、长背景、模板、示例输入、静态资源。
 `
 
 /**
@@ -283,7 +291,7 @@ export function parseIndexEntries(text) {
  * @returns {string[]} The paths, in order of appearance.
  */
 export function indexRefs(text) {
-	const pattern = /harness\/(?:harness\.md|(?:workflow|experience|references|scripts|assets)\/[^\s`)\]}，。；：、,;:"'|]+)/g
+	const pattern = /harness\/(?:harness\.md|(?:workflow|experience|tool|resources)\/[^\s`)\]}，。；：、,;:"'|]+)/g
 	return [...new Set(
 		(String(text ?? '').match(pattern) ?? []).map((ref) => ref.replace(/[.,;:]+$/, '')),
 	)]
@@ -384,6 +392,108 @@ export async function ensureIndex(root) {
 		await rename(temp, agentsPath)
 	}
 	return { entries: state.resources.length, changed: next !== current }
+}
+
+/**
+ * Move a folder laid out the old way into the current four layers.
+ *
+ * `scripts/` becomes `tool/`, and `references/` and `assets/` both become
+ * `resources/`. Every path written inside the folder is rewritten too — a
+ * workflow that says `python3 harness/scripts/x.py` would be a dead command
+ * after the rename, which is exactly the kind of rot this system exists to
+ * prevent.
+ *
+ * @param {string} root - The project root.
+ * @param {{dryRun?: boolean}} [options] - Whether to only report.
+ * @returns {Promise<{moved: string[], rewritten: number}>} What changed.
+ */
+export async function migrateLayout(root, { dryRun = false } = {}) {
+	const harnessDir = join(root, 'harness')
+	const moved = []
+	const present = await readdir(harnessDir).catch(() => [])
+	const plan = [
+		['scripts', TOOL_LAYER],
+		['references', RESOURCE_LAYER],
+		['assets', RESOURCE_LAYER],
+	]
+	for (const [from, to] of plan) {
+		if (!present.includes(from)) continue
+		const source = join(harnessDir, from)
+		const target = join(harnessDir, to)
+		const files = await readdir(source, { recursive: true }).catch(() => [])
+		const items = files.map((entry) => String(entry).split('\\').join('/')).filter((entry) => !isNoise(entry))
+		moved.push(`${from}/ → ${to}/ (${items.length})`)
+		if (dryRun) continue
+		await mkdir(target, { recursive: true, mode: 0o700 })
+		for (const entry of items) {
+			const destination = join(target, entry)
+			await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
+			await rename(join(source, entry), destination)
+		}
+		await rm(source, { recursive: true, force: true })
+	}
+
+	if (!dryRun) {
+		// A layer that never held anything still has to exist: the structure is
+		// half the contract, and an empty folder is cheaper than a special case.
+		for (const layer of LAYERS) {
+			await mkdir(join(harnessDir, layer), { recursive: true, mode: 0o700 })
+		}
+		const files = await readdir(harnessDir, { recursive: true }).catch(() => [])
+		for (const entry of files) {
+			const path = join(harnessDir, String(entry))
+			if (!/\.(md|txt|ya?ml|json)$/i.test(path)) continue
+			const text = await readFile(path, 'utf8').catch(() => undefined)
+			if (text === undefined) continue
+			const next = rewritePaths(text)
+			if (next !== text) await writeFile(path, next, { mode: 0o600 })
+		}
+		// The index lives at the project root, not under harness/. Rewriting it
+		// here is what lets the migration keep each entry's label and purpose:
+		// they are looked up by path, and the path just changed.
+		const agentsPath = join(root, 'AGENTS.md')
+		const agents = await readFile(agentsPath, 'utf8').catch(() => undefined)
+		if (agents !== undefined) {
+			const next = rewritePaths(agents)
+			if (next !== agents) await writeFile(agentsPath, next, { mode: 0o600 })
+		}
+	}
+
+	return {
+		moved,
+		rewritten: dryRun ? 0 : await countRewrites(harnessDir),
+	}
+}
+
+/**
+ * Point every mention of a retired layer at its new home.
+ *
+ * @param {string} text - The document.
+ * @returns {string} The document with current paths.
+ */
+export function rewritePaths(text) {
+	return String(text ?? '').replace(
+		/(harness\/|\.\.\/|\(|`|\s)(scripts|references|assets)\//g,
+		(_match, prefix, layer) => `${prefix}${RETIRED_LAYERS[layer]}/`,
+	)
+}
+
+/**
+ * How many documents still mention a retired layer.
+ *
+ * @param {string} harnessDir - The harness folder.
+ * @returns {Promise<number>} The count.
+ */
+async function countRewrites(harnessDir) {
+	const files = await readdir(harnessDir, { recursive: true }).catch(() => [])
+	let count = 0
+	for (const entry of files) {
+		const path = join(harnessDir, String(entry))
+		if (!path.endsWith('.md')) continue
+		const text = await readFile(path, 'utf8').catch(() => '')
+		if (/(?:scripts|references|assets)\//.test(text)) count += 1
+	}
+	return count
 }
 
 /**
