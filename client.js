@@ -880,20 +880,6 @@ window.__ModuleLoader__.load({
 		 * @returns {number} The weight.
 		 */
 		/**
-		 * The label of one node.
-		 *
-		 * Only roots carry their count: on a crowded ring the extra number is
-		 * what pushes neighbouring labels into each other, and the exact
-		 * count is one hover away.
-		 *
-		 * @param {object} node - The laid-out node.
-		 * @returns {string} The label text.
-		 */
-		function tagGraphLabelOf(node) {
-			return node.depth === 0 ? '#' + node.name + ' ' + node.count : '#' + node.name;
-		}
-
-		/**
 		 * Estimate the rendered width of a label in graph units.
 		 *
 		 * @param {string} text - The label text.
@@ -993,7 +979,7 @@ window.__ModuleLoader__.load({
 				// Labels run outward along the spoke and are rotated to it, so
 				// what bounds the picture is the far end of each label, not a
 				// horizontal strip beside its dot.
-				var reach = 9 + labelExtent('#' + node.name);
+				var reach = 9 + labelExtent(node.name);
 				var farX = node.x + Math.cos(node.angle) * reach;
 				var farY = node.y + Math.sin(node.angle) * reach;
 				var pad = 12;
@@ -1115,7 +1101,7 @@ window.__ModuleLoader__.load({
 			}
 			function pick(node, event) {
 				if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-				setTip({ path: '#' + node.path, x: node.x, y: node.y });
+				setTip({ path: node.path, x: node.x, y: node.y });
 				frameOn(node, node.depth === 0 ? false : (node.children ?? []).length === 0);
 			}
 
@@ -1145,8 +1131,8 @@ window.__ModuleLoader__.load({
 				var flipped = Math.cos(node.angle) < 0;
 				var labelX = flipped ? node.x - 9 : node.x + 9;
 				var isRoot = node.depth === 0;
-				var active = tip === null || node.path === tip.path.replace(/^#/, '')
-					|| (tip !== null && node.path.indexOf(tip.path.replace(/^#/, '') + '/') === 0);
+				var active = tip === null || node.path === tip.path
+					|| (tip !== null && node.path.indexOf(tip.path + '/') === 0);
 				return h('g', {
 					key: node.path,
 					className: 'evrGraphNode',
@@ -1172,13 +1158,13 @@ window.__ModuleLoader__.load({
 						textAnchor: flipped ? 'end' : 'start',
 						transform: 'rotate(' + (flipped ? degrees + 180 : degrees).toFixed(1) + ' ' + node.x.toFixed(1) + ' ' + node.y.toFixed(1) + ')',
 						className: isRoot ? 'evrGraphLabel evrGraphRoot' : 'evrGraphLabel',
-					}, '#' + node.name),
-					h('title', null, '#' + node.path + ' · ' + node.count));
+					}, node.name),
+					h('title', null, node.path + ' · ' + node.count));
 			});
 
 			var tipNode = null;
 			if (tip !== null) {
-				layout.nodes.forEach(function (node) { if ('#' + node.path === tip.path) tipNode = node; });
+				layout.nodes.forEach(function (node) { if (node.path === tip.path) tipNode = node; });
 			}
 			var tipAt = tipNode === null ? null : toScreen(tipNode.x, tipNode.y);
 

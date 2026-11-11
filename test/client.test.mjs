@@ -745,7 +745,9 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.deepEqual(cardTitles, ['overview.notes', 'overview.tags', 'overview.days'])
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrHeatmapWrap').length, 1)
 		assert.ok(findAll(tree, (node) => node.props?.className === 'evrGraph').length === 1)
-		assert.ok(findAll(tree, (node) => textOf(node).includes('#践行')).length >= 1)
+		// Graph labels are plain tag names; the '#' prefix is not drawn.
+		assert.ok(findAll(tree, (node) => textOf(node) === '践行').length >= 1)
+		assert.equal(findAll(tree, (node) => textOf(node).includes('#践行')).length, 0)
 		assert.ok(tabs.includes('tab.cards'))
 		assert.ok(tabs.includes('tab.soul'))
 		assert.equal(tabs.includes('tab.sight'), false)
@@ -762,7 +764,7 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		// both in the picture before anything is clicked.
 		const graphLabels = () => findAll(tree, (node) => typeof node.props?.className === 'string'
 			&& node.props.className.includes('evrGraphLabel')).map((node) => textOf(node))
-		assert.ok(graphLabels().filter((label) => label.startsWith('#工作流')).length >= 1, '子标签一开始就在图上')
+		assert.ok(graphLabels().filter((label) => label.startsWith('工作流')).length >= 1, '子标签一开始就在图上')
 		const camera = () => findAll(tree, (node) => node.type === 'g'
 			&& typeof node.props?.style?.transform === 'string' && node.props.style.transform.indexOf('scale(') > -1)[0]
 		const zoomOf = () => Number(/scale\(([\d.]+)\)/.exec(camera().props.style.transform)[1])
@@ -775,7 +777,7 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		nodeGroup.props.onClick({ preventDefault() {}, stopPropagation() {} })
 		tree = await runtime.settle(render)
 		assert.ok(zoomOf() > fitted, '点击后放大')
-		assert.ok(graphLabels().filter((label) => label.startsWith('#工作流')).length >= 1, '放大后子标签还在')
+		assert.ok(graphLabels().filter((label) => label.startsWith('工作流')).length >= 1, '放大后子标签还在')
 
 		// Clicking the empty space fits the whole tree again.
 		const svg = findAll(tree, (node) => node.type === 'svg'
