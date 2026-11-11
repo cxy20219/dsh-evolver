@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /**
@@ -26,6 +26,9 @@ const MEMORIES = 'memories'
 
 /** How long a change waits before it is written out. */
 const FLUSH_DELAY_MS = 400
+
+/** The longest wait between retries of a failed write. */
+const FLUSH_RETRY_MAX_MS = 30_000
 
 /** BM25 parameters. */
 const BM25_K1 = 1.2
@@ -109,6 +112,18 @@ export class MemoryDatabase {
 		this.dirty = new Set()
 		/** The debounce timer; kept so a shutdown can flush it immediately. */
 		this.flushTimer = undefined
+		/**
+		 * Bumped whenever the record set changes.
+		 *
+		 * Callers that derive a view of every record (the card layer builds a
+		 * label for each) can cache it against this number instead of
+		 * rebuilding on every read.
+		 */
+		this.version = 0
+		/** Why the last background write failed, if it did. */
+		this.lastWriteError = ''
+		/** The wait before the next retry, doubled on every failure. */
+		this.writeRetryDelay = FLUSH_DELAY_MS
 		/** The write chain: flushes never overlap. */
 		this.queue = Promise.resolve()
 		/** Names the temporary files of this process. */
@@ -138,6 +153,7 @@ export class MemoryDatabase {
 		this.logRewrite = false
 		this.memories = await this.readMemories()
 		this.rebuildIndex()
+		this.version += 1
 		// Whatever was on disk is the current state; nothing to write back.
 		this.dirty.clear()
 	}
@@ -273,6 +289,7 @@ export class MemoryDatabase {
 		const previous = this.memories.get(memory.id)
 		this.memories.set(memory.id, memory)
 		this.indexOne(memory, previous)
+		this.version += 1
 		this.pendingAppends.push(memory)
 		this.markDirty(MEMORIES)
 		return memory
@@ -338,6 +355,7 @@ export class MemoryDatabase {
 		if (previous === undefined) return false
 		this.memories.delete(id)
 		this.unindex(id)
+		this.version += 1
 		this.pendingAppends.push({ id, deleted: true })
 		this.markDirty(MEMORIES)
 		return true
@@ -494,9 +512,32 @@ export class MemoryDatabase {
 	 * @returns {Promise<void>} Resolves once the file is committed.
 	 */
 	async writeLines(name, records) {
-		const lines = []
-		for (const record of records) lines.push(JSON.stringify(record))
-		await this.writeFileAtomic(name, lines.length === 0 ? '' : `${lines.join('\n')}\n`)
+		// Written in chunks rather than one giant string: a 5000-card log is
+		// 9 MB, and building it as one string doubles the peak memory of every
+		// compaction and hands the garbage collector a large object to sweep.
+		const target = join(this.folder, name)
+		this.writeSequence += 1
+		const temp = `${target}.${process.pid}.${this.writeSequence}.tmp`
+		try {
+			const handle = await open(temp, 'w', 0o600)
+			try {
+				const batch = []
+				for (const record of records) {
+					batch.push(JSON.stringify(record))
+					if (batch.length >= 512) {
+						await handle.write(`${batch.join('\n')}\n`)
+						batch.length = 0
+					}
+				}
+				if (batch.length > 0) await handle.write(`${batch.join('\n')}\n`)
+			} finally {
+				await handle.close()
+			}
+			await rename(temp, target)
+		} catch (error) {
+			await rm(temp, { force: true }).catch(() => {})
+			throw error
+		}
 	}
 
 	/**
@@ -528,14 +569,26 @@ export class MemoryDatabase {
 	 *
 	 * @returns {void}
 	 */
-	scheduleFlush() {
+	scheduleFlush(delay = FLUSH_DELAY_MS) {
 		if (this.flushTimer !== undefined) return
 		this.flushTimer = setTimeout(() => {
 			this.flushTimer = undefined
-			void this.flush().catch(error => {
-				this.logger?.warn?.(`dsh-evolver: memory write failed: ${error instanceof Error ? error.message : String(error)}`)
+			void this.flush().then(() => {
+				this.lastWriteError = ''
+				this.writeRetryDelay = FLUSH_DELAY_MS
+			}, error => {
+				// A failed write used to leave the changes marked dirty with no
+				// timer armed, so nothing ever tried again — a full disk read as
+				// a silent loss. Keep trying, backing off, and record why.
+				this.lastWriteError = error instanceof Error ? error.message : String(error)
+				this.logger?.warn?.(`dsh-evolver: memory write failed: ${this.lastWriteError}`)
+				this.writeRetryDelay = Math.min(this.writeRetryDelay * 2, FLUSH_RETRY_MAX_MS)
+				this.scheduleFlush(this.writeRetryDelay)
 			})
-		}, FLUSH_DELAY_MS)
+		}, delay)
+		// The first attempt is ref'd on purpose (see above); a retry is not, or
+		// a disk that stays broken would keep the process alive forever.
+		if (delay > FLUSH_DELAY_MS) this.flushTimer.unref?.()
 	}
 
 	//#endregion

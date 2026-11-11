@@ -233,11 +233,13 @@ test('导出、导入与迁移数据目录', async () => {
 			assert.equal((await stat(archive)).isFile(), true)
 			assert.deepEqual([...(await readFile(archive)).subarray(0, 2)], [0x1f, 0x8b])
 
-			// 导出文件不能放在数据目录里面，也不能是根目录
-			const nested = await post(routes, 'data-export', { file: join(root, 'nested.tar.gz') })
-			assert.equal(nested.status, 400)
-			const rootDir = await post(routes, 'data-export', { file: '/' })
-			assert.equal(rootDir.status, 400)
+			// 导出只收「目录 + 文件名」：任意绝对路径这个入口已经关掉
+			const nested = await post(routes, 'data-export', { dir: root, name: 'nested.tar.gz' })
+			assert.equal(nested.status, 400, '不能导出到数据目录里面')
+			const rootDir = await post(routes, 'data-export', { dir: '/', name: 'x.tar.gz' })
+			assert.equal(rootDir.status, 400, '不能把根目录当目标')
+			const freePath = await post(routes, 'data-export', { file: join(home, 'free.tar.gz') })
+			assert.equal(freePath.status, 400, '不再接受整条路径')
 
 			// 导出的压缩包可以再导入：删一张卡，再从包里恢复（含附件）
 			const restorable = await (await post(routes, 'card-write', {
@@ -249,7 +251,7 @@ test('导出、导入与迁移数据目录', async () => {
 				data: Buffer.from('会被恢复的附件').toString('base64'),
 			})
 			const second = join(home, 'second.tar.gz')
-			await post(routes, 'data-export', { file: second, force: true })
+			await post(routes, 'data-export', { dir: home, name: 'second.tar.gz', force: true })
 			await post(routes, 'card-remove', { id: restorable.id })
 			const gone = await (await post(routes, 'card-list', { query: '会被恢复' })).json()
 			assert.equal(gone.cards.length, 0)

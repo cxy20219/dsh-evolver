@@ -75,6 +75,9 @@ export class BackupService {
 		this.timer = undefined
 		this.startup = undefined
 		this.running = false
+		// Failures in a row: the retry wait doubles so a broken endpoint does
+		// not re-pack the whole folder every five minutes.
+		this.failures = 0
 	}
 
 	/**
@@ -173,6 +176,7 @@ export class BackupService {
 				}).catch(() => {})
 				this.logger?.warn?.(`dsh-evolver: backup cleanup failed: ${cleanupError}`)
 			}
+			this.failures = 0
 			this.logger?.info?.(`dsh-evolver: backup ${key} (${packed.bytes} bytes, ${packed.files} files, ${removed} old)`)
 			return {
 				key,
@@ -184,6 +188,7 @@ export class BackupService {
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
+			this.failures += 1
 			await this.settings.updateStatus({ lastError: message }).catch(() => {})
 			this.logger?.warn?.(`dsh-evolver: backup failed: ${message}`)
 			throw error
@@ -222,10 +227,12 @@ export class BackupService {
 		const interval = config.intervalMinutes * 60_000
 		const last = Date.parse(status.lastBackupAt)
 		if (Number.isFinite(last) && now - last < interval) return
-		// After a failure, give the endpoint five minutes before trying again,
-		// so a dead network does not mean one request per heartbeat forever.
+		// After a failure, wait before trying again — and wait longer each time,
+		// up to the configured interval. A fixed five minutes turns a broken
+		// endpoint into a re-pack of the whole folder every five minutes.
 		const attempted = Date.parse(status.lastAttemptAt)
-		if (status.lastError !== '' && Number.isFinite(attempted) && now - attempted < 5 * 60_000) return
+		const backoff = Math.min(interval, 5 * 60_000 * 2 ** Math.min(this.failures, 6))
+		if (status.lastError !== '' && Number.isFinite(attempted) && now - attempted < backoff) return
 		try {
 			await this.runNow({ reason: 'schedule' })
 		} catch {

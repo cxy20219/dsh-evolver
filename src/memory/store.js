@@ -53,6 +53,17 @@ export class MemoryStore {
 	}
 
 	/**
+	 * A counter that changes whenever the record set does.
+	 *
+	 * Derived views cache against it.
+	 *
+	 * @returns {number} The version.
+	 */
+	get version() {
+		return this.db.version
+	}
+
+	/**
 	 * One record.
 	 *
 	 * @param {string} id - The id.

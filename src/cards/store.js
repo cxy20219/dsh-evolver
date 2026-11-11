@@ -81,17 +81,41 @@ async function writeJsonAtomic(path, value) {
 }
 
 /**
+ * How many derived labels to remember.
+ *
+ * Labels are recomputed from the body on every read of the card view; the
+ * cache turns that into one pass per distinct body. The cap keeps a library
+ * that is rewritten often from growing without bound.
+ */
+const LABEL_CACHE_LIMIT = 4096
+
+/** Derived labels, oldest first. */
+const LABEL_CACHE = new Map()
+
+/**
  * Derive a card label from its body.
  *
  * @param {unknown} body - The body text.
  * @returns {string} A single-line label.
  */
 export function labelOf(body) {
-	const line = String(body ?? '').split('\n').map((part) => part.trim()).find((part) => part !== '') ?? ''
+	const source = String(body ?? '')
+	const cached = LABEL_CACHE.get(source)
+	if (cached !== undefined) return cached
+	const line = source.split('\n').map((part) => part.trim()).find((part) => part !== '') ?? ''
 	const clean = line.replace(/^#{1,6}\s+/, '').replace(/^[-*+>]\s+/, '')
 	const link = clean.match(/^\[([^\]]+)\]\([^)]*\)/)
-	if (link !== null) return link[1].replace(/\s+/g, ' ').trim().slice(0, 80)
-	return clean.replace(/\s+/g, ' ').trim().slice(0, 80)
+	const label = link !== null
+		? link[1].replace(/\s+/g, ' ').trim().slice(0, 80)
+		: clean.replace(/\s+/g, ' ').trim().slice(0, 80)
+	// Deriving the label costs a split and three passes over the body, and
+	// every read path asks for the same bodies again. The cache holds the
+	// strings it saw last; a changed body is simply a miss.
+	if (LABEL_CACHE.size >= LABEL_CACHE_LIMIT) {
+		LABEL_CACHE.delete(LABEL_CACHE.keys().next().value)
+	}
+	LABEL_CACHE.set(source, label)
+	return label
 }
 
 /**
@@ -174,6 +198,9 @@ export class CardStore {
 			logName: 'cards.jsonl',
 			logger,
 		})
+		/** The card views of the current store version, rebuilt on change. */
+		this.allCache = null
+		this.allVersion = -1
 		this.resources = new ResourceStore({ root: dataDir })
 	}
 
@@ -393,7 +420,13 @@ export class CardStore {
 	 * @returns {object[]} The cards.
 	 */
 	all() {
-		return this.cards.all().map((record) => this.cardOf(record))
+		const version = this.cards.version
+		if (this.allCache !== null && this.allVersion === version) return [...this.allCache]
+		const cards = this.cards.all().map((record) => this.cardOf(record))
+		this.allCache = cards
+		this.allVersion = version
+		// A copy, because callers sort and filter the result in place.
+		return [...cards]
 	}
 
 	/**
@@ -626,6 +659,10 @@ export class CardStore {
 	 */
 	async remove(id, { archiveResources = false } = {}) {
 		const existed = await this.cards.deleteMemory(id)
+		// Write the tombstone before touching the files it refers to. The other
+		// order leaves a window where a crash brings the card back with empty
+		// attachments — the body survives, the script it pointed at does not.
+		await this.cards.flush()
 		if (archiveResources) {
 			// The organiser promises that nothing leaves without a copy; a card's
 			// attachments are part of the card.

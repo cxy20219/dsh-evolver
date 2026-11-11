@@ -28,7 +28,20 @@ import { buildTarHeader, parseTarHeader } from './tar.js'
 import { isInsidePath, isReallyInside } from '../workspace.js'
 
 /** The largest archive an import will accept, in bytes. */
-export const MAX_IMPORT_BYTES = 8 * 1024 * 1024 * 1024
+/** The largest archive file the panel will accept. */
+export const MAX_IMPORT_BYTES = 2 * 1024 * 1024 * 1024
+
+/**
+ * The largest amount of data one import may unpack.
+ *
+ * Separate from the archive size on purpose: a small .tar.gz can inflate to
+ * gigabytes, and the data folder this plugin manages is a card library with
+ * attachments, not a media collection.
+ */
+export const MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
+
+/** The largest single entry an import may unpack. */
+const MAX_EXTRACTED_ENTRY_BYTES = 64 * 1024 * 1024
 
 /** The largest entry count an import will process. */
 const MAX_IMPORT_ENTRIES = 20000
@@ -94,18 +107,47 @@ export async function collectFileEntries(root) {
  */
 async function* tarChunks(root, stats) {
 	const entries = await collectFileEntries(root)
+	const buffer = Buffer.allocUnsafe(64 * 1024)
 	for (const entry of entries) {
-		yield buildTarHeader({
-			path: entry.path,
-			size: entry.size,
-			mode: entry.mode,
-			mtime: Math.floor(entry.mtimeMs / 1000),
-		})
-		for await (const chunk of createReadStream(entry.absPath)) yield chunk
-		const remainder = entry.size % 512
-		if (remainder !== 0) yield Buffer.alloc(512 - remainder)
-		stats.files += 1
-		stats.bytes += entry.size
+		// Stat the handle we are about to read, and let that decide the header.
+		// Between listing and opening, `cards.jsonl` may have been appended to
+		// and `consolidation.json` renamed over. A header that disagrees with
+		// the bytes that follow shifts every later block, so the archive is
+		// corrupt while still being reported as written.
+		const handle = await open(entry.absPath, 'r').catch(() => undefined)
+		if (handle === undefined) continue
+		let size
+		let mode
+		let mtime
+		try {
+			const info = await handle.stat()
+			if (!info.isFile()) continue
+			size = info.size
+			mode = info.mode & 0o777
+			mtime = Math.floor(info.mtimeMs / 1000)
+		} catch {
+			await handle.close().catch(() => {})
+			continue
+		}
+		try {
+			yield buildTarHeader({ path: entry.path, size, mode, mtime })
+			let offset = 0
+			while (offset < size) {
+				const want = Math.min(buffer.length, size - offset)
+				const { bytesRead } = await handle.read(buffer, 0, want, offset)
+				// The file shrank while we read it. Sending the short read would
+				// desynchronise the archive; failing the whole write is honest.
+				if (bytesRead === 0) throw new Error(`备份时文件被截断：${entry.path}`)
+				yield Buffer.from(buffer.subarray(0, bytesRead))
+				offset += bytesRead
+			}
+			const remainder = size % 512
+			if (remainder !== 0) yield Buffer.alloc(512 - remainder)
+			stats.files += 1
+			stats.bytes += size
+		} finally {
+			await handle.close().catch(() => {})
+		}
 	}
 	// Two zero blocks end the archive.
 	yield Buffer.alloc(1024)
@@ -304,6 +346,7 @@ export async function extractArchiveFile(source, root, { force = false } = {}) {
 	const reader = new ChunkReader(stream)
 	let files = 0
 	let bytes = 0
+	let entries = 0
 	let skipped = 0
 	let sawEntry = false
 	for (;;) {
@@ -319,8 +362,12 @@ export async function extractArchiveFile(source, root, { force = false } = {}) {
 			skipped += 1
 			continue
 		}
-		if (files + 1 > MAX_IMPORT_ENTRIES) throw new Error(`压缩包条目过多（上限 ${MAX_IMPORT_ENTRIES}）。`)
-		if (bytes + parsed.size > MAX_IMPORT_BYTES) throw new Error('压缩包解压后超过大小上限。')
+		// Counted for every entry, written or skipped: an archive full of
+		// entries outside the allowlist is still an archive full of entries.
+		entries += 1
+		if (entries > MAX_IMPORT_ENTRIES) throw new Error(`压缩包条目过多（上限 ${MAX_IMPORT_ENTRIES}）。`)
+		if (parsed.size > MAX_EXTRACTED_ENTRY_BYTES) throw new Error(`压缩包里有超大条目：${parsed.path}`)
+		if (bytes + parsed.size > MAX_EXTRACTED_BYTES) throw new Error(`压缩包解压后超过 ${MAX_EXTRACTED_BYTES / 1024 / 1024} MB 上限。`)
 		const target = join(root, ...parsed.path.split('/'))
 		const folder = dirname(target)
 		await mkdir(folder, { recursive: true, mode: 0o700 })

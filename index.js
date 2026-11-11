@@ -285,42 +285,45 @@ export async function apply(ctx, config) {
 	}
 
 	/**
-	 * Count visible characters, ignoring whitespace.
-	 *
-	 * @param {string} text - Card body.
-	 * @returns {number} Character count.
-	 */
-	function characterCount(text) {
-		return [...String(text ?? '').replace(/\s+/gu, '')].length
-	}
-
-	/**
 	 * Build overview statistics: totals and a 365-day heatmap.
 	 *
 	 * @param {object[]} cards - The card views.
 	 * @returns {object} Totals, year metrics and daily activity.
 	 */
 	function overviewStats(cards) {
-		const createdDays = cards
-			.map((card) => new Date(card.created))
-			.filter((date) => Number.isFinite(date.getTime()))
-			.map((date) => {
-				date.setHours(0, 0, 0, 0)
-				return date
-			})
-			.sort((left, right) => left - right)
 		const today = new Date()
 		today.setHours(0, 0, 0, 0)
 		const days = new Map()
+		let first = Infinity
+		let words = 0
+		let archived = 0
+		const tags = new Set()
 		for (const card of cards) {
+			// One pass and one character count per card: the day histogram, the
+			// total, the tag set and the earliest card all come from the same
+			// scan. Counting the body twice used to double the cost of the
+			// most expensive part of the overview.
+			let chars = 0
+			for (const character of String(card.body ?? '')) {
+				if (!/\s/u.test(character)) chars += 1
+			}
 			const date = new Date(card.created)
-			if (!Number.isFinite(date.getTime())) continue
-			date.setHours(0, 0, 0, 0)
-			const key = dayKey(date)
-			const entry = days.get(key) ?? { count: 0, words: 0 }
-			entry.count += 1
-			entry.words += characterCount(card.body)
-			days.set(key, entry)
+			if (Number.isFinite(date.getTime())) {
+				date.setHours(0, 0, 0, 0)
+				if (date.getTime() < first) first = date.getTime()
+				const key = dayKey(date)
+				const entry = days.get(key) ?? { count: 0, words: 0 }
+				entry.count += 1
+				entry.words += chars
+				days.set(key, entry)
+			}
+			const isArchived = card.tags.some((tag) => tag.endsWith('/归档'))
+			if (isArchived) {
+				archived += 1
+				continue
+			}
+			words += chars
+			for (const tag of card.tags) tags.add(tag)
 		}
 		const activity = []
 		for (let offset = 364; offset >= 0; offset -= 1) {
@@ -330,29 +333,43 @@ export async function apply(ctx, config) {
 			activity.push({ date: key, count: days.get(key)?.count ?? 0 })
 		}
 		const summarize = (entries) => {
-			const words = entries.reduce((sum, entry) => sum + (days.get(entry.date)?.words ?? 0), 0)
+			const total = entries.reduce((sum, entry) => sum + (days.get(entry.date)?.words ?? 0), 0)
 			return {
 				days: entries.length,
 				notes: entries.reduce((sum, entry) => sum + entry.count, 0),
-				words,
+				words: total,
 				maxNotes: entries.reduce((max, entry) => Math.max(max, entry.count), 0),
 				maxWords: entries.reduce((max, entry) => Math.max(max, days.get(entry.date)?.words ?? 0), 0),
 				activeDays: entries.filter((entry) => entry.count > 0).length,
 			}
 		}
-		const first = createdDays[0]
-		const span = first === undefined ? 0 : Math.max(1, Math.floor((today - first) / 86_400_000) + 1)
-		const active = cards.filter((card) => !card.tags.some((tag) => tag.endsWith('/归档')))
-		const tags = new Set(active.flatMap((card) => card.tags)).size
-		const words = active.reduce((sum, card) => sum + characterCount(card.body), 0)
+		const span = first === Infinity ? 0 : Math.max(1, Math.floor((today.getTime() - first) / 86_400_000) + 1)
 		return {
 			cards: cards.length,
-			tags,
+			tags: tags.size,
 			days: span,
 			words,
 			activity,
 			year: summarize(activity),
 		}
+	}
+
+	/**
+	 * Run one edit and do not answer before it is on disk.
+	 *
+	 * The store batches its writes behind a debounce, which is right for the
+	 * agent (it saves several cards in a row) but wrong for the panel: the user
+	 * is told "已保存" while the change is still only in memory, and a crash
+	 * within the window loses it. A panel edit pays one write.
+	 *
+	 * @param {(store: object) => Promise<object>} work - The edit.
+	 * @returns {Promise<object>} The edit's result.
+	 */
+	async function committed(work) {
+		const store = cardStoreRef.current
+		const result = await work(store)
+		await store.flush()
+		return result
 	}
 
 	const cardsApi = {
@@ -439,21 +456,17 @@ export async function apply(ctx, config) {
 				backlinks: incoming.map(describe),
 			}
 		},
-		async write(payload = {}) {
-			const store = cardStoreRef.current
-			return store.put(payload.card ?? {})
+		write(payload = {}) {
+			return committed((store) => store.put(payload.card ?? {}))
 		},
-		async promote(payload = {}) {
-			const store = cardStoreRef.current
-			return store.promote(String(payload.id ?? ''), payload)
+		promote(payload = {}) {
+			return committed((store) => store.promote(String(payload.id ?? ''), payload))
 		},
-		async archive(payload = {}) {
-			const store = cardStoreRef.current
-			return store.archive(String(payload.id ?? ''))
+		archive(payload = {}) {
+			return committed((store) => store.archive(String(payload.id ?? '')))
 		},
 		async remove(payload = {}) {
-			const store = cardStoreRef.current
-			return { removed: await store.remove(String(payload.id ?? '')) }
+			return { removed: await committed((store) => store.remove(String(payload.id ?? ''))) }
 		},
 		async attach(payload = {}) {
 			const store = cardStoreRef.current
@@ -633,14 +646,12 @@ export async function apply(ctx, config) {
 		 * @param {{force?: boolean}} [options] - Overwrite behaviour.
 		 * @returns {Promise<object>} What happened.
 		 */
-		async exportTo({ file = '', dir = '', name = '', force = false } = {}) {
+		async exportTo({ dir = '', name = '', force = false } = {}) {
+			// A folder and a name, never a whole path: the panel only ever sends
+			// these two, and accepting a free path would let one request write
+			// the archive bytes over any file the process can reach.
 			let target
-			const explicit = String(file ?? '').trim()
-			if (explicit !== '') {
-				target = requestPath(explicit)
-			} else {
-				// The panel offers a folder picker plus a name field; the two
-				// are joined here so the client never has to know the separator.
+			{
 				const folder = requestPath(dir)
 				if (!(await isDirectory(folder))) throw new Error(`导出目录不存在：${folder}`)
 				let fileName = String(name ?? '').trim()
@@ -668,8 +679,6 @@ export async function apply(ctx, config) {
 			// without its read path.
 			await cardStoreRef.current?.close().catch(() => {})
 			try {
-				// Weights are part of the data folder now; the archive streams,
-				// so a 570 MB model does not have to fit in memory.
 				const packed = await writeArchiveFile(evolver.root, target)
 				return { file: target, bytes: packed.bytes, files: packed.files }
 			} finally {

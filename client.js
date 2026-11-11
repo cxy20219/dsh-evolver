@@ -177,7 +177,7 @@ window.__ModuleLoader__.load({
 			'settings.needArchive': '先选择或填写压缩包路径。',
 			'settings.needDataDir': '先选择或填写新的数据目录。',
 			'settings.transfer': '导入 / 导出',
-			'settings.transfer.hint': '导出会生成一个 .tar.gz 压缩包（整份数据目录）；导入支持 .tar.gz / .tgz / .tar，默认不覆盖同名文件。',
+			'settings.transfer.hint': '导出会生成一个 .tar.gz 压缩包（整份数据目录）；导入支持 .tar.gz / .tgz / .tar，默认不覆盖同名文件。勾选覆盖后，压缩包里的灵魂、偏好和卡片会替换你现在的——包括写进每次会话的那部分指令，只导入自己生成的包。',
 			'settings.transfer.exportPath': '导出目录',
 			'settings.transfer.exportName': '文件名',
 			'settings.transfer.archives': '这个目录里的压缩包',
@@ -373,7 +373,7 @@ window.__ModuleLoader__.load({
 			'settings.needArchive': 'Choose or type an archive path first.',
 			'settings.needDataDir': 'Choose or type the new data folder first.',
 			'settings.transfer': 'Import / export',
-			'settings.transfer.hint': 'Export writes one .tar.gz archive of the whole data folder; import accepts .tar.gz / .tgz / .tar and does not overwrite by default.',
+			'settings.transfer.hint': 'Export writes one .tar.gz archive of the whole data folder; import accepts .tar.gz / .tgz / .tar and does not overwrite by default. With overwrite on, the archive replaces your soul, preferences and cards — including the text injected into every session. Only import archives you made yourself.',
 			'settings.transfer.exportPath': 'Export folder',
 			'settings.transfer.exportName': 'File name',
 			'settings.transfer.archives': 'Archives in that folder',
@@ -1708,58 +1708,66 @@ window.__ModuleLoader__.load({
 			}, [layout]);
 
 			var focus = hovered ?? pinned;
-			var related = {};
-			if (focus !== null) {
-				related[focus] = true;
-				(layout.neighbours[focus] ?? []).forEach(function (id) { related[id] = true; });
-			}
-			var byId = {};
-			layout.nodes.forEach(function (node) { byId[node.id] = node; });
 
-			var edgeEls = layout.edges.map(function (edge, index) {
-				var lit = focus === null || (related[edge.source] === true && related[edge.target] === true);
-				return h('path', {
-					key: 'e-' + index,
-					d: edge.d,
-					className: 'evrLinkEdge' + (edge.mutual === true ? ' evrLinkEdgeMutual' : ''),
-					opacity: lit ? (focus === null ? 1 : 0.9) : 0.12,
+			// The element tree depends on the layout and the focus, not on the
+			// camera: a drag only moves the <g> transform. Rebuilding every node
+			// on each pointermove is what makes a large graph drag badly.
+			var parts = useMemo(function () {
+				var focus = hovered ?? pinned;
+				var related = {};
+				if (focus !== null) {
+					related[focus] = true;
+					(layout.neighbours[focus] ?? []).forEach(function (id) { related[id] = true; });
+				}
+				var byId = {};
+				layout.nodes.forEach(function (node) { byId[node.id] = node; });
+
+				var edgeEls = layout.edges.map(function (edge, index) {
+					var lit = focus === null || (related[edge.source] === true && related[edge.target] === true);
+					return h('path', {
+						key: 'e-' + index,
+						d: edge.d,
+						className: 'evrLinkEdge' + (edge.mutual === true ? ' evrLinkEdgeMutual' : ''),
+						opacity: lit ? (focus === null ? 1 : 0.9) : 0.12,
+					});
 				});
-			});
 
-			var nodeEls = layout.nodes.map(function (node) {
-				var lit = focus === null || related[node.id] === true;
-				var neighbour = focus !== null && node.id !== focus && related[node.id] === true;
-				// Obsidian's labels are short note names; a card label is a whole
-				// sentence, so it is cut and the full text stays in the tooltip.
-				var label = node.label.length > 16 ? node.label.slice(0, 16) + '…' : node.label;
-				var labelRight = node.x + 8 + label.length * 9 <= layout.width;
-				return h('g', {
-					key: node.id,
-					className: 'evrLinkNode' + (focus === node.id ? ' evrLinkNodeOn' : ''),
-					role: 'button',
-					tabIndex: 0,
-					'aria-label': label + ' · ' + node.degree,
-					opacity: lit ? 1 : 0.16,
-					onMouseEnter: function () { setHovered(node.id); },
-					onMouseLeave: function () { setHovered(null); },
-					onFocus: function () { setHovered(node.id); },
-					onBlur: function () { setHovered(null); },
-					onClick: function (event) {
-						if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-						setPinned(pinned === node.id ? null : node.id);
+				var nodeEls = layout.nodes.map(function (node) {
+					var lit = focus === null || related[node.id] === true;
+					var neighbour = focus !== null && node.id !== focus && related[node.id] === true;
+					// Obsidian's labels are short note names; a card label is a whole
+					// sentence, so it is cut and the full text stays in the tooltip.
+					var label = node.label.length > 16 ? node.label.slice(0, 16) + '…' : node.label;
+					var labelRight = node.x + 8 + label.length * 9 <= layout.width;
+					return h('g', {
+						key: node.id,
+						className: 'evrLinkNode' + (focus === node.id ? ' evrLinkNodeOn' : ''),
+						role: 'button',
+						tabIndex: 0,
+						'aria-label': label + ' · ' + node.degree,
+						opacity: lit ? 1 : 0.16,
+						onMouseEnter: function () { setHovered(node.id); },
+						onMouseLeave: function () { setHovered(null); },
+						onFocus: function () { setHovered(node.id); },
+						onBlur: function () { setHovered(null); },
+						onClick: function (event) {
+							if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+							setPinned(pinned === node.id ? null : node.id);
+						},
 					},
-				},
-					h('circle', { cx: node.x, cy: node.y, r: node.r, fill: node.color }),
-					focus !== null && related[node.id] === true
-						? h('text', {
-							x: node.x + (labelRight ? node.r + 4 : -node.r - 4),
-							y: node.y + 3,
-							textAnchor: labelRight ? 'start' : 'end',
-							className: 'evrLinkLabel' + (neighbour ? ' evrLinkLabelQuiet' : ''),
-						}, label)
-						: null,
-					h('title', null, label + ' · ' + node.degree + ' ' + t('overview.linkGraph.links')));
-			});
+						h('circle', { cx: node.x, cy: node.y, r: node.r, fill: node.color }),
+						focus !== null && related[node.id] === true
+							? h('text', {
+								x: node.x + (labelRight ? node.r + 4 : -node.r - 4),
+								y: node.y + 3,
+								textAnchor: labelRight ? 'start' : 'end',
+								className: 'evrLinkLabel' + (neighbour ? ' evrLinkLabelQuiet' : ''),
+							}, label)
+							: null,
+						h('title', null, label + ' · ' + node.degree + ' ' + t('overview.linkGraph.links')));
+				});
+				return { edges: edgeEls, nodes: nodeEls };
+			}, [layout, focus, t]);
 
 			return h('div', { className: 'evrGraphWrap' },
 				h('svg', {
@@ -1799,8 +1807,8 @@ window.__ModuleLoader__.load({
 							transition: 'transform 200ms ease',
 						},
 					},
-						h('g', null, edgeEls),
-						h('g', null, nodeEls))));
+						h('g', null, parts.edges),
+						h('g', null, parts.nodes))));
 		}
 
 		/**

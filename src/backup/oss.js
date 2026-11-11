@@ -21,6 +21,19 @@ import { openAsBlob } from 'node:fs'
 /** How long one OSS request may take. */
 const REQUEST_TIMEOUT_MS = 60_000
 
+/**
+ * The slowest upload speed the client assumes, in bytes per second.
+ *
+ * A fixed 60 s budget is a size-dependent bug: a 100 MB archive needs 80 s at
+ * 10 Mbps and never fits, so the backup fails forever while every retry
+ * re-packs the whole folder. The budget now follows the size, under an
+ * assumption slow enough to cover a bad uplink.
+ */
+const MIN_UPLOAD_BYTES_PER_SECOND = 512 * 1024
+
+/** The longest an upload may take, however big the archive. */
+const MAX_UPLOAD_TIMEOUT_MS = 30 * 60_000
+
 /** How many list pages a retention pass will follow. */
 const MAX_PAGES = 20
 
@@ -163,8 +176,13 @@ export class OssClient {
 	baseUrl() {
 		if (/^https?:\/\//i.test(this.endpoint)) {
 			// Path style: the endpoint already addresses the gateway and the
-			// bucket becomes the first path segment.
-			return `${this.endpoint.replace(/\/+$/, '')}/${this.bucket}`
+			// bucket becomes the first path segment. Plain http survives only
+			// for a loopback gateway: anywhere else it would put the signature,
+			// and the access key id that names it, on the wire in clear text.
+			const url = new URL(this.endpoint)
+			const loopback = url.hostname === 'localhost' || url.hostname === '::1' || /^127\./.test(url.hostname)
+			if (url.protocol === 'http:' && !loopback) url.protocol = 'https:'
+			return `${url.toString().replace(/\/+$/, '')}/${this.bucket}`
 		}
 		return `https://${this.bucket}.${this.endpoint.replace(/\/+$/, '')}`
 	}
@@ -259,6 +277,10 @@ export class OssClient {
 	 */
 	async putObjectFromFile(key, path, { size, contentMd5, contentType = 'application/x-tar' }) {
 		const { url, headers } = this.signed({ method: 'PUT', key, contentType, contentMd5, contentLength: size })
+		const transferMs = Math.min(
+			MAX_UPLOAD_TIMEOUT_MS,
+			Math.max(this.timeoutMs, Math.ceil(size / MIN_UPLOAD_BYTES_PER_SECOND) * 1000),
+		)
 		let response
 		try {
 			const body = await openAsBlob(path)
@@ -266,7 +288,7 @@ export class OssClient {
 				method: 'PUT',
 				headers,
 				body,
-				signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(this.timeoutMs) : undefined,
+				signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(transferMs) : undefined,
 			})
 		} catch (error) {
 			throw new Error(`OSS 请求失败：${error instanceof Error ? error.message : String(error)}`)

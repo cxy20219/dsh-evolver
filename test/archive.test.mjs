@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -139,5 +139,31 @@ test('附件名按字节截断，不会让导出永久失败', () => {
 		const safe = safeResourceName(raw)
 		assert.ok(safe !== '', `${raw.slice(0, 8)}… 应当得到一个可用名字`)
 		assert.ok(Buffer.byteLength(safe) <= 88, `${raw.slice(0, 8)}… 超长：${Buffer.byteLength(safe)} 字节`)
+	}
+})
+
+test('打包途中文件被替换，归档仍然是可解开的', async () => {
+	const src = await mkdtemp(join(tmpdir(), 'evr-race-src-'))
+	const out = await mkdtemp(join(tmpdir(), 'evr-race-out-'))
+	const dst = await mkdtemp(join(tmpdir(), 'evr-race-dst-'))
+	try {
+		await mkdir(join(src, 'knowledge'), { recursive: true })
+		// A big leading file keeps the pack busy long enough to swap the second.
+		await writeFile(join(src, 'knowledge', 'a-big.bin'), Buffer.alloc(24 * 1024 * 1024, 1))
+		await writeFile(join(src, 'knowledge', 'b.txt'), 'v1')
+		const tar = join(out, 'snap.tar')
+		const packing = writeTarFile(src, tar)
+		await new Promise((resolve) => setTimeout(resolve, 12))
+		// The log gets written to while the backup is running: an atomic replace.
+		await writeFile(join(src, 'knowledge', 'b.next'), `v2-${'x'.repeat(400)}`)
+		await rename(join(src, 'knowledge', 'b.next'), join(src, 'knowledge', 'b.txt'))
+		await packing
+		// The header must describe the bytes that actually follow it, or every
+		// later block shifts and the archive cannot be read back.
+		const restored = await extractArchiveFile(tar, dst)
+		assert.equal(restored.files, 2)
+		assert.match(await readFile(join(dst, 'knowledge', 'b.txt'), 'utf8'), /^v\d-/)
+	} finally {
+		for (const dir of [src, out, dst]) await rm(dir, { recursive: true, force: true })
 	}
 })
