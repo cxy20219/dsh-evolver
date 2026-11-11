@@ -36,6 +36,9 @@ export const ENDPOINTS = [
 	'ingest-status',
 	'ingest-save',
 	'ingest-run',
+	'consolidate-status',
+	'consolidate-save',
+	'consolidate-run',
 	'card-status',
 	'card-list',
 	'card-read',
@@ -45,6 +48,8 @@ export const ENDPOINTS = [
 	'card-remove',
 	'card-attach',
 	'card-tags',
+	'tag-descriptions',
+	'tag-descriptions-save',
 ]
 
 /**

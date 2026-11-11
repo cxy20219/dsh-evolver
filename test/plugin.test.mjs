@@ -1,10 +1,12 @@
 import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { readFile as readText } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { API_PREFIX, apply } from '../index.js'
+import { ENDPOINTS } from '../src/remote.js'
 import { createTar, readTar } from '../src/backup/tar.js'
 import { fakeOss } from './support/fake-oss.mjs'
 
@@ -111,7 +113,7 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 		try {
 			assert.equal(tools.length, 9)
 			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:cards', 'dsh-evolver:soul', 'dsh-evolver:proactive'])
-			assert.equal(routes.size, 33)
+			assert.equal(routes.size, ENDPOINTS.length)
 			assert.match(sections[0].text(), /\[卡片\]/)
 			assert.match(sections[2].text(), /\[主动性\]/)
 
@@ -514,4 +516,44 @@ test('立即备份走完整链路：上传 tar、按保留份数清理、记录�
 	} finally {
 		await oss.close()
 	}
+})
+
+test('每个客户端接口都既注册了路由、也真的被处理', async () => {
+	await withHome(async (home) => {
+		const { ctx, routes, effects } = fakeContext()
+		await apply(ctx, { dataDir: join(home, 'evolver') })
+		try {
+			// Registered: the browser would otherwise get a 404 before the
+			// handler is ever consulted.
+			assert.equal(routes.size, ENDPOINTS.length, '注册的路由数必须等于接口清单')
+			for (const endpoint of ENDPOINTS) {
+				assert.ok(routes.has(`${API_PREFIX}/${endpoint}`), `接口没有注册路由：${endpoint}`)
+			}
+
+			// Handled: a registered name that the switch forgot answers with
+			// evolver/unknown-endpoint, which looks exactly like a stale Host.
+			for (const endpoint of ENDPOINTS) {
+				const response = await post(routes, endpoint, {})
+				assert.notEqual(response.status, 404, `接口没有注册：${endpoint}`)
+				if (response.status === 400) {
+					const body = await response.json()
+					assert.notEqual(body?.error?.code, 'evolver/unknown-endpoint', `接口没有处理分支：${endpoint}`)
+				}
+			}
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
+})
+
+test('接口清单和分支一处都不能漏：两边必须是同一个集合', async () => {
+	// The two live apart (a route list and a switch), so the only way to keep
+	// them in step is to assert it: a missing entry shows up as a silent 404
+	// in the panel, never as a failing build.
+	const source = await readText(new URL('../src/remote.js', import.meta.url), 'utf8')
+	const cases = new Set([...source.matchAll(/case '([a-z0-9-]+)':/g)].map((match) => match[1]))
+	const listed = new Set(ENDPOINTS)
+	assert.deepEqual([...listed].sort(), [...cases].sort(),
+		'ENDPOINTS 与 switch 的 case 必须一一对应')
+	assert.equal(listed.size, cases.size, '接口清单里不能有重复项')
 })
