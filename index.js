@@ -33,8 +33,9 @@ import { createTools } from './src/tools.js'
 import { PROACTIVE_PROTOCOL } from './src/proactive.js'
 import { createCardAgent } from './src/cards/agent.js'
 import { seedStarterCards } from './src/cards/seed.js'
-import { cardPrompt } from './src/cards/prompt.js'
+import { cardPrompt, DEFAULT_PROMPT_BUDGET } from './src/cards/prompt.js'
 import { CardStore } from './src/cards/store.js'
+import { TAG_DESCRIPTIONS } from './src/cards/tags.js'
 import { copyTree, countEntries, isDirectory, isInsidePath, pathsOverlap } from './src/workspace.js'
 
 /** The plugin's row name. */
@@ -192,6 +193,9 @@ export async function apply(ctx, config) {
 	// tools and the API talk to small proxies rather than to one instance.
 	const cardStoreRef = { current: undefined }
 	const cardAgentRef = { current: undefined }
+	// The injected text is rendered synchronously on every request, so the
+	// effective tag descriptions are cached here and refreshed on every write.
+	const tagDescriptionsRef = { current: { ...TAG_DESCRIPTIONS } }
 
 	/**
 	 * The embedding configuration the settings currently ask for.
@@ -244,12 +248,20 @@ export async function apply(ctx, config) {
 	/**
 	 * Make one card store the one the tools use.
 	 *
+	 * The store is replaced whenever the data folder changes, so the cached
+	 * tag descriptions are reloaded from the new folder right here.
+	 *
 	 * @param {object} store - The opened store.
 	 * @returns {void}
 	 */
 	function useCards(store) {
 		cardStoreRef.current = store
 		cardAgentRef.current = createCardAgent(store)
+		void store.tagDescriptions()
+			.then((descriptions) => { tagDescriptionsRef.current = descriptions })
+			.catch((error) => {
+				ctx.logger.warn(`dsh-evolver: reading tag descriptions failed: ${error instanceof Error ? error.message : String(error)}`)
+			})
 	}
 
 	/**
@@ -383,7 +395,8 @@ export async function apply(ctx, config) {
 			const store = cardStoreRef.current
 			const base = await evolver.overview()
 			const status = store.status()
-			const text = cardPrompt(store)
+			const descriptions = await store.tagDescriptions()
+			const text = cardPrompt(store, undefined, descriptions)
 			const all = store.all()
 			const stats = overviewStats(all)
 			return {
@@ -395,7 +408,7 @@ export async function apply(ctx, config) {
 				projection: {
 					entries: status.cards,
 					bytes: Buffer.byteLength(text, 'utf8'),
-					budget: 2048,
+					budget: DEFAULT_PROMPT_BUDGET,
 					dropped: 0,
 				},
 				cards: {
@@ -410,13 +423,14 @@ export async function apply(ctx, config) {
 			const store = cardStoreRef.current
 			const base = await evolver.injectionPreview()
 			const status = store.status()
-			const text = cardPrompt(store)
+			const descriptions = await store.tagDescriptions()
+			const text = cardPrompt(store, undefined, descriptions)
 			return {
 				...base,
 				cards: {
 					entries: status.cards,
 					bytes: Buffer.byteLength(text, 'utf8'),
-					budget: 2048,
+					budget: DEFAULT_PROMPT_BUDGET,
 					dropped: 0,
 					text,
 				},
@@ -482,6 +496,49 @@ export async function apply(ctx, config) {
 		tags() {
 			const store = cardStoreRef.current
 			return store.tagTree()
+		},
+		/**
+		 * The tag descriptions and the branches still missing one.
+		 *
+		 * The gap list is the point of this view: a branch grows as soon as a
+		 * card uses a new path, but its meaning stays unwritten until somebody
+		 * documents it here.
+		 *
+		 * @returns {Promise<object>} Descriptions, undocumented branches and the file path.
+		 */
+		async tagDescriptionsView() {
+			const store = cardStoreRef.current
+			const descriptions = await store.tagDescriptions()
+			const missing = []
+			const walk = (nodes) => {
+				for (const node of nodes ?? []) {
+					if (node.path.endsWith('/归档')) continue
+					if (descriptions[node.path] === undefined) {
+						missing.push({ path: node.path, count: node.count })
+					}
+					walk(node.children)
+				}
+			}
+			walk(store.tagTree())
+			return {
+				path: store.tagDescriptionsPath(),
+				descriptions,
+				missing,
+			}
+		},
+		/**
+		 * Save the tag descriptions.
+		 *
+		 * @param {object} descriptions - Tag path to description.
+		 * @returns {Promise<object>} The saved descriptions.
+		 */
+		async saveTagDescriptions(descriptions) {
+			const store = cardStoreRef.current
+			const saved = await store.saveTagDescriptions(descriptions)
+			// The injected block renders synchronously, so it picks the new
+			// descriptions up from the cache on the next request.
+			tagDescriptionsRef.current = saved
+			return { path: store.tagDescriptionsPath(), descriptions: saved }
 		},
 	}
 
@@ -849,7 +906,7 @@ export async function apply(ctx, config) {
 		name: 'dsh-evolver:cards',
 		order: 900,
 		interpolate: false,
-		text: () => (cardStoreRef.current === undefined ? '' : cardPrompt(cardStoreRef.current)),
+		text: () => (cardStoreRef.current === undefined ? '' : cardPrompt(cardStoreRef.current, DEFAULT_PROMPT_BUDGET, tagDescriptionsRef.current)),
 	}))
 	disposers.push(ctx.systemPrompt.section({
 		name: 'dsh-evolver:soul',

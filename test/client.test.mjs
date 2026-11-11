@@ -360,6 +360,17 @@ function apiPayload(endpoint, payload) {
 				}],
 				suggestions: [],
 			}
+		case 'tag-descriptions':
+			return {
+				path: '/data/evolver/knowledge/tags.json',
+				descriptions: { 践行: '落地与持续行动' },
+				missing: [{ path: '践行/工作流', count: 1 }],
+			}
+		case 'tag-descriptions-save':
+			return {
+				path: '/data/evolver/knowledge/tags.json',
+				descriptions: payload.descriptions ?? {},
+			}
 		case 'injection':
 			return {
 				cards: { text: '[卡片]', bytes: 10, budget: 2048, entries: 3, dropped: 0 },
@@ -691,6 +702,27 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.ok(findAll(tree, (node) => node.props?.className === 'evrMd').length === 1)
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrPre').length, 0)
 		assert.ok(findAll(tree, (node) => textOf(node) === '[卡片]').length >= 1)
+
+		// The tag tree tab edits the descriptions the injection prints.
+		assert.ok(findAll(tree, (node) => textOf(node).includes('overview.descriptions')).length >= 1)
+		const descInputs = findAll(tree, (node) => node.props?.className === 'evrInput evrDescInput')
+		assert.equal(descInputs.length, 2, '每个未归档分支一行')
+		assert.equal(descInputs[0].props.value, '落地与持续行动')
+		assert.equal(descInputs[1].props.value, '', '没有描述的分支是空的')
+		assert.ok(findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.includes('evrDescRowMissing')).length === 1)
+		descInputs[1].props.onChange({ target: { value: '可重复执行的工作流/流程' } })
+		tree = await runtime.settle(render)
+		const saveDescriptions = findAll(tree, (node) => node.type === 'button'
+			&& typeof node.props?.className === 'string'
+			&& node.props.className.includes('evrBtnPrimary')
+			&& textOf(node) === 'action.save')
+		assert.equal(saveDescriptions.length, 1)
+		assert.equal(saveDescriptions[0].props.disabled, false)
+		saveDescriptions[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.includes('evrDescRowMissing')).length, 0)
 
 		const soulSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.soul')
 		assert.equal(soulSubTab.length, 1)

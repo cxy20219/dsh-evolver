@@ -5,9 +5,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { cardCreatedAt, cardId, isCardId } from '../src/cards/ids.js'
-import { normalizeCardTags, normalizeTag, normalizeTags, buildTagTree } from '../src/cards/tags.js'
+import { normalizeCardTags, normalizeTag, normalizeTags, buildTagTree, TAG_DESCRIPTIONS } from '../src/cards/tags.js'
 import { safeResourceName } from '../src/cards/resources.js'
-import { cardPrompt } from '../src/cards/prompt.js'
+import { cardPrompt, DEFAULT_PROMPT_BUDGET } from '../src/cards/prompt.js'
 import { CardStore, labelOf } from '../src/cards/store.js'
 import { hasResourceReference } from '../src/cards/store.js'
 import { seedStarterCards } from '../src/cards/seed.js'
@@ -215,6 +215,71 @@ test('新数据目录直接种下三张种子卡', async () => {
 		const read = await store.read(effective.id)
 		assert.match(read.resourceContents[0].text, /## 现象/)
 		assert.equal(await seedStarterCards(store), 0)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('默认预算容得下带说明的整棵标签树，不会把末尾分支截掉', async () => {
+	const { dir, store } = await fixture()
+	try {
+		// One card per documented branch: the widest tree the defaults describe.
+		for (const tag of Object.keys(TAG_DESCRIPTIONS)) {
+			await store.put({ body: `${tag} 的一条记录`, tags: [tag] })
+		}
+		const prompt = cardPrompt(store, DEFAULT_PROMPT_BUDGET)
+		assert.equal(prompt.includes('超出预算'), false, '默认预算必须覆盖带说明的树')
+		const branches = prompt.split('\n').filter((line) => line.trim().startsWith('#') && line.includes('('))
+		assert.equal(branches.length, Object.keys(TAG_DESCRIPTIONS).length)
+		for (const branch of branches) {
+			assert.match(branch, / — .+/, `分支缺说明：${branch}`)
+		}
+		assert.equal(prompt.includes('#试错'), true, '最后一个顶层分支也在')
+		assert.ok(Buffer.byteLength(prompt, 'utf8') <= DEFAULT_PROMPT_BUDGET)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('标签描述是数据不是代码：可以给新分支补描述并立刻进入注入', async () => {
+	const { dir, store } = await fixture()
+	try {
+		// A branch a card invented today has no description until somebody writes one.
+		await store.put({ body: '一条新分支的记录', tags: ['见闻/新分支'] })
+		await store.put({ body: '一条经验', tags: ['践行/经验'] })
+
+		// Without a file the built-in defaults apply.
+		const defaults = await store.tagDescriptions()
+		assert.equal(defaults['践行/经验'], '行动中验证过的判断与边界')
+
+		// An undocumented branch renders without a trailing description.
+		const before = cardPrompt(store, undefined, defaults)
+		assert.match(before, /#见闻\/新分支 \(\d+\)$/m, '未描述的标签后面没有破折号说明')
+		assert.equal(before.includes('全新的说明'), false)
+
+		// Writing the map changes the injected text on the next render.
+		const saved = await store.saveTagDescriptions({
+			'践行/经验': '改过的说明',
+			'见闻/新分支': '全新的说明',
+			'见闻/git': '  ',
+		})
+		assert.deepEqual(saved, {
+			'践行/经验': '改过的说明',
+			'见闻/新分支': '全新的说明',
+		}, '空说明被丢弃')
+
+		const after = cardPrompt(store, undefined, await store.tagDescriptions())
+		assert.match(after, /#见闻\/新分支 \(\d+\) — 全新的说明/)
+		assert.match(after, /#践行\/经验 \(\d+\) — 改过的说明/)
+		assert.equal(after.includes('行动中验证过的判断与边界'), false)
+
+		// The description file is inside the data folder, so it travels with it.
+		assert.equal(store.tagDescriptionsPath(), join(dir, 'knowledge', 'tags.json'))
+		await assert.rejects(() => store.saveTagDescriptions({ 验证方法: '不在六大枝干里' }), /六大枝干/)
+		await assert.rejects(() => store.saveTagDescriptions({ '践行//空段': '路径不合法' }), /路径不合法/)
+		await assert.rejects(() => store.saveTagDescriptions({ 践行: 42 }), /必须是文字/)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })

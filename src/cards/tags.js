@@ -168,15 +168,23 @@ export const TAG_DESCRIPTIONS = {
 	'践行/工作流': '可重复执行的工作流/流程',
 	'践行/工具': '可复用的脚本、CLI 与工具用法',
 	'践行/资源': '模板、示例与静态资源',
+	'践行/约定': '默认取舍、协作约定与边界',
+	'践行/演化器': '让演化器自身持续改进的机制与记录',
+	'践行/验证方法': '怎么确认一次行动确实生效',
 	见闻: '外部输入与阅历积累',
 	'见闻/事实': '确认过的事实',
 	'见闻/工具怪癖': '外部工具的稳定怪癖',
 	'见闻/网络': '网络环境与连通性见闻',
+	'见闻/git': 'Git 的用法、坑与协作经验',
+	'见闻/github': 'GitHub 的用法、坑与协作经验',
+	'见闻/ssh': 'SSH 连接、密钥与跳板机的经验',
 	即兴: '主动应变与灵活创造；新卡默认入口',
 	复盘: '事后反思与经验提炼',
 	'复盘/经验': '从前事中提炼的判断与边界',
 	'复盘/纠正': '对旧结论的纠正',
 	'复盘/踩坑': '踩过的坑与失败教训',
+	'复盘/验证方法': '怎么验证一条结论是真的',
+	'复盘/演化器': '对演化器自身的复盘与纠偏',
 	觉察: '对内关注情绪、模式与盲区，是成长的内省起点',
 	'觉察/偏好': '长期稳定的个人/团队偏好',
 	'觉察/模式': '反复出现的行为/思维模式',
@@ -282,8 +290,9 @@ export function settleTags(values, targets = []) {
  * The tag description, if the branch is documented.
  *
  * @param {string} tag - The tag path.
+ * @param {Record<string, string>} descriptions - The effective description map.
  * @returns {string} The description, or an empty string.
  */
-export function descriptionOf(tag) {
-	return TAG_DESCRIPTIONS[tag] ?? ''
+export function descriptionOf(tag, descriptions = TAG_DESCRIPTIONS) {
+	return descriptions[tag] ?? ''
 }

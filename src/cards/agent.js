@@ -185,13 +185,14 @@ export function createCardAgent(cards) {
 	 * @returns {Promise<object>} The map.
 	 */
 	async function index() {
+		const descriptions = await cards.tagDescriptions()
 		const tree = cards.tagTree({ includeArchived: true })
-		const descriptions = {}
+		const documented = {}
 		for (const node of flatten(tree)) {
-			const description = descriptionOf(node.path)
-			if (description !== '') descriptions[node.path] = description
+			const description = descriptionOf(node.path, descriptions)
+			if (description !== '') documented[node.path] = description
 		}
-		return { injected: cardPrompt(cards), tree, descriptions }
+		return { injected: cardPrompt(cards, undefined, descriptions), tree, descriptions: documented }
 	}
 
 	/**

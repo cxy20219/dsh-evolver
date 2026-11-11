@@ -12,7 +12,7 @@
       config:
         # 数据目录：留空则用 ~/.dsh/evolver。
         # dataDir: /home/chengxinyu/.dsh/evolver
-        # 注入索引的字节预算，默认 2048。
+        # 注入索引的字节预算，默认 4096（标签树带每枝说明）。
 
 # 全局偏好文档由 DSH 的 AGENTS.md 加载器注入。web 组合默认关掉了这一行，
 # 这里把它打开，否则偏好永远进不了 Agent 的上下文。

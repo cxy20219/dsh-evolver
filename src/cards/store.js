@@ -11,7 +11,7 @@
  * the prompt injects only the tag tree, never card bodies.
  */
 
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { MemoryStore } from '../memory/store.js'
@@ -21,12 +21,14 @@ import { ResourceStore, resourceRelativePath, safeResourceName } from './resourc
 import {
 	archiveTags,
 	buildTagTree,
+	descriptionOf,
 	isArchived,
 	isUnder,
 	normalizeCardTags,
 	normalizeTags,
 	rootOf,
 	settleTags,
+	TAG_DESCRIPTIONS,
 	TOP_TAGS,
 } from './tags.js'
 
@@ -157,6 +159,82 @@ export class CardStore {
 	 */
 	async flush() {
 		await this.cards.flush()
+	}
+
+	/**
+	 * The path of the tag description file.
+	 *
+	 * The descriptions are data, not code: a branch created today can be
+	 * documented without touching the source or redeploying.
+	 *
+	 * @returns {string} The absolute file path.
+	 */
+	tagDescriptionsPath() {
+		return join(this.dataDir, 'knowledge', 'tags.json')
+	}
+
+	/**
+	 * The effective description of every documented branch.
+	 *
+	 * The file wins over the built-in defaults; without a file the built-in
+	 * defaults are used.
+	 *
+	 * @returns {Promise<Record<string, string>>} The description map.
+	 */
+	async tagDescriptions() {
+		try {
+			const raw = await readFile(this.tagDescriptionsPath(), 'utf8')
+			const parsed = JSON.parse(raw)
+			if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+				return { ...TAG_DESCRIPTIONS }
+			}
+			const map = {}
+			for (const [tag, description] of Object.entries(parsed)) {
+				if (typeof description !== 'string') continue
+				map[tag] = description.trim()
+			}
+			return map
+		} catch {
+			return { ...TAG_DESCRIPTIONS }
+		}
+	}
+
+	/**
+	 * Write the tag descriptions.
+	 *
+	 * @param {Record<string, string>} descriptions - The description map.
+	 * @returns {Promise<Record<string, string>>} The saved map.
+	 */
+	async saveTagDescriptions(descriptions) {
+		if (descriptions === null || typeof descriptions !== 'object' || Array.isArray(descriptions)) {
+			throw new Error('标签描述必须是一个对象。')
+		}
+		const map = {}
+		for (const [tag, description] of Object.entries(descriptions)) {
+			if (typeof description !== 'string') throw new Error(`标签 ${tag} 的说明必须是文字。`)
+			const clean = description.trim()
+			if (clean === '') continue
+			const segments = tag.split('/')
+			if (!TOP_TAGS.includes(segments[0])) {
+				throw new Error(`标签 ${tag} 不在六大枝干里。`)
+			}
+			if (segments.some((segment) => segment === '')) throw new Error(`标签 ${tag} 路径不合法。`)
+			map[tag] = clean
+		}
+		await mkdir(join(this.dataDir, 'knowledge'), { recursive: true, mode: 0o700 })
+		await writeFile(this.tagDescriptionsPath(), `${JSON.stringify(map, null, '\t')}\n`, { mode: 0o600 })
+		return map
+	}
+
+	/**
+	 * The description of one branch.
+	 *
+	 * @param {string} tag - The tag path.
+	 * @param {Record<string, string>} descriptions - The effective map.
+	 * @returns {string} The description, or an empty string.
+	 */
+	tagDescription(tag, descriptions) {
+		return descriptionOf(tag, descriptions)
 	}
 
 	/**

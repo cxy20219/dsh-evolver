@@ -91,6 +91,7 @@ window.__ModuleLoader__.load({
 			'state.skipped': '跳过',
 			'action.refresh': '刷新',
 			'action.save': '保存',
+			'action.cancel': '撤销',
 			'action.close': '关闭',
 			'action.unlink': '移除全局链接',
 			'state.loading': '读取中…',
@@ -125,6 +126,13 @@ window.__ModuleLoader__.load({
 			'overview.tree.noChildren': '这个标签下没有子标签。',
 			'overview.graph.center': '标签',
 			'overview.tree.empty': '还没有标签。',
+			'overview.descriptions': '标签描述',
+			'overview.descriptions.hint': '这些说明就写进 Agent 每次拿到的标签树；新分支出现后在这里补一句，注入立刻生效。',
+			'overview.descriptions.placeholder': '这个分支收什么',
+			'overview.descriptions.complete': '全部已描述',
+			'overview.descriptions.saved': '标签描述已保存，注入已更新。',
+			'overview.descriptions.missing': '{n} 个分支还没有描述',
+			'overview.descriptions.warn': '留空的分支会以「只有计数、没有说明」的形式注入。',
 			'overview.preview.readonly': '只读预览：Agent 每次请求都会收到这一段内容。',
 			'overview.preview.empty': '这一段现在是空的。',
 			'overview.bytes': '大小',
@@ -315,6 +323,7 @@ window.__ModuleLoader__.load({
 			'state.skipped': 'skipped',
 			'action.refresh': 'Refresh',
 			'action.save': 'Save',
+			'action.cancel': 'Revert',
 			'action.close': 'Close',
 			'action.unlink': 'Remove the global link',
 			'state.loading': 'Loading…',
@@ -349,6 +358,13 @@ window.__ModuleLoader__.load({
 			'overview.tree.noChildren': 'This tag has no children.',
 			'overview.graph.center': 'Tags',
 			'overview.tree.empty': 'No tags yet.',
+			'overview.descriptions': 'Tag descriptions',
+			'overview.descriptions.hint': 'These notes are what the injected tag tree says; a new branch can be described here and the prompt picks it up immediately.',
+			'overview.descriptions.placeholder': 'What belongs in this branch',
+			'overview.descriptions.complete': 'All described',
+			'overview.descriptions.saved': 'Tag descriptions saved; the injection is updated.',
+			'overview.descriptions.missing': '{n} branches without a description',
+			'overview.descriptions.warn': 'A blank branch is injected as a count with no meaning.',
 			'overview.preview.readonly': 'Read-only preview: the agent receives this block on every request.',
 			'overview.preview.empty': 'This block is empty.',
 			'overview.bytes': 'Size',
@@ -538,6 +554,16 @@ window.__ModuleLoader__.load({
 			'.evrTagBtnStatic{cursor:default}',
 			'.evrTagBtnStatic:hover{background:transparent;color:var(--dsw-alias-label-secondary)}',
 			'.evrSubTabs{display:flex;gap:4px;flex-wrap:wrap;padding-bottom:8px;margin-bottom:4px;border-bottom:1px solid var(--dsw-alias-border-l2)}',
+			'.evrBadge{margin-left:auto;flex:none;padding:1px 7px;border-radius:99px;font-size:11px;font-weight:500;line-height:1.6;letter-spacing:0;text-transform:none}',
+			'.evrBadgeOk{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-secondary)}',
+			'.evrBadgeWarn{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-state-warn-primary)}',
+			'.evrDescList{display:flex;flex-direction:column;gap:2px;margin-bottom:4px}',
+			'.evrDescRow{display:grid;grid-template-columns:minmax(120px,200px) minmax(0,1fr) 32px;gap:10px;align-items:center;padding:2px 0}',
+			'.evrDescTag{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary)}',
+			'.evrDescRowMissing .evrDescTag{color:var(--dsw-alias-label-primary);font-weight:500}',
+			'.evrDescInput{height:26px;font-size:12px}',
+			'.evrDescRowMissing .evrDescInput{border-color:var(--dsw-alias-state-warn-primary)}',
+			'.evrDescCount{flex:none;text-align:right;font-size:11.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
 			'.evrMetaRow{display:flex;flex-wrap:wrap;gap:6px 20px;margin-bottom:14px}',
 			'.evrMetaItem{display:inline-flex;align-items:baseline;gap:6px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}',
 			'.evrMetaValue{color:var(--dsw-alias-label-primary);font-weight:500;font-variant-numeric:tabular-nums}',
@@ -1616,12 +1642,25 @@ window.__ModuleLoader__.load({
 					}, item.label);
 				})),
 				section === 'cards'
-					? preview(t('overview.projection'), [
-						[t('overview.bytes'), formatBytes(injection.cards.bytes)],
-						[t('overview.budget'), formatBytes(injection.cards.budget)],
-						[t('overview.dropped'), String(injection.cards.dropped)],
-						[t('overview.entries'), String(injection.cards.entries)],
-					], injection.cards.text ?? '')
+					? h('div', { role: 'tabpanel' },
+						props.descriptions === null
+							? null
+							: h(TagDescriptionsEditor, {
+								t: t,
+								tree: tree,
+								descriptions: props.descriptions,
+								busy: props.busy,
+								onSave: props.onSaveDescriptions,
+							}),
+						h('div', { className: 'evrSection' }, t('overview.projection')),
+						h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.preview.readonly')),
+						metaRow([
+							[t('overview.bytes'), formatBytes(injection.cards.bytes)],
+							[t('overview.budget'), formatBytes(injection.cards.budget)],
+							[t('overview.dropped'), String(injection.cards.dropped)],
+							[t('overview.entries'), String(injection.cards.entries)],
+						]),
+						h(Markdown, { t: t, text: injection.cards.text ?? '' }))
 					: section === 'soul'
 						? preview(t('overview.soul'), [
 							[t('overview.bytes'), formatBytes(injection.soul.bytes)],
@@ -1651,6 +1690,104 @@ window.__ModuleLoader__.load({
 										h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.linkGraph.hint')),
 										h(LinkGraph, { t: t, cards: props.cards?.cards ?? [] }))))
 			);
+		}
+
+		/**
+		 * The tag descriptions, editable in place.
+		 *
+		 * The descriptions are what the injected tag tree shows next to each
+		 * branch. A branch appears as soon as a card uses a new path, so the
+		 * editor lists the live tree instead of a fixed vocabulary: whatever
+		 * grew there can be documented here without touching the source.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function TagDescriptionsEditor(props) {
+			var t = props.t;
+			var tree = Array.isArray(props.tree) ? props.tree : [];
+			var saved = props.descriptions ?? {};
+			var [draft, setDraft] = useState(function () { return { ...saved }; });
+			var [dirty, setDirty] = useState(false);
+
+			useEffect(function () {
+				setDraft({ ...(props.descriptions ?? {}) });
+				setDirty(false);
+			}, [props.descriptions]);
+
+			/**
+			 * Flatten the tree into rows with their depth.
+			 *
+			 * @param {object[]} nodes - The tag nodes.
+			 * @param {number} depth - The current depth.
+			 * @returns {object[]} One row per branch.
+			 */
+			function rows(nodes, depth) {
+				var result = [];
+				(nodes ?? []).forEach(function (node) {
+					if (node.path.slice(-3) === '/归档') return;
+					result.push({ path: node.path, name: node.name, count: node.count, depth: depth });
+					result = result.concat(rows(node.children, depth + 1));
+				});
+				return result;
+			}
+
+			var list = rows(tree, 0);
+			if (list.length === 0) return h('div', { className: 'evrHint' }, t('overview.tree.empty'));
+			var missing = list.filter(function (row) { return (draft[row.path] ?? '').trim() === ''; }).length;
+			return h('div', null,
+				h('div', { className: 'evrSection' },
+					t('overview.descriptions'),
+					missing === 0
+						? h('span', { className: 'evrBadge evrBadgeOk' }, t('overview.descriptions.complete'))
+						: h('span', { className: 'evrBadge evrBadgeWarn' }, t('overview.descriptions.missing').replace('{n}', String(missing)))),
+				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('overview.descriptions.hint')),
+				h('div', { className: 'evrDescList' }, list.map(function (row) {
+					var value = draft[row.path] ?? '';
+					return h('div', {
+						key: row.path,
+						className: 'evrDescRow' + (value.trim() === '' ? ' evrDescRowMissing' : ''),
+					},
+						h('span', {
+							className: 'evrDescTag',
+							style: { paddingLeft: (row.depth * 12) + 'px' },
+							title: row.path,
+						}, '#' + row.name),
+						h('input', {
+							className: 'evrInput evrDescInput',
+							type: 'text',
+							value: value,
+							placeholder: t('overview.descriptions.placeholder'),
+							onChange: function (event) {
+								var next = event.target.value;
+								setDraft(function (current) {
+									var map = { ...current };
+									if (next.trim() === '') delete map[row.path];
+									else map[row.path] = next;
+									return map;
+								});
+								setDirty(true);
+							},
+						}),
+						h('span', { className: 'evrDescCount' }, String(row.count)));
+				})),
+				h('div', { className: 'evrEditorFoot' },
+					h('button', {
+						type: 'button',
+						className: 'evrBtn evrBtnPrimary',
+						disabled: props.busy || !dirty,
+						onClick: function () { props.onSave(draft); },
+					}, t('action.save')),
+					h('button', {
+						type: 'button',
+						className: 'evrBtn',
+						disabled: props.busy || !dirty,
+						onClick: function () {
+							setDraft({ ...(props.descriptions ?? {}) });
+							setDirty(false);
+						},
+					}, t('action.cancel')),
+					missing === 0 ? null : h('span', { className: 'evrHint' }, t('overview.descriptions.warn'))));
 		}
 
 		/**
@@ -2635,6 +2772,7 @@ window.__ModuleLoader__.load({
 			var [ingest, setIngest] = useState(null);
 			var [ingestDraft, setIngestDraft] = useState(null);
 			var [cards, setCards] = useState(null);
+			var [descriptions, setDescriptions] = useState(null);
 			var [cardFilter, setCardFilter] = useState({ tag: '', anyTags: [], archivedOnly: false, query: '' });
 			var [cardDetail, setCardDetail] = useState(null);
 			var [cardEditor, setCardEditor] = useState(null);
@@ -2667,6 +2805,9 @@ window.__ModuleLoader__.load({
 					call('embedding-status'),
 					call('ingest-status'),
 					call('card-list', {}),
+					// A host from before this feature answers with an unknown-endpoint
+					// error; the panel then simply has no descriptions to edit.
+					call('tag-descriptions').catch(function () { return null; }),
 				]).then(function (results) {
 					setOverview(results[0]);
 					setInjection(results[1]);
@@ -2678,6 +2819,7 @@ window.__ModuleLoader__.load({
 					setIngest(results[6]);
 					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(results[6]) : current; });
 					setCards(results[7]);
+					setDescriptions(results[8]?.descriptions ?? null);
 					setError(null);
 				}).catch(function (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
@@ -2687,6 +2829,23 @@ window.__ModuleLoader__.load({
 			useEffect(function () {
 				void loadAll();
 			}, [loadAll]);
+
+			var saveTagDescriptions = useCallback(function (draft) {
+				setBusy(true);
+				call('tag-descriptions-save', { descriptions: draft }).then(function (value) {
+					setDescriptions(value.descriptions ?? {});
+					report(t('overview.descriptions.saved'), false);
+					// The injected block embeds the descriptions, so it is re-read.
+					return Promise.all([call('injection'), call('overview')]).then(function (results) {
+						setInjection(results[0]);
+						setOverview(results[1]);
+					});
+				}).catch(function (reason) {
+					report(reason instanceof Error ? reason.message : String(reason), true);
+				}).then(function () {
+					setBusy(false);
+				});
+			}, [call, report, t]);
 
 			var saveSoul = useCallback(function () {
 				setBusy(true);
@@ -3081,7 +3240,15 @@ window.__ModuleLoader__.load({
 					h('div', null, t('state.error')),
 					h('div', { className: 'evrMono' }, error));
 			} else if (tab === 'overview') {
-				body = h(OverviewTab, { t: t, injection: injection, overview: overview, cards: cards });
+				body = h(OverviewTab, {
+					t: t,
+					injection: injection,
+					overview: overview,
+					cards: cards,
+					descriptions: descriptions,
+					busy: busy,
+					onSaveDescriptions: saveTagDescriptions,
+				});
 			} else if (tab === 'cards') {
 				body = h(CardsTab, {
 					t: t,

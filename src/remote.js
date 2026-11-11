@@ -215,6 +215,12 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 				case 'card-tags': {
 					return { ok: true, value: cards.tags() }
 				}
+				case 'tag-descriptions': {
+					return { ok: true, value: await cards.tagDescriptionsView() }
+				}
+				case 'tag-descriptions-save': {
+					return { ok: true, value: await cards.saveTagDescriptions(payload?.descriptions ?? {}) }
+				}
 				case 'embedding-test': {
 					return { ok: true, value: await embedding.test() }
 				}

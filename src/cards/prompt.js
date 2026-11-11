@@ -7,10 +7,19 @@
  * of a stale index of cards.
  */
 
-import { buildTagTree, descriptionOf } from './tags.js'
+import { buildTagTree, descriptionOf, TAG_DESCRIPTIONS } from './tags.js'
 
 /** The branches that should lead the injected map. */
 const ROOT_ORDER = ['践行', '见闻', '即兴', '复盘', '觉察', '试错']
+
+/**
+ * The default byte budget of the injected card section.
+ *
+ * The tag tree now carries a one-line meaning per branch, which roughly
+ * doubles its length; the budget has to cover the documented tree instead of
+ * silently cutting the last branches off.
+ */
+export const DEFAULT_PROMPT_BUDGET = 4096
 
 /** The fixed discipline text. */
 export const CARD_DISCIPLINE = [
@@ -26,9 +35,10 @@ export const CARD_DISCIPLINE = [
  * Render the tag tree, with a description on documented branches.
  *
  * @param {object} cards - The card store.
+ * @param {Record<string, string>} descriptions - The effective description map.
  * @returns {string[]} One line per branch.
  */
-function treeLines(cards) {
+function treeLines(cards, descriptions) {
 	const roots = buildTagTree(cards.all())
 	const lines = []
 	/**
@@ -39,7 +49,7 @@ function treeLines(cards) {
 	 * @returns {void}
 	 */
 	function walk(node, depth) {
-		const description = descriptionOf(node.path)
+		const description = descriptionOf(node.path, descriptions)
 		lines.push(`${'  '.repeat(depth)}#${node.path} (${node.count})${description === '' ? '' : ` — ${description}`}`)
 		for (const child of node.children) walk(child, depth + 1)
 	}
@@ -57,11 +67,12 @@ function treeLines(cards) {
  *
  * @param {object} cards - The card store.
  * @param {number} [budget] - Total section budget.
+ * @param {Record<string, string>} [descriptions] - The effective description map.
  * @returns {string} The section text.
  */
-export function cardPrompt(cards, budget = 2048) {
+export function cardPrompt(cards, budget = DEFAULT_PROMPT_BUDGET, descriptions = TAG_DESCRIPTIONS) {
 	const header = `${CARD_DISCIPLINE}\n[标签类型] #践行=落地行动；#见闻=外部输入；#即兴=主动应变；#复盘=反思提炼；#觉察=内省盲区；#试错=低成本迭代\n[标签树]`
-	const lines = treeLines(cards)
+	const lines = treeLines(cards, descriptions)
 	if (lines.length === 0) return `${header}\n（空；新卡默认 #即兴）`
 	const kept = []
 	let used = Buffer.byteLength(header, 'utf8')
