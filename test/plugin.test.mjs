@@ -111,7 +111,12 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 		const { ctx, routes, tools, sections, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
-			assert.equal(tools.length, 9)
+			// Nine card tools plus the three that maintain a project's harness/.
+			assert.equal(tools.length, 12)
+			assert.deepEqual(
+				tools.map((tool) => tool.name).filter((name) => name.startsWith('harness_')),
+				['harness_catalog', 'harness_write', 'harness_validate'],
+			)
 			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:cards', 'dsh-evolver:soul', 'dsh-evolver:proactive'])
 			assert.equal(routes.size, ENDPOINTS.length)
 			assert.match(sections[0].text(), /\[卡片\]/)

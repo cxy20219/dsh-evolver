@@ -1,0 +1,253 @@
+/**
+ * The project harness: a memory that lives next to the code.
+ *
+ * The rules are the ones the skill enforced with a Python script; what is
+ * pinned here is that the index is *derived* from the folder, so "every
+ * resource is indexed" stops being a hope and becomes a property.
+ */
+
+import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import test from 'node:test'
+
+import {
+	BLOCK_END,
+	BLOCK_START,
+	catalog,
+	ensureIndex,
+	firstHeading,
+	indexRefs,
+	initHarness,
+	isBareIndex,
+	parseIndexEntries,
+	projectRootOf,
+	renderIndex,
+	splitFrontmatter,
+	spliceBlock,
+	withFrontmatter,
+} from '../src/harness/store.js'
+import { createHarnessTools } from '../src/harness/tools.js'
+import { validate } from '../src/harness/validate.js'
+import { slugOf, writeResource } from '../src/harness/write.js'
+
+/**
+ * A project folder with a git marker and a harness skeleton.
+ *
+ * @returns {Promise<string>} The project root.
+ */
+async function project() {
+	const root = await mkdtemp(join(tmpdir(), 'harness-proj-'))
+	await mkdir(join(root, '.git'), { recursive: true })
+	await initHarness(root)
+	return root
+}
+
+test('frontmatter 读回来和写进去一致', () => {
+	const document = withFrontmatter({ title: '标题', summary: '一句话用途' }, '# 标题\n\n正文')
+	const { meta, body } = splitFrontmatter(document)
+	assert.equal(meta.title, '标题')
+	assert.equal(meta.summary, '一句话用途')
+	assert.equal(body, '# 标题\n\n正文')
+	// A document without frontmatter is all body, untouched.
+	assert.deepEqual(splitFrontmatter('# 只有正文'), { meta: {}, body: '# 只有正文', fenced: false })
+	assert.equal(withFrontmatter({}, '正文'), '正文')
+})
+
+test('索引既能读回用途与顺序，也能认出带扩展名的脚本路径', () => {
+	const text = [
+		'- [Harness 开发指南](harness/harness.md)：总览',
+		'- [甲](harness/scripts/check.py)：查语法',
+		'- [乙](harness/experience/002-x.md)：一个坑；见 [甲](harness/scripts/check.py)',
+	].join('\n')
+	assert.deepEqual(indexRefs(text), [
+		'harness/harness.md',
+		'harness/scripts/check.py',
+		'harness/experience/002-x.md',
+	])
+	const entries = parseIndexEntries(text)
+	assert.equal(entries.get('harness/scripts/check.py').label, '甲')
+	assert.equal(entries.get('harness/scripts/check.py').summary, '查语法')
+	assert.equal(entries.get('harness/scripts/check.py').order, 1)
+})
+
+test('托管块只替换自己那一块，块外一个字节都不动', () => {
+	const owned = `${BLOCK_START}\n旧索引\n${BLOCK_END}`
+	const source = `# 我的说明\n\n手写内容。\n\n${owned}\n\n底部说明。`
+	const next = spliceBlock(source, '新索引')
+	assert.match(next, /# 我的说明\n\n手写内容。\n\n/)
+	assert.match(next, /底部说明。/)
+	assert.match(next, /新索引/)
+	assert.equal(next.includes('旧索引'), false)
+	assert.equal(next.split(BLOCK_START).length, 2, '只有一个托管块')
+})
+
+test('首次迁移：纯索引整体接管，混合内容只追加', () => {
+	const bare = '> 抬头\n# 文档索引，按需查阅\n\n- [甲](harness/workflow/a.md)：用途'
+	assert.equal(isBareIndex(bare), true)
+	assert.equal(spliceBlock(bare, 'INDEX').startsWith(BLOCK_START), true)
+	assert.equal(spliceBlock(bare, 'INDEX').includes('用途'), false)
+
+	const mixed = `# 项目说明\n\n人写的一段话。\n\n${bare}`
+	assert.equal(isBareIndex(mixed), false)
+	const kept = spliceBlock(mixed, 'INDEX')
+	assert.match(kept, /人写的一段话。/)
+	assert.match(kept, /INDEX/)
+})
+
+test('写入一条资源后，索引立刻包含它且校验通过', async () => {
+	const root = await project()
+	try {
+		const result = await writeResource({
+			root,
+			layer: 'experience',
+			slug: 'cache-prefix',
+			title: '写卡会作废前缀缓存',
+			summary: '注入块一变，整段前缀重算',
+			body: '# 写卡会作废前缀缓存\n\n现象、根因、做法。',
+		})
+		assert.equal(result.created, true)
+		assert.equal(result.path, 'harness/experience/cache-prefix.md')
+		const written = await readFile(join(root, result.path), 'utf8')
+		assert.match(written, /^---\ntitle: 写卡会作废前缀缓存\nsummary: 注入块一变/)
+		const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
+		assert.ok(agents.includes(`(${result.path})`), '索引里有这一条')
+		assert.equal((await validate(root)).ok, true)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('写入拒绝非法落点，也不会留下半个文件', async () => {
+	const root = await project()
+	try {
+		await assert.rejects(() => writeResource({ root, layer: 'nope', slug: 'x', summary: 's', body: 'b' }), /layer/)
+		await assert.rejects(() => writeResource({ root, layer: 'experience', slug: '中文 名字', summary: 's', body: 'b' }), /文件名/)
+		await assert.rejects(() => writeResource({ root, layer: 'experience', slug: 'x', summary: 's', body: '   ' }), /正文/)
+		await assert.rejects(
+			() => writeResource({ root, layer: 'experience', slug: 'x', path: '../outside.md', summary: 's', body: 'b' }),
+			/只能更新/,
+		)
+		const state = await catalog(root)
+		assert.equal(state.resources.length, 0, '失败的写入不留资源')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('更新已有资源时保持文件名，并且不产生第二条索引', async () => {
+	const root = await project()
+	try {
+		const first = await writeResource({
+			root, layer: 'workflow', slug: 'release', title: '发布前检查', summary: '四步验证', body: '# 发布前检查\n\n一、二。',
+		})
+		const second = await writeResource({
+			root, path: first.path, summary: '发版前必跑的四步', body: '# 发布前检查\n\n一、二、三、四。',
+		})
+		assert.equal(second.path, first.path)
+		assert.equal(second.created, false)
+		const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
+		assert.equal(agents.split(first.path).length, 2, '索引里只有一条')
+		assert.match(agents, /发版前必跑的四步/)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('校验能抓出缺失的层、未索引的资源、以及没有文档的脚本', async () => {
+	const root = await project()
+	try {
+		await writeResource({
+			root, layer: 'experience', slug: 'a', title: '甲', summary: '用途', body: '# 甲\n\n正文。',
+		})
+		// A resource written straight onto disk is invisible to the index.
+		await writeFile(join(root, 'harness/workflow', 'orphan.md'), '# 孤儿\n\n没人索引我。\n')
+		let report = await validate(root)
+		assert.equal(report.ok, false)
+		assert.ok(report.errors.some((error) => error.includes('does not index existing resource: harness/workflow/orphan.md')))
+
+		await ensureIndex(root)
+		report = await validate(root)
+		assert.equal(report.ok, true, report.errors.join(' / '))
+
+		// A script with no workflow entry pointing at it is a resource island.
+		await writeFile(join(root, 'harness/scripts', 'tool.py'), 'print(1)\n')
+		await ensureIndex(root)
+		report = await validate(root)
+		assert.ok(report.errors.some((error) => error.includes('harness/scripts/tool.py is not documented')))
+
+		await rm(join(root, 'harness/workflow'), { recursive: true, force: true })
+		report = await validate(root)
+		assert.ok(report.errors.some((error) => error.includes('missing harness/workflow/')))
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('脚本与资源不会把构建产物当成资源', async () => {
+	const root = await project()
+	try {
+		await mkdir(join(root, 'harness/scripts/__pycache__'), { recursive: true })
+		await writeFile(join(root, 'harness/scripts/__pycache__/x.cpython-314.pyc'), 'bin')
+		await writeFile(join(root, 'harness/scripts/.hidden'), 'x')
+		const state = await catalog(root)
+		assert.equal(state.resources.some((item) => item.path.includes('__pycache__')), false)
+		assert.equal(state.resources.some((item) => item.path.includes('.hidden')), false)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('项目根从子目录向上找，认 .git、harness 与 AGENTS.md', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'harness-root-'))
+	try {
+		const deep = join(root, 'a', 'b', 'c')
+		await mkdir(deep, { recursive: true })
+		assert.equal(await projectRootOf(deep), undefined, '没有标记就没有根')
+		await mkdir(join(root, '.git'))
+		assert.equal(await projectRootOf(deep), root)
+		// A file inside the project resolves through its folder.
+		await writeFile(join(deep, 'note.md'), 'x')
+		assert.equal(await projectRootOf(join(deep, 'note.md')), root)
+		assert.equal(await projectRootOf('relative/path'), undefined, '相对路径不猜')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('写入工具要求先看过目录，校验工具直接可用', async () => {
+	const root = await project()
+	const tools = Object.fromEntries(
+		createHarnessTools({ resolveProject: async () => root }).map((tool) => [tool.name, tool]),
+	)
+	const exec = { agent: { id: 'session-a' } }
+	try {
+		await assert.rejects(
+			() => tools.harness_write.execute({ layer: 'experience', slug: 'x', summary: 's', body: '# x\n\nb' }, exec),
+			/先调用 harness_catalog/,
+		)
+		const listed = await tools.harness_catalog.execute({}, exec)
+		assert.equal(listed.index.notIndexed.length, 0)
+		const written = await tools.harness_write.execute(
+			{ layer: 'experience', slug: 'first', title: '第一条', summary: '一句话', body: '# 第一条\n\n正文。' },
+			exec,
+		)
+		assert.equal(written.created, true)
+		assert.equal((await tools.harness_validate.execute({}, exec)).ok, true)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('slug 只留小写英文与连字符', () => {
+	assert.equal(slugOf('Cache Prefix Busting'), 'cache-prefix-busting')
+	assert.equal(slugOf('缓存 前缀'), '')
+	assert.equal(slugOf('../../etc/passwd'), 'etc-passwd')
+	assert.equal(slugOf('a'.repeat(200)).length <= 60, true)
+})
+
+test('标题取第一行标题，没有就用文件名兜底', () => {
+	assert.equal(firstHeading('前言\n\n## 真正的标题\n'), '真正的标题')
+	assert.equal(firstHeading('没有标题'), '')
+})

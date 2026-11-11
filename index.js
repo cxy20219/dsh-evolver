@@ -25,6 +25,8 @@ import { BackupService } from './src/backup/service.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
 import { createConsolidationController } from './src/consolidate.js'
 import { createHealthJob } from './src/health.js'
+import { createHarnessTools } from './src/harness/tools.js'
+import { projectRootOf } from './src/harness/store.js'
 import { createIngestController } from './src/ingest.js'
 import { SessionLedger, digestSessions } from './src/sessions.js'
 import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
@@ -843,7 +845,36 @@ export async function apply(ctx, config) {
 		return () => backup.stop()
 	}, 'dsh-evolver: backup scheduler')
 
+	/**
+	 * Find the project a tool call belongs to.
+	 *
+	 * Tools do not receive a working directory — the run context carries only
+	 * the agent id — so it is read back from the session header, which the host
+	 * records when the session starts.
+	 *
+	 * @param {{project?: string, agent?: {id?: string}}} exec - The call context.
+	 * @returns {Promise<string | undefined>} The project root.
+	 */
+	const projectCache = new Map()
+	async function resolveProject(exec) {
+		const explicit = String(exec?.project ?? '').trim()
+		if (explicit !== '') return projectRootOf(explicit)
+		const id = String(exec?.agent?.id ?? '')
+		if (id === '') return undefined
+		if (projectCache.has(id)) return projectCache.get(id)
+		const query = ctx.get('sessionQuery')
+		if (query === undefined || typeof query.filterSessions !== 'function') return undefined
+		const records = await query.filterSessions([{ kind: 'id', values: [id] }]).catch(() => [])
+		const cwd = records?.[0]?.header?.cwd
+		const resolved = typeof cwd === 'string' ? await projectRootOf(cwd) : undefined
+		projectCache.set(id, resolved)
+		return resolved
+	}
+
 	for (const tool of createTools({ cards: cardAgent, sessions })) {
+		disposers.push(ctx.tools.register(tool))
+	}
+	for (const tool of createHarnessTools({ resolveProject })) {
 		disposers.push(ctx.tools.register(tool))
 	}
 
