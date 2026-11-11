@@ -52,6 +52,7 @@ window.__ModuleLoader__.load({
 			'cards.filter.experiment': '试错',
 			'cards.filter.archived': '归档',
 			'cards.empty': '还没有卡片。',
+			'cards.truncated': '只显示前 {shown} 张，共 {total} 张；用搜索或标签收窄范围。',
 			'cards.tags': '标签',
 			'cards.tagReset': '全部标签',
 			'cards.editor.new': '新建卡片',
@@ -247,6 +248,7 @@ window.__ModuleLoader__.load({
 			'cards.filter.experiment': 'Experiment',
 			'cards.filter.archived': 'Archived',
 			'cards.empty': 'No cards yet.',
+			'cards.truncated': 'Showing {shown} of {total} cards; narrow it with a search or a tag.',
 			'cards.tags': 'Tags',
 			'cards.tagReset': 'All tags',
 			'cards.editor.new': 'New card',
@@ -2127,7 +2129,8 @@ window.__ModuleLoader__.load({
 
 			function renderList() {
 				if (cards.length === 0) return h(Empty, null, t('cards.empty'));
-				return h('div', null, cards.map(function (card) {
+				var total = Number(state.total) || cards.length;
+				var shown = h('div', null, cards.map(function (card) {
 					return h('div', {
 						key: card.id,
 						className: 'evrRow',
@@ -2145,6 +2148,11 @@ window.__ModuleLoader__.load({
 							title: absoluteTime(card.updated ?? '', true),
 						}, cardTime(card.updated ?? '', t)));
 				}));
+				if (total <= cards.length) return shown;
+				return h('div', null,
+					shown,
+					h('div', { className: 'evrHint', style: { marginTop: '8px' } },
+						t('cards.truncated').replace('{shown}', String(cards.length)).replace('{total}', String(total))));
 			}
 
 			function renderDetail() {

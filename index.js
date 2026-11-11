@@ -253,14 +253,30 @@ export async function apply(ctx, config) {
 
 	// Tools and the ingest job talk to this proxy; a data-folder switch
 	// replaces the agent behind it without changing tool identities.
+	/**
+	 * Run one tool-side write, refusing while the data folder is moving.
+	 *
+	 * The store is closed and reopened across a migrate; a write that lands in
+	 * that window goes to the folder being left behind.
+	 *
+	 * @param {Function} work - The write.
+	 * @returns {Promise<object>} The result.
+	 */
+	function guardedWrite(work) {
+		if (dataOperation !== undefined) {
+			return Promise.reject(new Error(`${dataOperation}正在进行，请稍后再试。`))
+		}
+		return work()
+	}
+
 	const cardAgent = {
-		write: (...args) => cardAgentRef.current.write(...args),
-		saveFleeting: (...args) => cardAgentRef.current.saveFleeting(...args),
+		write: (...args) => guardedWrite(() => cardAgentRef.current.write(...args)),
+		saveFleeting: (...args) => guardedWrite(() => cardAgentRef.current.saveFleeting(...args)),
 		query: (...args) => cardAgentRef.current.query(...args),
 		read: (...args) => cardAgentRef.current.read(...args),
-		promote: (...args) => cardAgentRef.current.promote(...args),
-		archive: (...args) => cardAgentRef.current.archive(...args),
-		remove: (...args) => cardAgentRef.current.remove(...args),
+		promote: (...args) => guardedWrite(() => cardAgentRef.current.promote(...args)),
+		archive: (...args) => guardedWrite(() => cardAgentRef.current.archive(...args)),
+		remove: (...args) => guardedWrite(() => cardAgentRef.current.remove(...args)),
 		index: (...args) => cardAgentRef.current.index(...args),
 		review: (...args) => cardAgentRef.current.review(...args),
 	}
@@ -366,6 +382,12 @@ export async function apply(ctx, config) {
 	 * @returns {Promise<object>} The edit's result.
 	 */
 	async function committed(work) {
+		// A folder move closes the store and reopens it somewhere else; a write
+		// that slipped through that window landed in the folder being left
+		// behind and still answered success.
+		if (dataOperation !== undefined) {
+			throw new Error(`${dataOperation}正在进行，请稍后再试。`)
+		}
 		const store = cardStoreRef.current
 		const result = await work(store)
 		await store.flush()
@@ -434,10 +456,18 @@ export async function apply(ctx, config) {
 			const includeArchived = payload.includeArchived === true
 			const archivedOnly = payload.archivedOnly === true
 			const query = String(payload.query ?? '').trim()
-			const cards = query === ''
-				? store.list({ tags, anyTags, limit, includeArchived, archivedOnly })
-				: await store.query({ text: query, tags, anyTags, limit, includeArchived, archivedOnly })
-			return { cards, tree: store.tagTree(), status: store.status(), cardMaxChars: settings.get().cardMaxChars }
+			const page = query === ''
+				? store.listPage({ tags, anyTags, limit, includeArchived, archivedOnly })
+				: { cards: await store.query({ text: query, tags, anyTags, limit, includeArchived, archivedOnly }), total: 0 }
+			return {
+				cards: page.cards,
+				// How many cards the filter matches in total: the panel gets a
+				// page, and without this number a truncated list looks complete.
+				total: page.total === 0 ? page.cards.length : page.total,
+				tree: store.tagTree(),
+				status: store.status(),
+				cardMaxChars: settings.get().cardMaxChars,
+			}
 		},
 		async read(payload = {}) {
 			const store = cardStoreRef.current

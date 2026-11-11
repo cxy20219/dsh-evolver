@@ -50,9 +50,10 @@ export function normalizeTag(value) {
  * Normalise a list of tags.
  *
  * @param {unknown} values - An array or a comma/space separated string.
+ * @param {number} [limit] - How many tags to keep.
  * @returns {string[]} Unique, normalised tags.
  */
-export function normalizeTags(values) {
+export function normalizeTags(values, limit = MAX_TAGS) {
 	const list = Array.isArray(values)
 		? values
 		: String(values ?? '').split(/[,，\s]+/)
@@ -63,7 +64,7 @@ export function normalizeTags(values) {
 		if (tag === '' || seen.has(tag)) continue
 		seen.add(tag)
 		tags.push(tag)
-		if (tags.length >= MAX_TAGS) break
+		if (tags.length >= limit) break
 	}
 	return tags
 }
@@ -211,8 +212,8 @@ export function rootOf(tag) {
  * @param {{defaultTop?: string}} [options] - Fallback for an empty list.
  * @returns {string[]} Normalised, whitelisted tags.
  */
-export function normalizeCardTags(values, { defaultTop = '即兴' } = {}) {
-	const tags = normalizeTags(values)
+export function normalizeCardTags(values, { defaultTop = '即兴', limit = MAX_TAGS } = {}) {
+	const tags = normalizeTags(values, limit)
 	for (const tag of tags) {
 		const root = rootOf(tag)
 		if (!TOP_TAGS.includes(root)) {
@@ -252,7 +253,9 @@ export function archiveTags(values) {
 	const tags = normalizeCardTags(values)
 	if (isArchived(tags)) return tags
 	const root = rootOf(tags[0])
-	return normalizeCardTags([`${root}/${ARCHIVE_SEGMENT}`, ...tags])
+	// The archive leaf is a state, not a branch, so it may sit outside the
+	// branch cap: at eight tags the old order silently dropped the eighth.
+	return normalizeCardTags([`${root}/${ARCHIVE_SEGMENT}`, ...tags], { limit: MAX_TAGS + 1 })
 }
 
 /**
@@ -269,11 +272,13 @@ export function settleTags(values, targets = []) {
 	const existing = normalizeCardTags(values).filter((tag) => !isArchived([tag]) && rootOf(tag) !== '即兴')
 	const rawTargets = normalizeTags(targets)
 	const added = rawTargets.length === 0 ? [] : normalizeCardTags(rawTargets).filter((tag) => rootOf(tag) !== '即兴')
-	const merged = [...existing, ...added.filter((tag) => !existing.includes(tag))]
+	// The chosen targets come first: appending them meant a card already at
+	// the cap dropped the second target without saying so.
+	const merged = [...added.filter((tag) => !existing.includes(tag)), ...existing]
 	if (!isSettled(merged)) {
 		throw new Error(`请选择六大枝干之一：${TOP_TAGS.filter((tag) => tag !== '即兴').map((tag) => `#${tag}`).join(' / ')}`)
 	}
-	return normalizeCardTags(merged)
+	return normalizeCardTags(merged, { limit: MAX_TAGS + (added.length > 0 ? 1 : 0) })
 }
 
 /**

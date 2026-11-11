@@ -93,6 +93,29 @@ const LABEL_CACHE_LIMIT = 4096
 const LABEL_CACHE = new Map()
 
 /**
+ * An invisible character that reorders the text around it.
+ *
+ * A label is drawn in a list and in the injected tag map; one of these makes
+ * the rendered order differ from the stored order.
+ */
+const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069\u200e\u200f]/g
+
+/**
+ * Make one line safe to show as a label.
+ *
+ * Sliced by code point, not by UTF-16 unit: an emoji is two units, and cutting
+ * between them leaves a lone surrogate that renders as a replacement box.
+ *
+ * @param {string} value - The raw line.
+ * @returns {string} At most 80 characters, single-spaced, no bidi controls.
+ */
+function clipLabel(value) {
+	const clean = String(value ?? '').replace(BIDI_CONTROLS, '').replace(/\s+/g, ' ').trim()
+	const points = Array.from(clean)
+	return points.length <= 80 ? clean : points.slice(0, 79).join('') + '…'
+}
+
+/**
  * Derive a card label from its body.
  *
  * @param {unknown} body - The body text.
@@ -105,9 +128,7 @@ export function labelOf(body) {
 	const line = source.split('\n').map((part) => part.trim()).find((part) => part !== '') ?? ''
 	const clean = line.replace(/^#{1,6}\s+/, '').replace(/^[-*+>]\s+/, '')
 	const link = clean.match(/^\[([^\]]+)\]\([^)]*\)/)
-	const label = link !== null
-		? link[1].replace(/\s+/g, ' ').trim().slice(0, 80)
-		: clean.replace(/\s+/g, ' ').trim().slice(0, 80)
+	const label = clipLabel(link !== null ? link[1] : clean)
 	// Deriving the label costs a split and three passes over the body, and
 	// every read path asks for the same bodies again. The cache holds the
 	// strings it saw last; a changed body is simply a miss.
@@ -456,6 +477,7 @@ export class CardStore {
 		// The tool path checks this before calling; the panel and the HTTP API
 		// reach `put` directly, so the check belongs at the one write entrance
 		// rather than at one of its callers.
+		if (body.trim() === '') throw new Error('卡片正文不能为空。')
 		const secret = findSecret(body)
 		if (secret !== undefined) throw new Error(`正文里像是${secret}：卡片库不保存密钥，请删掉后重写。`)
 		const tags = normalizeCardTags(input.tags ?? previous?.tags ?? [])
@@ -463,6 +485,10 @@ export class CardStore {
 		const links = Array.isArray(input.links) ? [...new Set(input.links.map(String))] : (previous?.links ?? [])
 		for (const link of links) {
 			if (!isCardId(link)) throw new Error(`链接目标不是卡片 id：${link}`)
+			if (link === id) throw new Error('卡片不能链接自己。')
+			// A link to a card that is not there renders as "(missing)" for
+			// ever and leaves a ghost key in the backlink map.
+			if (this.cards.getEntry(link) === undefined) throw new Error(`链接目标不存在：${link}`)
 		}
 		const resourceNames = new Set((await this.resources.list(id)).map((item) => item.name))
 		const inputNames = []
@@ -507,12 +533,18 @@ export class CardStore {
 	async attach(id, name, data) {
 		const card = this.get(id)
 		if (card === undefined) throw new Error(`找不到卡片：${id}`)
-		const metadata = await this.resources.put(id, name, data)
-		const relativePath = resourceRelativePath(id, metadata.name)
+		const safe = safeResourceName(name)
+		if (safe === '') throw new Error(`资源文件名不合法：${String(name)}`)
+		const relativePath = resourceRelativePath(id, safe)
+		// The reference line is built *before* the file is written and put back
+		// through `put`, which validates the length first. Writing the file
+		// first left a card whose body no longer fits, and because `put` also
+		// demands that every file on disk is referenced, that card could never
+		// be saved again — one failed upload turned it read-only.
 		const body = hasResourceReference(card.body, relativePath)
 			? card.body
-			: `${card.body.trim()}\n\n[${metadata.name}](${relativePath})：用途：附件资源；入口：按文件说明；输入、输出和关联流程：待补充。`.trim()
-		await this.put({ ...card, id, body })
+			: `${String(card.body ?? '').trim()}\n\n[${safe}]({{resource}})：用途：附件资源；入口：按文件说明；输入、输出和关联流程：待补充。`.trim()
+		await this.put({ ...card, id, body }, { resourceInputs: [{ name: safe, data }] })
 		return this.read(id)
 	}
 
@@ -544,6 +576,19 @@ export class CardStore {
 	 * @returns {object[]} The cards.
 	 */
 	list({ tags = [], anyTags = [], limit = 50, includeArchived = false, archivedOnly = false } = {}) {
+		return this.listPage({ tags, anyTags, limit, includeArchived, archivedOnly }).cards
+	}
+
+	/**
+	 * One page of cards, with the size of the whole match.
+	 *
+	 * The panel shows a page; without the total a truncated list looks
+	 * complete.
+	 *
+	 * @param {object} options - The same filters as `list`.
+	 * @returns {{cards: object[], total: number}} The page and the match size.
+	 */
+	listPage({ tags = [], anyTags = [], limit = 50, includeArchived = false, archivedOnly = false } = {}) {
 		const filters = normalizeTags(tags)
 		const any = normalizeTags(anyTags)
 		const archivedFilter = filters.some((tag) => tag.split('/').pop() === '归档')
@@ -561,7 +606,8 @@ export class CardStore {
 			return true
 		})
 		cards.sort((left, right) => String(right.updated).localeCompare(String(left.updated)))
-		return cards.slice(0, Math.max(1, Math.min(200, Math.round(Number(limit) || 50))))
+		const size = Math.max(1, Math.min(200, Math.round(Number(limit) || 50)))
+		return { cards: cards.slice(0, size), total: cards.length }
 	}
 
 	/**

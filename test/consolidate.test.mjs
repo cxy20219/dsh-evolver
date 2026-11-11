@@ -299,3 +299,24 @@ test('整理任务不会并发跑两次', async () => {
 		await rm(dir, { recursive: true, force: true })
 	}
 })
+
+test('合并删掉目标卡后，引用的链接一起清掉', async () => {
+	const { dir, store, settings } = await fixture({ enabled: true, dailyCards: 5, hour: 3 })
+	try {
+		const keep = await store.put({ body: '保留的卡片', tags: ['践行/经验'] })
+		const drop = await store.put({ body: '将被合并的卡片', tags: ['践行/经验'] })
+		// `keep` already points at `drop`; the merge then removes `drop`.
+		await store.put({ id: keep.id, body: '保留的卡片', tags: ['践行/经验'], links: [drop.id] })
+		const llm = modelReturning(JSON.stringify({
+			actions: [{ op: 'merge', ids: [keep.id, drop.id], body: '合并后的正文', tags: ['践行/经验'], reason: '同义' }],
+		}))
+		const controller = createConsolidationController({ settings, store: () => store, llm, modelSelection, now: () => new Date(2026, 10, 11, 4, 0, 0).getTime() })
+		await controller.run()
+		assert.equal(store.get(drop.id), undefined, '被合并的卡已删除')
+		const survivor = store.get(keep.id)
+		assert.deepEqual(survivor.links ?? [], [], '不能留下指向已删卡的链接')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})

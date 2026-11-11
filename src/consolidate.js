@@ -468,6 +468,10 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 	 * @returns {Promise<object>} The run result.
 	 */
 	async function performRun() {
+		// The day this run belongs to is decided when it starts, not when it
+		// ends: a run that began at 23:58 and finished at 00:02 used to stamp
+		// the new day and silently skip the whole of it.
+		const startedAt = now()
 		const current = store()
 		if (current === undefined) throw new Error('卡片库还没有打开。')
 		if (!available()) throw new Error('这个宿主没有提供模型调用能力。')
@@ -582,12 +586,29 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 			}
 		}
 
+		// A merge can point a card at one that is being dropped in the same
+		// pass: the link was checked while the target still existed, and the
+		// target is gone by the time the batch ends. Left alone it renders as
+		// "(missing)" for ever, so the references are pruned here.
+		if (removed.length > 0) {
+			const gone = new Set(removed.map((entry) => entry.card.id))
+			for (const card of current.all()) {
+				const links = card.links ?? []
+				const kept = links.filter((id) => !gone.has(id))
+				if (kept.length === links.length) continue
+				await current.put({ id: card.id, body: card.body, tags: card.tags, links: kept })
+					.catch((error) => {
+						logger?.warn?.(`dsh-evolver: could not prune links on ${card.id}: ${error instanceof Error ? error.message : String(error)}`)
+					})
+			}
+		}
+
 		await appendTrash(removed)
 		const ledger = await readLedger()
 		const stamp = new Date(now()).toISOString()
 		for (const card of batch) ledger.cards[card.id] = stamp
 		ledger.lastRunAt = stamp
-		ledger.dayKey = dayKeyOf(now())
+		ledger.dayKey = dayKeyOf(startedAt)
 		await writeLedger(ledger)
 
 		state.lastRunAt = now()

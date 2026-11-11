@@ -124,13 +124,17 @@ export class BackupService {
 		const readiness = this.readiness()
 		if (!readiness.ready) throw new Error(`云端备份配置不完整：缺少 ${readiness.missing.join('、')}。`)
 		const startedAt = this.now()
+		// The flag goes up before the first await: two calls used to pass the
+		// guard while the temporary folder was still being created, pack twice
+		// and upload twice.
+		this.running = true
+		let directory
 		// Everything below runs inside the try: a failed settings write used to
 		// leave `running` set forever, and every later backup was refused with
 		// "already running" until the Host restarted.
-		const directory = await mkdtemp(join(tmpdir(), 'dsh-evolver-backup-'))
-		const tarPath = join(directory, 'snapshot.tar')
-		this.running = true
 		try {
+			directory = await mkdtemp(join(tmpdir(), 'dsh-evolver-backup-'))
+			const tarPath = join(directory, 'snapshot.tar')
 			await this.settings.updateStatus({ lastAttemptAt: startedAt.toISOString() })
 			// Flush the debounced card log before the snapshot, otherwise the
 			// newest cards can be missing from a backup taken right after a write.
@@ -194,7 +198,7 @@ export class BackupService {
 			throw error
 		} finally {
 			this.running = false
-			await rm(directory, { recursive: true, force: true }).catch(() => {})
+			if (directory !== undefined) await rm(directory, { recursive: true, force: true }).catch(() => {})
 		}
 	}
 
@@ -226,7 +230,10 @@ export class BackupService {
 		const now = this.now().getTime()
 		const interval = config.intervalMinutes * 60_000
 		const last = Date.parse(status.lastBackupAt)
-		if (Number.isFinite(last) && now - last < interval) return
+		// A clock that moved backwards — or a snapshot stamped in the future —
+		// used to mean "not due" for ever, with the panel still reporting
+		// healthy. A negative age counts as due.
+		if (Number.isFinite(last) && now - last < interval && now >= last) return
 		// After a failure, wait before trying again — and wait longer each time,
 		// up to the configured interval. A fixed five minutes turns a broken
 		// endpoint into a re-pack of the whole folder every five minutes.

@@ -5,7 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { cardCreatedAt, cardId, isCardId } from '../src/cards/ids.js'
-import { normalizeCardTags, normalizeTag, normalizeTags, buildTagTree, TAG_DESCRIPTIONS } from '../src/cards/tags.js'
+import { normalizeCardTags, normalizeTag, normalizeTags, buildTagTree, archiveTags, settleTags, TAG_DESCRIPTIONS } from '../src/cards/tags.js'
 import { safeResourceName } from '../src/cards/resources.js'
 import { cardPrompt, DEFAULT_PROMPT_BUDGET } from '../src/cards/prompt.js'
 import { CardStore, labelOf } from '../src/cards/store.js'
@@ -387,4 +387,44 @@ test('面板直接写卡也要过密钥筛查', async () => {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
 	}
+})
+
+test('附件存不下时不会把卡片变成只读', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const card = await store.put({ body: '正'.repeat(1000), tags: ['践行/经验'] })
+		// The reference line would push the body past the cap. The upload must
+		// fail without leaving a file behind: `put` also demands that every
+		// file on disk is referenced, so an orphan makes the card unsaveable.
+		await assert.rejects(() => store.attach(card.id, '说明.md', Buffer.from('内容')), /超过/)
+		assert.deepEqual(await store.read(card.id).then((found) => found.resourceContents), [])
+		const edited = await store.put({ id: card.id, body: '短一点', tags: ['践行/经验'] })
+		assert.equal(edited.body, '短一点')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('空正文和指向不存在的链接都被拒绝', async () => {
+	const { dir, store } = await fixture()
+	try {
+		await assert.rejects(() => store.put({ body: '   \n ', tags: ['即兴'] }), /不能为空/)
+		await assert.rejects(
+			() => store.put({ body: '有链接', tags: ['即兴'], links: ['card-01M72KRG4VQEQQ25BM3DTHB97X'] }),
+			/不存在/,
+		)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('标签到上限时归档和落枝不会悄悄丢标签', async () => {
+	const eight = ['践行/经验', '践行/工作流', '见闻/git', '见闻/工具怪癖', '复盘/踩坑', '觉察/偏好', '试错/踩坑', '践行/约定']
+	const archived = archiveTags(eight)
+	assert.equal(archived.some((tag) => tag.endsWith('/归档')), true)
+	for (const tag of eight) assert.ok(archived.includes(tag), `归档后丢了 ${tag}`)
+	const settled = settleTags(eight, ['复盘/经验'])
+	assert.ok(settled.includes('复盘/经验'), '落枝目标不能因为满了就被丢掉')
 })
