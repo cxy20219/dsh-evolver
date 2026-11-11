@@ -1173,7 +1173,7 @@ window.__ModuleLoader__.load({
 					return h('span', { key: index }, label);
 				})),
 				h('div', { className: 'evrHeatmapBody' },
-					h('div', { className: 'evrHeatmapDays' }, ['', '一', '', '三', '', '五', ''].map(function (label, index) {
+					h('div', { className: 'evrHeatmapDays' }, ['日', '一', '二', '三', '四', '五', '六'].map(function (label, index) {
 						return h('span', { key: index }, label);
 					})),
 					h('div', { className: 'evrHeatmap' }, weeks.map(function (week) {
