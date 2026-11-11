@@ -408,3 +408,30 @@ test('相同内容会合并到同一张 #即兴 卡，不同内容各自成卡',
 		await rm(dir, { recursive: true, force: true })
 	}
 })
+
+test('向量分低于底线时，BM25 排第一的卡仍然会返回', async () => {
+	const { dir, db } = await fixture()
+	try {
+		await db.put({ id: 'a', text: '插件登记两处', kind: 'fact', updatedAt: STAMP })
+		await db.put({ id: 'b', text: '导出必须是单个压缩包', kind: 'fact', updatedAt: STAMP })
+		// A hashing backend scores a paraphrase below its floor, and the floor
+		// outranks nothing: the card BM25 already ranked first has to survive.
+		db.vectors = new Map([
+			['a', Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0])],
+			['b', Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0])],
+		])
+		const query = '改完以后为什么界面上看不到变化插件'
+		const results = await hybridRetrieve({
+			db,
+			query,
+			queryVector: Float32Array.from([0.3, 1, 0, 0, 0, 0, 0, 0]),
+			floor: 0.9,
+			limit: 5,
+		})
+		assert.ok(results.length > 0, '关键词命中不能被向量底线清空')
+		assert.equal(results[0].id, 'a', 'BM25 排第一的卡就是答案')
+		await db.close()
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})

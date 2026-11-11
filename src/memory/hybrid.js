@@ -60,6 +60,18 @@ const MIN_SIGMA_SAMPLE = 5
  */
 const KEYWORD_MIN_OVERLAP = 0.25
 
+/**
+ * How close to the best keyword hit a memory has to score to count as a
+ * confident keyword match.
+ *
+ * BM25 already weighs terms by rarity, so re-testing the winner with a crude
+ * "share of query tokens" is how a paraphrase question — 「改完插件为什么界面
+ * 上看不到变化」 against a card that says 「接口要同时在两处登记」 — ended up
+ * returning nothing at all: too few shared words to clear the overlap gate,
+ * and no vector backend confident enough to rescue it.
+ */
+const KEYWORD_CONFIDENT_SHARE = 0.45
+
 /** How much of the final selection favours relevance over variety. */
 const MMR_LAMBDA = 0.7
 
@@ -256,7 +268,13 @@ export async function hybridRetrieve({ db, query, queryVector, limit = 8, minSco
 	})
 	// An empty query is a request for "what is stored", not for a match.
 	if (queryTokens.size > 0) {
-		scored = scored.filter(item => item.overlap >= KEYWORD_MIN_OVERLAP || item.vectorScore >= vectorFloor)
+		// A confident keyword hit survives even when the words barely overlap:
+		// BM25 ranked it highly, so it is the answer to a question that does
+		// not repeat the card's wording. Without this branch a weak vector
+		// side leaves the caller with an empty list instead of a decent one.
+		const bestKeyword = keyword.length === 0 ? 0 : keyword[0].score
+		const confident = (item) => bestKeyword > 0 && item.keywordScore >= bestKeyword * KEYWORD_CONFIDENT_SHARE
+		scored = scored.filter(item => item.overlap >= KEYWORD_MIN_OVERLAP || item.vectorScore >= vectorFloor || confident(item))
 	}
 
 	if (rerank !== undefined && scored.length > 0) {
