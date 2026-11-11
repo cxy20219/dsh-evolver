@@ -47,6 +47,22 @@ test('首条不算未命中，之后读到 0 才是前缀被重建', () => {
 	assert.equal(Number(report.missShare.toFixed(4)), Number((1500 / report.prompt).toFixed(4)))
 })
 
+test('最近窗口与「重建之后还剩几步」分开算', () => {
+	const rows = []
+	for (let index = 0; index < 60; index += 1) {
+		// One rebuild at step 55 of 60: it belongs to the recent window, and
+		// only four steps follow it.
+		const miss = index === 55
+		rows.push(message(miss ? { inputTokens: 1000, cacheReadTokens: 0 } : { inputTokens: 5, cacheReadTokens: 995 }, index))
+	}
+	const report = summarizeUsage(rows)
+	assert.equal(report.recent.messages, 50)
+	assert.equal(report.recent.misses, 1)
+	assert.ok(report.recent.hitRate > 0.9 && report.recent.hitRate < 1)
+	assert.equal(report.sinceMiss, 4)
+	assert.equal(summarizeUsage([]).sinceMiss, 0)
+})
+
 test('没有 usage 的事件被跳过，空输入不除以零', () => {
 	assert.deepEqual(
 		summarizeUsage([{ type: 'user/message', data: {} }, message({})]).hitRate,

@@ -56,6 +56,12 @@ export function summarizeUsage(messages) {
 	// What the misses actually cost: every one of them is a full prompt read.
 	const missCost = misses.reduce((sum, row) => sum + row.prompt, 0)
 
+	// The session average is dragged down by whatever happened hours ago. The
+	// tail is what a person can still act on: one window for "is it healthy
+	// right now", and one for "has it been healthy since the last rebuild".
+	const recent = window_(steps, 50)
+	const sinceMiss = steps.length - (misses.length === 0 ? 0 : misses[misses.length - 1].index + 1)
+
 	return {
 		messages: steps.length,
 		prompt,
@@ -64,8 +70,30 @@ export function summarizeUsage(messages) {
 		missCost,
 		missShare: prompt === 0 ? null : missCost / prompt,
 		misses,
+		// The last 50 steps, and the steps after the most recent rebuild.
+		recent,
+		sinceMiss,
 		reads: steps.filter((row) => row.cacheRead > 0).length,
 		largest: steps.reduce((max, row) => (row.prompt > (max?.prompt ?? 0) ? row : max), undefined) ?? null,
+	}
+}
+
+/**
+ * Aggregate the last N steps.
+ *
+ * @param {object[]} steps - All steps, oldest first.
+ * @param {number} size - How many to take.
+ * @returns {{messages: number, prompt: number, hitRate: number | null, misses: number}} The window.
+ */
+function window_(steps, size) {
+	const tail = steps.slice(Math.max(0, steps.length - size))
+	const prompt = tail.reduce((sum, row) => sum + row.prompt, 0)
+	const read = tail.reduce((sum, row) => sum + row.cacheRead, 0)
+	return {
+		messages: tail.length,
+		prompt,
+		hitRate: prompt === 0 ? null : read / prompt,
+		misses: tail.filter((row) => row.cacheRead === 0 && row.prompt > 0).length,
 	}
 }
 
