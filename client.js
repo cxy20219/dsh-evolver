@@ -614,7 +614,11 @@ window.__ModuleLoader__.load({
 			'.evrOverviewSplit{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}',
 			'.evrOverviewGraph{flex:1 1 0;min-width:0}',
 			'.evrOverviewTree{flex:1 1 0;min-width:0}',
-			'.evrLinkGraph{width:100%;height:auto;max-width:420px;display:block;margin:0 auto}',
+			'.evrLinkGraph{width:100%;height:auto;max-width:460px;display:block;margin:0 auto;cursor:grab;touch-action:none}',
+			'.evrLinkGraph:active{cursor:grabbing}',
+			'.evrLinkLabel{fill:var(--dsw-alias-label-primary);font-size:9px;font-family:inherit;pointer-events:none;paint-order:stroke;stroke:var(--dsw-alias-bg-base);stroke-width:2.5px;stroke-linejoin:round}',
+			'.evrLinkLabelQuiet{fill:var(--dsw-alias-label-secondary);font-size:8.5px}',
+			'.evrLinkNodeOn circle{stroke:var(--dsw-alias-label-primary);stroke-width:1.5}',
 			'.evrLinkEdge{fill:none;stroke:var(--dsw-alias-label-tertiary);stroke-width:1;stroke-opacity:.5}',
 			'.evrLinkEdgeMutual{stroke-opacity:.85;stroke-width:1.4}',
 			'.evrLinkNode circle{stroke:var(--dsw-alias-bg-base);stroke-width:1}',
@@ -1739,52 +1743,162 @@ window.__ModuleLoader__.load({
 					var qx = (source.x + target.x) / 2 - (dy / length) * bend;
 					var qy = (source.y + target.y) / 2 + (dx / length) * bend;
 					return {
+						source: edge.source,
+						target: edge.target,
 						mutual: edge.mutual === true,
 						d: 'M ' + source.x.toFixed(1) + ' ' + source.y.toFixed(1)
 							+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
 							+ ' ' + target.x.toFixed(1) + ' ' + target.y.toFixed(1),
 					};
 				}),
+				neighbours: edges.reduce(function (map, edge) {
+					(map[edge.source] ?? (map[edge.source] = [])).push(edge.target);
+					(map[edge.target] ?? (map[edge.target] = [])).push(edge.source);
+					return map;
+				}, {}),
 			};
 		}
 
 		/**
 		 * A graph of the cards and the links between them.
 		 *
-		 * Every card that links to another card, or is linked back to, becomes
-		 * a node and a link becomes an edge.
+		 * Layered the way Obsidian draws its graph: faint edges, a dot per card
+		 * sized by how many links it has, colour by branch, and no permanent
+		 * labels — hovering or clicking a card names it and its neighbours and
+		 * fades everything else, so a dense picture stays readable. The canvas
+		 * pans and zooms like Obsidian's does.
 		 *
 		 * @param {object} props - Component props.
 		 * @returns {object} The element tree.
 		 */
 		function LinkGraph(props) {
 			var t = props.t;
-			// The layout depends on the cards alone, so it is computed once per
-			// library change rather than once per render.
 			var layout = useMemo(function () { return linkLayout(props.cards); }, [props.cards]);
-			if (layout === null) {
-				return h('div', { className: 'evrHint' }, t('overview.linkGraph.empty'));
+			var [camera, setCamera] = useState(null);
+			var [hovered, setHovered] = useState(null);
+			var [pinned, setPinned] = useState(null);
+			var svgRef = useRef(null);
+			var dragRef = useRef(null);
+			var movedRef = useRef(false);
+			useEffect(function () { setCamera(null); setHovered(null); setPinned(null); }, [layout]);
+			if (layout === null) return h('div', { className: 'evrHint' }, t('overview.linkGraph.empty'));
+			var view = camera === null ? { s: 1, x: 0, y: 0 } : camera;
+
+			useEffect(function () {
+				var node = svgRef.current;
+				if (node === null || node === undefined) return undefined;
+				function onWheel(event) {
+					event.preventDefault();
+					var box = node.getBoundingClientRect();
+					if (box.width === 0 || box.height === 0) return;
+					var px = ((event.clientX - box.left) / box.width) * layout.width;
+					var py = ((event.clientY - box.top) / box.height) * layout.height;
+					setCamera(function (previous) {
+						var base = previous === null ? { s: 1, x: 0, y: 0 } : previous;
+						var next = Math.min(Math.max(base.s * Math.exp(-event.deltaY * 0.0016), 0.7), 6);
+						var ratio = next / base.s;
+						return { s: next, x: px - (px - base.x) * ratio, y: py - (py - base.y) * ratio };
+					});
+				}
+				node.addEventListener('wheel', onWheel, { passive: false });
+				return function () { node.removeEventListener('wheel', onWheel); };
+			}, [layout]);
+
+			var focus = hovered ?? pinned;
+			var related = {};
+			if (focus !== null) {
+				related[focus] = true;
+				(layout.neighbours[focus] ?? []).forEach(function (id) { related[id] = true; });
 			}
-			return h('div', null,
+			var byId = {};
+			layout.nodes.forEach(function (node) { byId[node.id] = node; });
+
+			var edgeEls = layout.edges.map(function (edge, index) {
+				var lit = focus === null || (related[edge.source] === true && related[edge.target] === true);
+				return h('path', {
+					key: 'e-' + index,
+					d: edge.d,
+					className: 'evrLinkEdge' + (edge.mutual === true ? ' evrLinkEdgeMutual' : ''),
+					opacity: lit ? (focus === null ? 1 : 0.9) : 0.12,
+				});
+			});
+
+			var nodeEls = layout.nodes.map(function (node) {
+				var lit = focus === null || related[node.id] === true;
+				var neighbour = focus !== null && node.id !== focus && related[node.id] === true;
+				// Obsidian's labels are short note names; a card label is a whole
+				// sentence, so it is cut and the full text stays in the tooltip.
+				var label = node.label.length > 16 ? node.label.slice(0, 16) + '…' : node.label;
+				var labelRight = node.x + 8 + label.length * 9 <= layout.width;
+				return h('g', {
+					key: node.id,
+					className: 'evrLinkNode' + (focus === node.id ? ' evrLinkNodeOn' : ''),
+					role: 'button',
+					tabIndex: 0,
+					'aria-label': label + ' · ' + node.degree,
+					opacity: lit ? 1 : 0.16,
+					onMouseEnter: function () { setHovered(node.id); },
+					onMouseLeave: function () { setHovered(null); },
+					onFocus: function () { setHovered(node.id); },
+					onBlur: function () { setHovered(null); },
+					onClick: function (event) {
+						if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+						setPinned(pinned === node.id ? null : node.id);
+					},
+				},
+					h('circle', { cx: node.x, cy: node.y, r: node.r, fill: node.color }),
+					focus !== null && related[node.id] === true
+						? h('text', {
+							x: node.x + (labelRight ? node.r + 4 : -node.r - 4),
+							y: node.y + 3,
+							textAnchor: labelRight ? 'start' : 'end',
+							className: 'evrLinkLabel' + (neighbour ? ' evrLinkLabelQuiet' : ''),
+						}, label)
+						: null,
+					h('title', null, label + ' · ' + node.degree + ' ' + t('overview.linkGraph.links')));
+			});
+
+			return h('div', { className: 'evrGraphWrap' },
 				h('svg', {
+					ref: svgRef,
 					className: 'evrLinkGraph',
 					viewBox: '0 0 ' + layout.width + ' ' + layout.height,
 					role: 'img',
 					'aria-label': t('overview.linkGraph.label'),
-				},
-					h('g', null, layout.edges.map(function (edge, edgeIndex) {
-						return h('path', {
-							key: 'e-' + edgeIndex,
-							d: edge.d,
-							className: 'evrLinkEdge' + (edge.mutual ? ' evrLinkEdgeMutual' : ''),
+					onPointerDown: function (event) {
+						movedRef.current = false;
+						dragRef.current = { x: event.clientX, y: event.clientY, camera: view, box: event.currentTarget.getBoundingClientRect() };
+					},
+					onPointerMove: function (event) {
+						var drag = dragRef.current;
+						if (drag === null || drag === undefined) return;
+						var dx = event.clientX - drag.x;
+						var dy = event.clientY - drag.y;
+						if (Math.abs(dx) + Math.abs(dy) > 3) movedRef.current = true;
+						if (drag.box.width === 0 || drag.box.height === 0) return;
+						setCamera({
+							s: drag.camera.s,
+							x: drag.camera.x + dx * (layout.width / drag.box.width),
+							y: drag.camera.y + dy * (layout.height / drag.box.height),
 						});
-					})),
-					h('g', null, layout.nodes.map(function (node) {
-						return h('g', { key: node.id, className: 'evrLinkNode' },
-							h('circle', { cx: node.x, cy: node.y, r: node.r, fill: node.color }),
-							h('title', null, node.label + ' · ' + node.degree + ' ' + t('overview.linkGraph.links')));
-					}))),
-				);
+					},
+					onPointerUp: function (event) {
+						var dragged = movedRef.current;
+						dragRef.current = null;
+						if (dragged) return;
+						if (event.target === event.currentTarget) { setCamera(null); setPinned(null); }
+					},
+					onPointerLeave: function () { dragRef.current = null; },
+				},
+					h('g', {
+						style: {
+							transform: 'translate(' + view.x.toFixed(1) + 'px,' + view.y.toFixed(1) + 'px) scale(' + view.s.toFixed(3) + ')',
+							transition: 'transform 200ms ease',
+						},
+					},
+						h('g', null, edgeEls),
+						h('g', null, nodeEls))),
+				h('div', { className: 'evrHint', style: { marginTop: '6px' } }, t('overview.linkGraph.hint')));
 		}
 
 		/**
