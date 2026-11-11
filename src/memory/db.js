@@ -30,6 +30,9 @@ const FLUSH_DELAY_MS = 400
 /** The longest wait between retries of a failed write. */
 const FLUSH_RETRY_MAX_MS = 30_000
 
+/** The longest text one record may carry; well above the 4000-char card cap. */
+const MAX_RECORD_TEXT_CHARS = 64 * 1024
+
 /** BM25 parameters. */
 const BM25_K1 = 1.2
 const BM25_B = 0.75
@@ -78,7 +81,13 @@ function isWellShaped(record) {
 	if (record.tags !== undefined && !Array.isArray(record.tags)) return false
 	if (record.tags !== undefined && record.tags.some((tag) => typeof tag !== 'string')) return false
 	for (const field of ['body', 'text', 'label', 'summary']) {
-		if (record[field] !== undefined && typeof record[field] !== 'string') return false
+		const value = record[field]
+		if (value === undefined) continue
+		if (typeof value !== 'string') return false
+		// Cards are capped at 4000 characters when written; a body orders of
+		// magnitude above that arrived from an imported log, and one such
+		// record would be re-serialised into every list response.
+		if (value.length > MAX_RECORD_TEXT_CHARS) return false
 	}
 	return true
 }

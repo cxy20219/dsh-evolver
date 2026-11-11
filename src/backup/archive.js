@@ -18,7 +18,7 @@
 
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { chmod, lstat, mkdir, open, readdir, rename, rm, stat } from 'node:fs/promises'
+import { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -52,6 +52,9 @@ const IMPORT_ROOTS = ['knowledge/', 'sight/', 'preferences/']
 /** Files that are never part of an archive. */
 function isTransient(name) {
 	if (name === '.DS_Store') return true
+	// Copies kept by an overwriting import: useful on disk, noise in a
+	// snapshot — and they would otherwise nest one per import.
+	if (name.includes('.before-import-')) return true
 	return name.endsWith('.tmp') || name.endsWith('.part')
 }
 
@@ -341,6 +344,7 @@ export async function extractArchiveFile(source, root, { force = false } = {}) {
 	} finally {
 		await handle.close()
 	}
+	const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 	const input = createReadStream(source)
 	const stream = gzipped ? input.pipe(createGunzip()) : input
 	const reader = new ChunkReader(stream)
@@ -383,6 +387,12 @@ export async function extractArchiveFile(source, root, { force = false } = {}) {
 				skipped += 1
 				continue
 			}
+		}
+		// An import that overwrites is the one operation that can replace the
+		// files behind the system prompt. Keep what it replaced, so the change
+		// can be undone without asking git or a backup.
+		if (existing !== undefined && existing.isFile()) {
+			await copyFile(target, `${target}.before-import-${stamp}`).catch(() => {})
 		}
 		const temp = `${target}.${process.pid}.${Date.now()}.part`
 		const file = await open(temp, 'w', 0o600)
