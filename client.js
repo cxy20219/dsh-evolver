@@ -618,17 +618,12 @@ window.__ModuleLoader__.load({
 			'.evrCardsScroll::-webkit-scrollbar{width:10px;height:10px}',
 			'.evrCardsScroll::-webkit-scrollbar-thumb{background:var(--dsw-alias-scrollbar-bg-l2);border:3px solid transparent;border-radius:6px;background-clip:content-box}',
 			'.evrOverviewSplit{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}',
-			'.evrOverviewGraph{flex:1 1 520px;min-width:0}',
-			'.evrOverviewTree{flex:0 1 320px;min-width:260px}',
-			'.evrLinkGraph{width:100%;height:auto;max-width:320px;display:block;margin:0 auto}',
+			'.evrOverviewGraph{flex:1 1 0;min-width:0}',
+			'.evrOverviewTree{flex:1 1 0;min-width:0}',
+			'.evrLinkGraph{width:100%;height:auto;max-width:420px;display:block;margin:0 auto}',
 			'.evrLinkEdge{fill:none;stroke:var(--dsw-alias-label-tertiary);stroke-width:1;stroke-opacity:.5}',
 			'.evrLinkEdgeMutual{stroke-opacity:.85;stroke-width:1.4}',
 			'.evrLinkNode circle{stroke:var(--dsw-alias-bg-base);stroke-width:1}',
-			'.evrLinkList{display:flex;flex-direction:column;gap:3px;margin-top:8px}',
-			'.evrLinkItem{display:flex;align-items:center;gap:7px;font-size:11.5px;line-height:1.7;color:var(--dsw-alias-label-secondary)}',
-			'.evrLinkDot{flex:none;width:7px;height:7px;border-radius:50%}',
-			'.evrLinkName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-			'.evrLinkCount{flex:none;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
 			'.evrCrumb{display:flex;align-items:center;gap:2px;flex-wrap:wrap;margin-bottom:6px;font-size:11.5px;line-height:1.7}',
 			'.evrCrumbBtn{padding:1px 5px;border:none;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer}',
 			'.evrCrumbBtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
@@ -1637,13 +1632,7 @@ window.__ModuleLoader__.load({
 					t('overview.linkGraph.summary')
 						.replace('{cards}', String(layout.summary.cards))
 						.replace('{links}', String(layout.summary.links))
-						.replace('{mutual}', String(layout.summary.mutual))),
-				h('div', { className: 'evrLinkList' }, layout.nodes.map(function (node) {
-					return h('div', { key: node.id, className: 'evrLinkItem' },
-						h('span', { className: 'evrLinkDot', style: { background: node.color } }),
-						h('span', { className: 'evrLinkName', title: node.label }, node.label),
-						h('span', { className: 'evrLinkCount' }, String(node.degree)));
-				})));
+						.replace('{mutual}', String(layout.summary.mutual))));
 		}
 
 		/**
