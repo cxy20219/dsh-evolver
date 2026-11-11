@@ -748,7 +748,7 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 
 		// The overview splits into four sub-tabs; the injected blocks are read-only previews.
 		const subTabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
-		for (const label of ['overview.stats', 'overview.cards', 'overview.soul', 'overview.preferences']) {
+		for (const label of ['overview.stats', 'overview.descriptions', 'overview.cards', 'overview.soul', 'overview.preferences']) {
 			assert.ok(subTabs.includes(label), `missing sub-tab ${label}`)
 		}
 		// The tag tree sits next to the relationship graph, and the graph keeps the drill-down.
@@ -766,8 +766,17 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrPre').length, 0)
 		assert.ok(findAll(tree, (node) => textOf(node) === '[卡片]').length >= 1)
 
-		// The tag tree tab edits the descriptions the injection prints.
-		assert.ok(findAll(tree, (node) => textOf(node).includes('overview.descriptions')).length >= 1)
+		// Descriptions and the injected tree are separate pages: the editor is
+		// not crammed under the prompt preview any more.
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrInput evrDescInput').length, 0,
+			'注入预览页不出现描述编辑器')
+		const descSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.descriptions')
+		assert.equal(descSubTab.length, 1)
+		descSubTab[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.descriptions').length >= 1)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrMd').length, 0,
+			'描述页不渲染注入预览')
 		const descInputs = findAll(tree, (node) => node.props?.className === 'evrInput evrDescInput')
 		assert.equal(descInputs.length, 2, '每个未归档分支一行')
 		assert.equal(descInputs[0].props.value, '落地与持续行动')

@@ -1624,10 +1624,13 @@ window.__ModuleLoader__.load({
 				: (injection.preferences.link.ours === false ? t('prefs.link.foreign') : t('prefs.link.linked'));
 			var sections = [
 				{ id: 'stats', label: t('overview.stats') },
+				// The editor only exists when the host can serve it; an older
+				// host gets no tab instead of a dead one.
+				props.descriptions === null ? null : { id: 'descriptions', label: t('overview.descriptions') },
 				{ id: 'cards', label: t('overview.cards') },
 				{ id: 'soul', label: t('overview.soul') },
 				{ id: 'preferences', label: t('overview.preferences') },
-			];
+			].filter(function (item) { return item !== null; });
 
 			/**
 			 * A row of key and value pairs.
@@ -1659,6 +1662,65 @@ window.__ModuleLoader__.load({
 					h(Markdown, { t: t, text: text }));
 			}
 
+			/**
+			 * The panel of one sub-tab.
+			 *
+			 * Written as a chain of branches rather than nested ternaries: there
+			 * are five of them now, and the shape has to stay readable.
+			 *
+			 * @returns {object} The element tree.
+			 */
+			function panel() {
+				if (section === 'descriptions') {
+					return h('div', { role: 'tabpanel' },
+						h(TagDescriptionsEditor, {
+							t: t,
+							tree: tree,
+							descriptions: props.descriptions,
+							busy: props.busy,
+							onSave: props.onSaveDescriptions,
+						}));
+				}
+				if (section === 'cards') {
+					return preview(t('overview.projection'), [
+						[t('overview.bytes'), formatBytes(injection.cards.bytes)],
+						[t('overview.budget'), formatBytes(injection.cards.budget)],
+						[t('overview.dropped'), String(injection.cards.dropped)],
+						[t('overview.entries'), String(injection.cards.entries)],
+					], injection.cards.text ?? '');
+				}
+				if (section === 'soul') {
+					return preview(t('overview.soul'), [
+						[t('overview.bytes'), formatBytes(injection.soul.bytes)],
+						[t('overview.budget'), formatBytes(injection.soul.budget)],
+					].concat(injection.soul.truncated === true ? [[t('overview.truncated'), '—']] : []), injection.soul.text ?? '');
+				}
+				if (section === 'preferences') {
+					return preview(t('overview.preferences'), [
+						[t('overview.bytes'), formatBytes(injection.preferences.bytes)],
+						[t('overview.link'), prefsLink],
+					], injection.preferences.text ?? '');
+				}
+				return h('div', { role: 'tabpanel' },
+					h('div', { className: 'evrSection' }, t('overview.heatmap.section')),
+					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, heatHint),
+					h(Heatmap, { t: t, activity: activity }),
+					h('div', { className: 'evrSection' }, t('overview.stats')),
+					h('div', { className: 'evrGrid' },
+						h(StatCard, { title: t('overview.notes'), value: String(stats.cards ?? 0), hint: t('overview.notesHint') }),
+						h(StatCard, { title: t('overview.tags'), value: String(stats.tags ?? 0), hint: t('overview.tagsHint') }),
+						h(StatCard, { title: t('overview.days'), value: String(stats.days ?? 0), hint: t('overview.daysHint') })),
+					h('div', { className: 'evrOverviewSplit' },
+						h('div', { className: 'evrOverviewPane evrOverviewGraph' },
+							h('div', { className: 'evrSection' }, t('overview.graph')),
+							h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.tree.hint')),
+							h(TagGraph, { t: t, nodes: tree })),
+						h('div', { className: 'evrOverviewPane evrOverviewTree' },
+							h('div', { className: 'evrSection' }, t('overview.linkGraph')),
+							h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.linkGraph.hint')),
+							h(LinkGraph, { t: t, cards: props.cards?.cards ?? [] }))));
+			}
+
 			return h('div', null,
 				h('div', { className: 'evrSubTabs', role: 'tablist', 'aria-label': t('tab.overview') }, sections.map(function (item) {
 					return h('button', {
@@ -1670,54 +1732,7 @@ window.__ModuleLoader__.load({
 						onClick: function () { setSection(item.id); },
 					}, item.label);
 				})),
-				section === 'cards'
-					? h('div', { role: 'tabpanel' },
-						props.descriptions === null
-							? null
-							: h(TagDescriptionsEditor, {
-								t: t,
-								tree: tree,
-								descriptions: props.descriptions,
-								busy: props.busy,
-								onSave: props.onSaveDescriptions,
-							}),
-						h('div', { className: 'evrSection' }, t('overview.projection')),
-						h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.preview.readonly')),
-						metaRow([
-							[t('overview.bytes'), formatBytes(injection.cards.bytes)],
-							[t('overview.budget'), formatBytes(injection.cards.budget)],
-							[t('overview.dropped'), String(injection.cards.dropped)],
-							[t('overview.entries'), String(injection.cards.entries)],
-						]),
-						h(Markdown, { t: t, text: injection.cards.text ?? '' }))
-					: section === 'soul'
-						? preview(t('overview.soul'), [
-							[t('overview.bytes'), formatBytes(injection.soul.bytes)],
-							[t('overview.budget'), formatBytes(injection.soul.budget)],
-						].concat(injection.soul.truncated === true ? [[t('overview.truncated'), '—']] : []), injection.soul.text ?? '')
-						: section === 'preferences'
-							? preview(t('overview.preferences'), [
-								[t('overview.bytes'), formatBytes(injection.preferences.bytes)],
-								[t('overview.link'), prefsLink],
-							], injection.preferences.text ?? '')
-							: h('div', { role: 'tabpanel' },
-								h('div', { className: 'evrSection' }, t('overview.heatmap.section')),
-								h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, heatHint),
-								h(Heatmap, { t: t, activity: activity }),
-								h('div', { className: 'evrSection' }, t('overview.stats')),
-								h('div', { className: 'evrGrid' },
-									h(StatCard, { title: t('overview.notes'), value: String(stats.cards ?? 0), hint: t('overview.notesHint') }),
-									h(StatCard, { title: t('overview.tags'), value: String(stats.tags ?? 0), hint: t('overview.tagsHint') }),
-									h(StatCard, { title: t('overview.days'), value: String(stats.days ?? 0), hint: t('overview.daysHint') })),
-								h('div', { className: 'evrOverviewSplit' },
-									h('div', { className: 'evrOverviewPane evrOverviewGraph' },
-										h('div', { className: 'evrSection' }, t('overview.graph')),
-										h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.tree.hint')),
-										h(TagGraph, { t: t, nodes: tree })),
-									h('div', { className: 'evrOverviewPane evrOverviewTree' },
-										h('div', { className: 'evrSection' }, t('overview.linkGraph')),
-										h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.linkGraph.hint')),
-										h(LinkGraph, { t: t, cards: props.cards?.cards ?? [] }))))
+				panel()
 			);
 		}
 
