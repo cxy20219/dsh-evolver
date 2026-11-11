@@ -32,6 +32,9 @@ const CHECK_INTERVAL_MS = 10 * 60_000
 /** A card is not reviewed again within this many days. */
 const REWIND_DAYS = 60
 
+/** How many times one day may try before giving up until tomorrow. */
+const MAX_DAILY_ATTEMPTS = 2
+
 /** The most actions one run may apply. */
 const MAX_ACTIONS = 60
 
@@ -134,6 +137,70 @@ export function consolidationPrompt(batch, neighbours, tree, descriptions) {
 }
 
 /**
+ * Pull the reply object out of a model response.
+ *
+ * A reasoning model often narrates before answering, and that narration can
+ * contain braces of its own, so "first { to last }" is not safe. This walks
+ * the text keeping brace depth and string state, collects every balanced
+ * object, and returns the longest one that parses and carries an `actions`
+ * array.
+ *
+ * @param {string} source - The reply, fences already stripped.
+ * @returns {object} The parsed object.
+ */
+function extractObject(source) {
+	const candidates = []
+	let depth = 0
+	let start = -1
+	let inString = false
+	let escaped = false
+	for (let index = 0; index < source.length; index += 1) {
+		const char = source[index]
+		if (inString) {
+			if (escaped) escaped = false
+			else if (char === '\\') escaped = true
+			else if (char === '"') inString = false
+			continue
+		}
+		if (char === '"') {
+			inString = true
+			continue
+		}
+		if (char === '{') {
+			if (depth === 0) start = index
+			depth += 1
+			continue
+		}
+		if (char === '}' && depth > 0) {
+			depth -= 1
+			if (depth === 0 && start >= 0) {
+				candidates.push(source.slice(start, index + 1))
+				start = -1
+			}
+		}
+	}
+	if (candidates.length === 0) {
+		throw new Error(depth > 0
+			? '模型输出被截断：JSON 括号没有闭合。'
+			: '模型没有返回 JSON。')
+	}
+	let fallback
+	for (const candidate of candidates) {
+		let value
+		try {
+			value = JSON.parse(candidate)
+		} catch {
+			continue
+		}
+		if (value === null || typeof value !== 'object' || Array.isArray(value)) continue
+		if (Array.isArray(value.actions)) return value
+		if (fallback === undefined) fallback = value
+	}
+	if (fallback !== undefined) return fallback
+	throw new Error(`模型返回了 ${candidates.length} 段 JSON，都不含 actions 数组。`)
+}
+
+/**
  * Parse and validate the model's actions.
  *
  * Validation is structural only: whether the ids belong to the batch and
@@ -144,15 +211,7 @@ export function consolidationPrompt(batch, neighbours, tree, descriptions) {
  */
 export function parseActions(text) {
 	const source = String(text ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-	const start = source.indexOf('{')
-	const end = source.lastIndexOf('}')
-	if (start < 0 || end <= start) throw new Error('模型没有返回 JSON。')
-	let parsed
-	try {
-		parsed = JSON.parse(source.slice(start, end + 1))
-	} catch {
-		throw new Error('模型返回的 JSON 无法解析。')
-	}
+	const parsed = extractObject(source)
 	const items = Array.isArray(parsed?.actions) ? parsed.actions : []
 	const actions = []
 	for (const item of items) {
@@ -251,15 +310,19 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 		if (path === undefined) return { lastRunAt: '', dayKey: '', cards: {} }
 		try {
 			const parsed = JSON.parse(await readFile(path, 'utf8'))
-			if (parsed === null || typeof parsed !== 'object') return { lastRunAt: '', dayKey: '', cards: {} }
+			if (parsed === null || typeof parsed !== 'object') return { lastRunAt: '', dayKey: '', cards: {}, attempts: { day: '', count: 0 } }
 			const cards = parsed.cards !== null && typeof parsed.cards === 'object' && !Array.isArray(parsed.cards) ? parsed.cards : {}
+			const attempts = parsed.attempts !== null && typeof parsed.attempts === 'object'
+				? { day: String(parsed.attempts.day ?? ''), count: Number(parsed.attempts.count) || 0 }
+				: { day: '', count: 0 }
 			return {
 				lastRunAt: typeof parsed.lastRunAt === 'string' ? parsed.lastRunAt : '',
 				dayKey: typeof parsed.dayKey === 'string' ? parsed.dayKey : '',
 				cards,
+				attempts,
 			}
 		} catch {
-			return { lastRunAt: '', dayKey: '', cards: {} }
+			return { lastRunAt: '', dayKey: '', cards: {}, attempts: { day: '', count: 0 } }
 		}
 	}
 
@@ -327,7 +390,7 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 			system: SYSTEM_PROMPT,
 			messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
 			temperature: 0,
-			maxTokens: 4000,
+			maxTokens: 8000,
 			...(signal === undefined ? {} : { signal }),
 		})) {
 			if (chunk.type === 'text-delta') text += chunk.text
@@ -544,7 +607,13 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 		const current = now()
 		if (new Date(current).getHours() < config.hour) return null
 		const ledger = await readLedger()
-		if (ledger.dayKey === dayKeyOf(current)) return null
+		const today = dayKeyOf(current)
+		if (ledger.dayKey === today) return null
+		// A failed run leaves the day open, so without a cap a reply the model
+		// cannot produce would buy one more request every ten minutes forever.
+		const attempts = ledger.attempts.day === today ? ledger.attempts.count : 0
+		if (attempts >= MAX_DAILY_ATTEMPTS) return null
+		await writeLedger({ ...ledger, attempts: { day: today, count: attempts + 1 } })
 		state.running = true
 		try {
 			const result = await runNow()

@@ -77,7 +77,24 @@ test('整理动作只认结构：批外 id、空正文、超长正文都被挡�
 	assert.equal(actions[2].ids.length, 2)
 	// Fenced JSON is tolerated, garbage is not.
 	assert.throws(() => parseActions('这不是 JSON'), /没有返回 JSON/)
-	assert.throws(() => parseActions('{坏掉的'), /没有返回 JSON|无法解析/)
+	assert.throws(() => parseActions('{坏掉的'), /括号没有闭合|没有返回 JSON/)
+
+	// A reasoning model narrates before answering, and its narration contains
+	// braces. The reply must still be found.
+	const narrated = [
+		'我先看一下这批卡片。{切分点} 第 2 张和第 4 张讲的是同一件事。',
+		JSON.stringify({ actions: [{ op: 'delete', id: valid, reason: '重复' }] }),
+		'以上是我的判断。',
+	].join('\n')
+	assert.deepEqual(parseActions(narrated).map((action) => action.op), ['delete'])
+
+	// Several balanced objects, only one of them the answer.
+	const competing = `{"note":"草稿"}\n${JSON.stringify({ actions: [{ op: 'delete', id: valid, reason: '重复' }] })}`
+	assert.equal(parseActions(competing).actions, undefined)
+	assert.equal(parseActions(competing).length, 1, '取带 actions 的那一段')
+
+	// Truncated output says so instead of blaming the JSON.
+	assert.throws(() => parseActions('{"actions":[{"op":"delete","id":"' + valid), /截断|括号没有闭合/)
 })
 
 test('整理提示带着标签树、候选链接和要整理的卡片', () => {
@@ -200,6 +217,40 @@ test('每天只跑一次，且到了设定的小时才开始', async () => {
 		assert.equal(status.total, 2)
 		assert.equal(status.due, 0)
 		assert.equal(status.lastBatch, 2)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('模型一直答不出 JSON 时，一天最多试两次，不会每十分钟烧一次调用', async () => {
+	const { dir, store, settings } = await fixture({ enabled: true, dailyCards: 2, hour: 3 })
+	try {
+		await store.put({ body: '第一张待整理的卡片', tags: ['践行/经验'] })
+		await store.put({ body: '第二张待整理的卡片', tags: ['见闻/事实'] })
+		let calls = 0
+		const clock = new Date(2026, 10, 11, 4, 0, 0).getTime()
+		const controller = createConsolidationController({
+			settings,
+			store: () => store,
+			llm: {
+				async *stream() {
+					calls += 1
+					yield { type: 'text-delta', text: '我拒绝输出 JSON。' }
+					yield { type: 'finish', reason: { kind: 'stop' } }
+				},
+			},
+			modelSelection,
+			now: () => clock,
+		})
+		assert.equal(await controller.check(), null, '第一次失败')
+		assert.equal(calls, 1)
+		assert.equal(await controller.check(), null, '第二次失败')
+		assert.equal(calls, 2)
+		// The cap is what keeps a broken reply from buying a request every tick.
+		assert.equal(await controller.check(), null)
+		assert.equal(calls, 2, '一天两次之后就停手')
+		assert.match((await controller.status()).lastError, /没有返回 JSON/)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
