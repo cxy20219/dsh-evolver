@@ -24,6 +24,7 @@ import { MAX_IMPORT_BYTES, extractArchiveFile, writeArchiveFile } from './src/ba
 import { BackupService } from './src/backup/service.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
 import { createConsolidationController } from './src/consolidate.js'
+import { createHealthJob } from './src/health.js'
 import { createIngestController } from './src/ingest.js'
 import { SessionLedger, digestSessions } from './src/sessions.js'
 import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
@@ -589,6 +590,11 @@ export async function apply(ctx, config) {
 		logger: ctx.logger,
 	})
 
+	const health = createHealthJob({
+		store: () => cardStoreRef.current,
+		logger: ctx.logger,
+	})
+
 	const backup = new BackupService({
 		settings,
 		root: () => evolver.root,
@@ -830,6 +836,7 @@ export async function apply(ctx, config) {
 	}
 	disposers.push(ingest.start())
 	disposers.push(consolidate.start())
+	disposers.push(health.start())
 
 	ctx.effect(() => {
 		backup.start()
