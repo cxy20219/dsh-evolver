@@ -43,7 +43,6 @@ window.__ModuleLoader__.load({
 			'tab.soul': '灵魂',
 			'cards.new': '新建卡片',
 			'cards.search': '搜索卡片…',
-			'cards.searchAction': '搜索',
 			'cards.filter.all': '全部',
 			'cards.filter.execution': '践行',
 			'cards.filter.input': '见闻',
@@ -278,7 +277,6 @@ window.__ModuleLoader__.load({
 			'tab.soul': 'Soul',
 			'cards.new': 'New card',
 			'cards.search': 'Search cards…',
-			'cards.searchAction': 'Search',
 			'cards.filter.all': 'All',
 			'cards.filter.execution': 'Practice',
 			'cards.filter.input': 'Input',
@@ -2167,6 +2165,18 @@ window.__ModuleLoader__.load({
 			var state = props.state;
 			var filter = props.filter ?? {};
 			var [search, setSearch] = useState(filter.query ?? '');
+			var searchSettled = useRef(false);
+			useEffect(function () {
+				// Typing filters as you go; the delay keeps it to one request per
+				// burst of typing instead of one per keystroke. The first run
+				// only marks the mount, because the panel already loaded the list.
+				if (searchSettled.current === false) {
+					searchSettled.current = true;
+					return undefined;
+				}
+				var timer = setTimeout(function () { props.onFilter({ query: search }); }, 220);
+				return function () { clearTimeout(timer); };
+			}, [search]);
 			var [promoteTarget, setPromoteTarget] = useState('践行');
 			if (state === null || state === undefined) return h(Spinner, null, t('state.loading'));
 			var cards = Array.isArray(state.cards) ? state.cards : [];
@@ -2349,13 +2359,11 @@ window.__ModuleLoader__.load({
 							value: search,
 							placeholder: t('cards.search'),
 							onChange: function (event) { setSearch(event.target.value); },
+							onKeyDown: function (event) {
+								// Enter searches at once instead of waiting out the debounce.
+								if (event && event.key === 'Enter') props.onFilter({ query: search });
+							},
 						}),
-						h('button', {
-							type: 'button',
-							className: 'evrBtn',
-							disabled: props.busy,
-							onClick: function () { props.onFilter({ query: search }); },
-						}, t('cards.searchAction')),
 						h('button', {
 							type: 'button',
 							className: 'evrBtn evrBtnPrimary',

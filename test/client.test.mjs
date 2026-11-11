@@ -959,3 +959,42 @@ test('导出目录为空时点击给出明确提示，而不是静默', async ()
 		globalThis.fetch = previousFetch
 	}
 })
+
+test('搜索框边输入边过滤，没有搜索按钮', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const calls = []
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-list') calls.push(payload.query ?? '')
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+
+		// The button is gone; the input is the whole affordance.
+		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.searchAction').length, 0)
+
+		const input = findAll(tree, (node) => node.type === 'input' && node.props?.type === 'search')[0]
+		const before = calls.length
+		input.props.onChange({ target: { value: '缓存' } })
+		// Render so the debounce is armed, but nothing is requested yet.
+		tree = await runtime.settle(render)
+		assert.equal(calls.length, before, '打字过程中不发请求')
+		await new Promise((resolve) => setTimeout(resolve, 320))
+		tree = await runtime.settle(render)
+		assert.equal(calls[calls.length - 1], '缓存', '停顿后按输入内容过滤')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
