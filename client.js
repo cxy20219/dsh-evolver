@@ -1962,7 +1962,7 @@ window.__ModuleLoader__.load({
 						h('div', { className: 'evrCardHead' },
 							h('span', { className: 'evrCardTitle' }, card.label || '(未命名)'),
 							h('span', { className: 'evrCardCount' }, (card.tags ?? []).slice(0, 3).map(function (tag) { return '#' + tag; }).join(' · '))),
-						h('div', { className: 'evrHint evrMono' }, card.id + (card.verified ? ' · ' + card.verified : '')),
+						h('div', { className: 'evrHint evrMono' }, card.id),
 						h('div', { className: 'evrPre', style: { whiteSpace: 'pre-wrap', marginTop: '8px' } }, card.body || ''),
 						h('div', { className: 'evrRowMeta', style: { marginTop: '8px' } },
 							(card.tags ?? []).map(function (tag) { return h('span', { key: tag, className: 'evrTag' }, "#" + tag); }))),

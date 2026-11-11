@@ -19,7 +19,7 @@
  * lands in a trash log first so nothing disappears without a copy.
  */
 
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { isCardId } from './cards/ids.js'
@@ -306,42 +306,26 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 	}
 
 	/**
-	 * Read the review ledger: when each card was last looked at.
+	 * Read the review ledger from the card store.
 	 *
 	 * @returns {Promise<object>} The ledger.
 	 */
 	async function readLedger() {
-		const path = pathOf('consolidation.json')
-		if (path === undefined) return { lastRunAt: '', dayKey: '', cards: {} }
-		try {
-			const parsed = JSON.parse(await readFile(path, 'utf8'))
-			if (parsed === null || typeof parsed !== 'object') return { lastRunAt: '', dayKey: '', cards: {}, attempts: { day: '', count: 0 } }
-			const cards = parsed.cards !== null && typeof parsed.cards === 'object' && !Array.isArray(parsed.cards) ? parsed.cards : {}
-			const attempts = parsed.attempts !== null && typeof parsed.attempts === 'object'
-				? { day: String(parsed.attempts.day ?? ''), count: Number(parsed.attempts.count) || 0 }
-				: { day: '', count: 0 }
-			return {
-				lastRunAt: typeof parsed.lastRunAt === 'string' ? parsed.lastRunAt : '',
-				dayKey: typeof parsed.dayKey === 'string' ? parsed.dayKey : '',
-				cards,
-				attempts,
-			}
-		} catch {
-			return { lastRunAt: '', dayKey: '', cards: {}, attempts: { day: '', count: 0 } }
-		}
+		const current = store()
+		if (current === undefined || current === null) return { lastRunAt: '', dayKey: '', cards: {}, attempts: { day: '', count: 0 } }
+		return current.consolidationLedger()
 	}
 
 	/**
-	 * Persist the review ledger.
+	 * Persist the review ledger through the card store.
 	 *
 	 * @param {object} ledger - The ledger to write.
 	 * @returns {Promise<void>} Resolves when written.
 	 */
 	async function writeLedger(ledger) {
-		const path = pathOf('consolidation.json')
-		if (path === undefined) return
-		await mkdir(join(store().dataDir, 'knowledge'), { recursive: true, mode: 0o700 })
-		await writeFile(path, `${JSON.stringify(ledger, null, '\t')}\n`, { mode: 0o600 })
+		const current = store()
+		if (current === undefined || current === null) return
+		await current.saveConsolidationLedger(ledger)
 	}
 
 	/**

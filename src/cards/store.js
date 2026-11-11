@@ -227,6 +227,62 @@ export class CardStore {
 	}
 
 	/**
+	 * Where the card review ledger lives.
+	 *
+	 * @returns {string} Absolute path.
+	 */
+	consolidationPath() {
+		return join(this.dataDir, 'knowledge', 'consolidation.json')
+	}
+
+	/**
+	 * Read the review ledger: when each card was last looked at.
+	 *
+	 * This is the only place freshness is tracked. A card with no entry has
+	 * never been reviewed, so there is no per-card date to keep up to date by
+	 * hand and no way for the two to disagree.
+	 *
+	 * @returns {Promise<{lastRunAt: string, dayKey: string, cards: Record<string, string>, attempts: {day: string, count: number}}>} The ledger.
+	 */
+	async consolidationLedger() {
+		const empty = { lastRunAt: '', dayKey: '', cards: {}, attempts: { day: '', count: 0 } }
+		let raw
+		try {
+			raw = await readFile(this.consolidationPath(), 'utf8')
+		} catch {
+			return empty
+		}
+		let parsed
+		try {
+			parsed = JSON.parse(raw)
+		} catch {
+			return empty
+		}
+		if (parsed === null || typeof parsed !== 'object') return empty
+		const cards = parsed.cards !== null && typeof parsed.cards === 'object' && !Array.isArray(parsed.cards) ? parsed.cards : {}
+		const attempts = parsed.attempts !== null && typeof parsed.attempts === 'object'
+			? { day: String(parsed.attempts.day ?? ''), count: Number(parsed.attempts.count) || 0 }
+			: { day: '', count: 0 }
+		return {
+			lastRunAt: typeof parsed.lastRunAt === 'string' ? parsed.lastRunAt : '',
+			dayKey: typeof parsed.dayKey === 'string' ? parsed.dayKey : '',
+			cards,
+			attempts,
+		}
+	}
+
+	/**
+	 * Persist the review ledger.
+	 *
+	 * @param {object} ledger - The ledger to write.
+	 * @returns {Promise<void>} Resolves when written.
+	 */
+	async saveConsolidationLedger(ledger) {
+		await mkdir(join(this.dataDir, 'knowledge'), { recursive: true, mode: 0o700 })
+		await writeFile(this.consolidationPath(), `${JSON.stringify(ledger, null, '\t')}\n`, { mode: 0o600 })
+	}
+
+	/**
 	 * The description of one branch.
 	 *
 	 * @param {string} tag - The tag path.
@@ -279,7 +335,6 @@ export class CardStore {
 			links: record.links ?? [],
 			created: cardCreatedAt(record.id),
 			updated: record.updated ?? '',
-			verified: record.verified ?? '',
 		}
 	}
 
@@ -343,14 +398,12 @@ export class CardStore {
 		for (const resource of resourceInputs) {
 			await this.resources.put(id, resource.name, resource.data)
 		}
-		const verified = input.verified ?? previous?.verified ?? ''
 		const record = {
 			id,
 			body,
 			tags,
 			...(links.length > 0 ? { links } : {}),
 			updated: now,
-			...(verified === '' ? {} : { verified }),
 		}
 		await this.cards.putMemory(record)
 		return this.cardOf(record)
@@ -497,17 +550,16 @@ export class CardStore {
 	 * Move a card out of #即兴 into one or more settled branches.
 	 *
 	 * @param {string} id - Card id.
-	 * @param {{tags?: string[], verified?: string}} [options] - Promotion fields.
+	 * @param {{tags?: string[]}} [options] - Promotion fields.
 	 * @returns {Promise<object>} The promoted card.
 	 */
-	async promote(id, { tags, verified } = {}) {
+	async promote(id, { tags } = {}) {
 		const card = this.get(id)
 		if (card === undefined) throw new Error(`找不到卡片：${id}`)
 		return this.put({
 			...card,
 			id,
 			tags: settleTags(card.tags, Array.isArray(tags) ? tags : []),
-			verified: (typeof verified === 'string' && verified !== '') ? verified : (card.verified || new Date().toISOString().slice(0, 10)),
 		})
 	}
 

@@ -85,7 +85,6 @@ export function createCardAgent(cards) {
 			body,
 			tags,
 			links,
-			...(input.verified === undefined || input.verified === '' ? {} : { verified: String(input.verified) }),
 		}, resourceName === '' ? {} : { resourceInputs: [{ name: resourceName, data: resourceContent }] })
 	}
 
@@ -210,14 +209,19 @@ export function createCardAgent(cards) {
 			.sort((left, right) => String(right.updated).localeCompare(String(left.updated)))
 			.slice(0, 5)
 			.map((card) => ({ id: card.id, label: card.label, tags: card.tags, updated: card.updated }))
+		// Freshness lives in the review ledger, not on the card: one place to
+		// update, and no card can disagree with the record of when it was read.
+		const reviewed = (await cards.consolidationLedger()).cards
+		const cutoff = now - 180 * 86_400_000
 		const stale = active.filter((card) => {
-			if (card.verified === '') return false
-			const parsed = Date.parse(card.verified)
-			return !Number.isFinite(parsed) || now - parsed > 180 * 86_400_000
+			const at = Date.parse(reviewed[card.id] ?? '')
+			if (Number.isFinite(at)) return at < cutoff
+			const written = Date.parse(card.updated)
+			return !Number.isFinite(written) || written < cutoff
 		})
 		const hints = []
 		if (status.roots.即兴 > 0) hints.push(`有 ${status.roots.即兴} 张 #即兴 卡待整理：选定 #践行/#见闻/#复盘/#觉察/#试错 后用 card_promote。`)
-		if (stale.length > 0) hints.push(`${stale.length} 张带 verified 的卡超过半年未复查。`)
+		if (stale.length > 0) hints.push(`${stale.length} 张卡片超过半年没复查过。`)
 		if (hints.length === 0) hints.push('卡片库是健康的；没有高信号时不用为了主动而主动。')
 		return { status, recent, stale: stale.length, hints }
 	}

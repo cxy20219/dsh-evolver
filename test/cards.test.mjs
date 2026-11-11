@@ -93,8 +93,9 @@ test('卡片写入：六大枝干、label、上限、整理、归档、双链和
 		assert.deepEqual(Object.keys(store.cards.db.get(memo.id)).sort(), ['body', 'id', 'tags', 'updated'])
 		const promoted = await store.promote(memo.id, { tags: ['践行/经验'] })
 		assert.ok(promoted.tags.includes('践行/经验'))
-		assert.deepEqual(Object.keys(store.cards.db.get(memo.id)).sort(), ['body', 'id', 'tags', 'updated', 'verified'])
-		assert.equal(promoted.verified.length > 0, true)
+		// Promoting changes the tags and nothing else: there is no per-card
+		// freshness date to keep, the review ledger holds that.
+		assert.deepEqual(Object.keys(store.cards.db.get(memo.id)).sort(), ['body', 'id', 'tags', 'updated'])
 
 		const practice = await store.put({
 			body: '第二条践行卡',
@@ -280,6 +281,33 @@ test('标签描述是数据不是代码：可以给新分支补描述并立刻�
 		await assert.rejects(() => store.saveTagDescriptions({ 验证方法: '不在六大枝干里' }), /六大枝干/)
 		await assert.rejects(() => store.saveTagDescriptions({ '践行//空段': '路径不合法' }), /路径不合法/)
 		await assert.rejects(() => store.saveTagDescriptions({ 践行: 42 }), /必须是文字/)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('复查是否过期只看整理台账，卡片本身不带日期', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const agent = createCardAgent(store)
+		const card = await store.put({ body: '一张需要定期复查的卡', tags: ['践行/经验'] })
+		assert.equal(Object.hasOwn(store.get(card.id), 'verified'), false, '卡片模型里没有 verified')
+
+		// Ask the reviewer to look eight months ahead: nothing has ever been
+		// reviewed, and the card was written today.
+		const eightMonths = Date.now() + 240 * 86_400_000
+		const cold = await agent.review(eightMonths)
+		assert.equal(cold.stale, 1)
+		assert.match(cold.hints.join(' '), /超过半年没复查/)
+
+		// The ledger is the one place that says "someone looked at this".
+		assert.deepEqual((await store.consolidationLedger()).cards, {}, '没跑过整理时台账是空的')
+		const ledger = await store.consolidationLedger()
+		await store.saveConsolidationLedger({ ...ledger, cards: { [card.id]: new Date(eightMonths).toISOString() } })
+		const warm = await agent.review(eightMonths)
+		assert.equal(warm.stale, 0, '台账记过之后就不再算陈旧')
+		assert.equal(Object.keys((await store.consolidationLedger()).cards).length, 1)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })

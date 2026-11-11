@@ -24,7 +24,8 @@ export const DEFAULT_PROMPT_BUDGET = 4096
 /** The fixed discipline text. */
 export const CARD_DISCIPLINE = [
 	'[卡片] 只注入标签树，不注入卡片正文；标签路径就是分类，父标签包含所有子标签。',
-	'- 找内容用 card_query（关键词/标签），读全文用 card_read；双链和反链跟着卡片走。',
+	'- 找内容用 card_query（关键词/标签），读全文用 card_read。',
+	'- 写卡前先 card_query 查重，能改已有卡就不新建；写进去的卡要把相关的已有卡放进 links——孤立的卡等于埋进库里。',
 	'- 顶层只允许 #践行 #见闻 #即兴 #复盘 #觉察 #试错；新卡默认 #即兴，整理时选一个枝干继续向下生长。',
 	'- 归档写成 <枝干>/归档，例如 #践行/归档；不要创建第七个顶层标签。',
 	'- 有附件时正文必须写 `[标题]({{resource}})：用途、入口命令、输入输出、关联流程`；resourceContent 放完整文件，脚本附件自动可执行。',

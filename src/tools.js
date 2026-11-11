@@ -83,7 +83,6 @@ export function createTools({ cards, sessions }) {
 					body: { type: 'string', description: '卡片正文；首行会派生 label。有附件时必须包含 [标题]({{resource}})：用途、入口命令、输入输出、关联流程' },
 					tags: { type: 'array', items: { type: 'string' }, description: '层级标签，顶层必须是六大枝干之一，例如 ["践行/工作流","见闻/网络"]' },
 					links: { type: 'array', items: { type: 'string' }, description: '关联卡片 id' },
-					verified: { type: 'string', description: '最后验证日期 YYYY-MM-DD' },
 					resourceName: { type: 'string', description: '附件文件名；必须与 resourceContent 同时提供' },
 					resourceContent: { type: 'string', description: '附件的完整文件内容；脚本/文档原文放这里，不要放进 body' },
 				},

@@ -11,6 +11,7 @@
     cards/cards.jsonl            ← 卡片日志：追加写，最后一条同 id 记录生效
     resources/<card-id>/         ← 卡片附件
     tags.json                    ← 标签描述（可选，覆盖内置默认）
+    consolidation.json           ← 卡片复查台账（谁在什么时候看过哪张卡）
     trash.jsonl                  ← 卡片整理删掉的内容
   sight/soul.md                  ← 灵魂（注入）
   preferences/AGENTS.md          ← 全局偏好（链到 ~/.dsh/AGENTS.md）
@@ -27,8 +28,7 @@
   "body": "正文",
   "tags": ["践行/工作流"],
   "links": ["card-01..."],
-  "updated": "2026-11-10T13:40:16.269Z",
-  "verified": "2026-11-10"
+  "updated": "2026-11-10T13:40:16.269Z"
 }
 ```
 
@@ -36,8 +36,7 @@
 - **body** 正文；`label` 从首行派生，不存。
 - **tags** 唯一的分类入口。**顶层只允许六个枝干**：`#践行` `#见闻` `#即兴` `#复盘` `#觉察` `#试错`。
   父标签自动包含子标签，`#践行` 能搜到 `#践行/工作流`；归档写 `<枝干>/归档`，不要造第七个顶层。
-- **links** 卡片 id 数组，空则不写；反链实时计算。
-- **verified** 最后复查日期，可选。
+- **links** 卡片 id 数组，空则不写；反链实时计算。孤立的卡等于埋在库里。
 - 没有 `type`/`status`/`category`/`summary`/`source`/`resources` 之类字段。
 
 ### 附件
