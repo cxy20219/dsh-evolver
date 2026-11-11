@@ -17,6 +17,17 @@ window.__ModuleLoader__.load({
 		var useEffect = react.useEffect;
 		var useCallback = react.useCallback;
 		var useMemo = react.useMemo;
+		var useRef = react.useRef;
+
+		/** One colour per top-level branch, shared by both graphs. */
+		var LINK_BRANCH_COLORS = {
+			'践行': '#4f8a6e',
+			'见闻': '#657ea6',
+			'即兴': '#a77b55',
+			'复盘': '#87679a',
+			'觉察': '#4f8794',
+			'试错': '#9b6b6b',
+		};
 
 		var NS = 'dsh-evolver';
 		var PANEL_ID = 'evolver';
@@ -117,8 +128,8 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.empty': '还没有卡片之间的链接。',
 			'overview.linkGraph.links': '条链接',
 			'overview.tree.graphLabel': '标签关系图',
-			'overview.tree.hint': '整棵树一直可见；点节点放大那一枝。',
-			'overview.tree.zoomHint': '点节点放大，再点一次或点空白回到全貌。',
+			'overview.tree.hint': '整棵树一次画完，标签沿射线排布。',
+			'overview.tree.zoomHint': '滚轮缩放、拖动平移；点节点放大那一枝，点空白回到全貌。',
 			'overview.graph.center': '标签',
 			'overview.tree.empty': '还没有标签。',
 			'overview.descriptions': '标签描述',
@@ -355,8 +366,8 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.empty': 'No links between cards yet.',
 			'overview.linkGraph.links': 'links',
 			'overview.tree.graphLabel': 'Tag relationship graph',
-			'overview.tree.hint': 'The whole tree stays visible; click a node to zoom into its branch.',
-			'overview.tree.zoomHint': 'Click a node to zoom, again (or the empty space) to fit the tree.',
+			'overview.tree.hint': 'The whole tree, drawn once; labels follow their spoke.',
+			'overview.tree.zoomHint': 'Scroll to zoom, drag to pan; click a node to frame its branch, click the empty space to fit the tree.',
 			'overview.graph.center': 'Tags',
 			'overview.tree.empty': 'No tags yet.',
 			'overview.descriptions': 'Tag descriptions',
@@ -607,18 +618,19 @@ window.__ModuleLoader__.load({
 			'.evrLinkEdge{fill:none;stroke:var(--dsw-alias-label-tertiary);stroke-width:1;stroke-opacity:.5}',
 			'.evrLinkEdgeMutual{stroke-opacity:.85;stroke-width:1.4}',
 			'.evrLinkNode circle{stroke:var(--dsw-alias-bg-base);stroke-width:1}',
-			'.evrGraph{width:100%;height:auto;max-width:460px;display:block;margin:0 auto}',
-			'.evrGraphEdge{fill:none;stroke-width:1;stroke-opacity:.38}',
-			'.evrGraphDotOn{stroke:var(--dsw-alias-label-primary);stroke-width:1.5}',
-			'.evrGraphLabel{fill:var(--dsw-alias-label-secondary);font-size:10.5px;font-family:inherit}',
-			'.evrGraphRoot{fill:var(--dsw-alias-label-primary);font-size:11px;font-weight:500}',
-			'.evrGraphCount{fill:var(--dsw-alias-label-tertiary);font-size:9px}',
-			'.evrGraphZoomable{cursor:pointer}',
-			'.evrGraphZoomable:hover .evrGraphLabel,.evrGraphZoomable:focus .evrGraphLabel{fill:var(--dsw-alias-label-primary)}',
-			'.evrGraphZoomable:focus{outline:none}',
-			'.evrGraphCenter{fill:var(--dsw-alias-bg-layer-3);stroke:var(--dsw-alias-border-l2);cursor:pointer}',
-			'.evrGraphCenterStatic{cursor:default}',
-			'.evrGraphCenterLabel{fill:var(--dsw-alias-label-secondary);font-size:11px;font-family:inherit;cursor:pointer}',
+			'.evrGraphWrap{position:relative}',
+			'.evrGraph{width:100%;height:auto;max-width:460px;display:block;margin:0 auto;cursor:grab;touch-action:none}',
+			'.evrGraph:active{cursor:grabbing}',
+			'.evrGraphEdge{fill:none;stroke-width:1;stroke-opacity:.45}',
+			'.evrGraphDot{fill:var(--dsw-alias-bg-base);stroke-width:1.2}',
+			'.evrGraphDotRoot{fill:var(--dsw-alias-bg-base);stroke-width:1.6}',
+			'.evrGraphHub{fill:var(--dsw-alias-label-tertiary)}',
+			'.evrGraphLabel{fill:var(--dsw-alias-label-secondary);font-size:11px;font-family:inherit;cursor:pointer;user-select:none}',
+			'.evrGraphRoot{fill:var(--dsw-alias-label-primary);font-size:12px;font-weight:500}',
+			'.evrGraphNode:hover .evrGraphLabel{fill:var(--dsw-alias-label-primary)}',
+			'.evrGraphNode:focus{outline:none}',
+			'.evrGraphNode:focus .evrGraphLabel{fill:var(--dsw-alias-label-primary)}',
+			'.evrGraphTip{position:absolute;transform:translate(8px,-50%);padding:4px 9px;border-radius:6px;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l2);box-shadow:0 2px 8px rgba(0,0,0,.12);font-size:11px;color:var(--dsw-alias-label-primary);white-space:nowrap;pointer-events:none}',
 			'.evrHeatmapWrap{--eh-cols:53;--eh-gap:2px;--eh-min:7px;--eh-max:18px;--eh-h:auto;--eh-ar:1;--eh-width:calc(var(--eh-cols) * var(--eh-max) + (var(--eh-cols) - 1) * var(--eh-gap));overflow-x:auto;padding:2px 18px 2px 0}',
 			'.evrHeatmapBody{display:grid;grid-template-columns:12px minmax(0,1fr);gap:6px;align-items:stretch}',
 			'.evrHeatmapDays{display:grid;grid-template-rows:repeat(7,1fr);font-size:9px;color:var(--dsw-alias-label-tertiary);text-align:right}',
@@ -886,7 +898,7 @@ window.__ModuleLoader__.load({
 		function labelExtent(text) {
 			var total = 0;
 			for (var index = 0; index < text.length; index += 1) {
-				total += text.charCodeAt(index) > 0x2e80 ? 10.5 : 5.9;
+				total += text.charCodeAt(index) > 0x2e80 ? 11 : 6.1;
 			}
 			return total;
 		}
@@ -915,10 +927,10 @@ window.__ModuleLoader__.load({
 			var height = 460;
 			var cx = width / 2;
 			var cy = height / 2;
-			var inner = 94;
-			var ring = 64;
-			var stagger = 20;
-			var margin = 0.05;
+			var inner = 74;
+			var ring = 54;
+			var stagger = 16;
+			var margin = 0.1;
 			var nodes = [];
 			var edges = [];
 			/**
@@ -974,14 +986,17 @@ window.__ModuleLoader__.load({
 			var maxX = -Infinity;
 			var maxY = -Infinity;
 			nodes.forEach(function (node) {
-				var right = Math.cos(node.angle) >= 0;
-				var textWidth = labelExtent(tagGraphLabelOf(node));
-				var left = right ? node.x - 6 : node.x - 9 - textWidth;
-				var rightEdge = right ? node.x + 9 + textWidth : node.x + 6;
-				minX = Math.min(minX, left);
-				maxX = Math.max(maxX, rightEdge);
-				minY = Math.min(minY, node.y - 9);
-				maxY = Math.max(maxY, node.y + 9);
+				// Labels run outward along the spoke and are rotated to it, so
+				// what bounds the picture is the far end of each label, not a
+				// horizontal strip beside its dot.
+				var reach = 9 + labelExtent('#' + node.name);
+				var farX = node.x + Math.cos(node.angle) * reach;
+				var farY = node.y + Math.sin(node.angle) * reach;
+				var pad = 12;
+				minX = Math.min(minX, node.x - 6, farX - pad);
+				maxX = Math.max(maxX, node.x + 6, farX + pad);
+				minY = Math.min(minY, node.y - pad, farY - pad);
+				maxY = Math.max(maxY, node.y + pad, farY + pad);
 			});
 			var spanX = Math.max(1, maxX - minX);
 			var spanY = Math.max(1, maxY - minY);
@@ -1012,121 +1027,207 @@ window.__ModuleLoader__.load({
 		 */
 		function TagGraph(props) {
 			var t = props.t;
-			var roots = Array.isArray(props.nodes) ? props.nodes : [];
 			var layout = useMemo(function () {
 				if (Array.isArray(props.nodes) && tagGraphCache.has(props.nodes)) return tagGraphCache.get(props.nodes);
 				var computed = tagGraphLayout(props.nodes);
 				if (Array.isArray(props.nodes)) tagGraphCache.set(props.nodes, computed);
 				return computed;
 			}, [props.nodes]);
-			var [focus, setFocus] = useState(null);
+			// The camera is content→screen: a point p lands at (x + s*px, y + s*py).
+			var [camera, setCamera] = useState(null);
+			var [tip, setTip] = useState(null);
+			var svgRef = useRef(null);
+			var dragRef = useRef(null);
+			var movedRef = useRef(false);
+			useEffect(function () { setCamera(null); setTip(null); }, [layout]);
+
+			var fitView = layout === null ? null : { s: layout.fit, x: layout.ox, y: layout.oy };
+			var view = camera === null ? fitView : camera;
+
+			// Wheel has to be a native listener: React attaches it passively,
+			// so preventDefault would be ignored and the panel would scroll.
+			useEffect(function () {
+				var node = svgRef.current;
+				if (node === null || node === undefined || fitView === null) return undefined;
+				function onWheel(event) {
+					event.preventDefault();
+					var box = node.getBoundingClientRect();
+					if (box.width === 0 || box.height === 0) return;
+					var px = ((event.clientX - box.left) / box.width) * layout.width;
+					var py = ((event.clientY - box.top) / box.height) * layout.height;
+					setCamera(function (previous) {
+						var base = previous === null ? fitView : previous;
+						var factor = Math.exp(-event.deltaY * 0.0016);
+						var next = Math.min(Math.max(base.s * factor, layout.fit * 0.6), layout.fit * 6);
+						var ratio = next / base.s;
+						return { s: next, x: px - (px - base.x) * ratio, y: py - (py - base.y) * ratio };
+					});
+				}
+				node.addEventListener('wheel', onWheel, { passive: false });
+				return function () { node.removeEventListener('wheel', onWheel); };
+			}, [layout, fitView === null ? 0 : fitView.s]);
+
 			if (layout === null) return h('div', { className: 'evrHint' }, t('overview.tree.empty'));
-			var colors = { '践行': '#4f8a6e', '见闻': '#657ea6', '即兴': '#a77b55', '复盘': '#87679a', '觉察': '#4f8794', '试错': '#9b6b6b' };
-			function colorOf(node) { return colors[node.root.split('/')[0]] ?? '#8a8f98'; }
 
-			var focused = null;
-			layout.nodes.forEach(function (node) { if (node.path === focus) focused = node; });
-			if (focused === null && focus !== null) focus = null;
+			/**
+			 * Where one layout point lands on screen.
+			 *
+			 * @param {number} x - Layout x.
+			 * @param {number} y - Layout y.
+			 * @returns {{x: number, y: number}} Screen position in viewBox units.
+			 */
+			function toScreen(x, y) {
+				return { x: view.x + view.s * x, y: view.y + view.s * y };
+			}
 
-			// One camera for both jobs: the layout's own fit transform, plus an
-			// extra layer that pulls the clicked node to the middle.
-			// CSS transform needs units on translate; a unitless pair is dropped
-			// silently and the picture would render unscaled.
-			var fitTransform = 'translate(' + layout.ox.toFixed(1) + 'px,' + layout.oy.toFixed(1) + 'px) scale(' + layout.fit.toFixed(3) + ')';
-			var camera = fitTransform;
-			if (focused !== null) {
-				// Frame the whole branch, not just the clicked dot: its children
-				// fan out from here and would otherwise land off the edge.
-				var zoom = 1.9;
+			/**
+			 * Move the camera so one node sits in the middle.
+			 *
+			 * @param {object} node - The node to frame.
+			 * @param {boolean} alone - Whether to frame only the node itself.
+			 * @returns {void}
+			 */
+			function frameOn(node, alone) {
 				var sumX = 0;
 				var sumY = 0;
 				var framed = 0;
-				layout.nodes.forEach(function (node) {
-					if (node.path === focus || node.path.indexOf(focus + '/') === 0) {
-						sumX += node.x;
-						sumY += node.y;
+				layout.nodes.forEach(function (other) {
+					var inside = alone ? other.path === node.path
+						: (other.path === node.path || other.path.indexOf(node.path + '/') === 0);
+					if (inside) {
+						sumX += other.x;
+						sumY += other.y;
 						framed += 1;
 					}
 				});
-				var anchorX = layout.ox + layout.fit * (framed === 0 ? focused.x : sumX / framed);
-				var anchorY = layout.oy + layout.fit * (framed === 0 ? focused.y : sumY / framed);
-				camera = 'translate(' + (layout.cx - zoom * anchorX).toFixed(1) + 'px,' + (layout.cy - zoom * anchorY).toFixed(1) + 'px)'
-					+ ' scale(' + zoom + ') ' + fitTransform;
+				var anchorX = framed === 0 ? node.x : sumX / framed;
+				var anchorY = framed === 0 ? node.y : sumY / framed;
+				var target = layout.fit * (alone ? 2.6 : 1.9);
+				setCamera({ s: target, x: layout.cx - target * anchorX, y: layout.cy - target * anchorY });
 			}
-			function toggle(path, event) {
-				if (event && typeof event.preventDefault === 'function') event.preventDefault();
+
+			function colorOf(node) {
+				return LINK_BRANCH_COLORS[node.root.split('/')[0]] ?? '#8a8f98';
+			}
+			function pick(node, event) {
 				if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-				setFocus(focus === path ? null : path);
+				setTip({ path: '#' + node.path, x: node.x, y: node.y });
+				frameOn(node, node.depth === 0 ? false : (node.children ?? []).length === 0);
 			}
 
 			var edgeEls = layout.edges.map(function (edge, index) {
-				var dim = focus !== null && edge.root !== focus.split('/')[0];
+				// A slight bow, the way flomo draws its spokes: straight lines
+				// read as a starburst, curves read as a tree.
+				var mx = (edge.from.x + edge.to.x) / 2;
+				var my = (edge.from.y + edge.to.y) / 2;
+				var dx = edge.to.x - edge.from.x;
+				var dy = edge.to.y - edge.from.y;
+				var len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+				var bend = Math.min(16, len * 0.08);
+				var qx = mx - (dy / len) * bend;
+				var qy = my + (dx / len) * bend;
 				return h('path', {
 					key: 'e-' + index,
-					d: 'M ' + edge.from.x.toFixed(1) + ' ' + edge.from.y.toFixed(1) + ' L ' + edge.to.x.toFixed(1) + ' ' + edge.to.y.toFixed(1),
+					d: 'M ' + edge.from.x.toFixed(1) + ' ' + edge.from.y.toFixed(1)
+						+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
+						+ ' ' + edge.to.x.toFixed(1) + ' ' + edge.to.y.toFixed(1),
 					className: 'evrGraphEdge',
-					stroke: colors[edge.root.split('/')[0]] ?? '#8a8f98',
-					'stroke-opacity': dim ? 0.18 : 0.55,
+					stroke: LINK_BRANCH_COLORS[edge.root.split('/')[0]] ?? '#a8adb5',
 				});
 			});
 
 			var nodeEls = layout.nodes.map(function (node) {
-				var active = focus === null || node.path === focus || node.path.indexOf(focus + '/') === 0 || focus.indexOf(node.path + '/') === 0;
+				var degrees = (node.angle * 180) / Math.PI;
+				var flipped = Math.cos(node.angle) < 0;
+				var labelX = flipped ? node.x - 9 : node.x + 9;
 				var isRoot = node.depth === 0;
-				var right = Math.cos(node.angle) >= 0;
+				var active = tip === null || node.path === tip.path.replace(/^#/, '')
+					|| (tip !== null && node.path.indexOf(tip.path.replace(/^#/, '') + '/') === 0);
 				return h('g', {
 					key: node.path,
 					className: 'evrGraphNode',
 					role: 'button',
 					tabIndex: 0,
 					'aria-label': node.path + ' · ' + node.count,
-					opacity: active ? 1 : 0.28,
-					style: { cursor: 'pointer' },
-					onClick: function (event) { toggle(node.path, event); },
+					opacity: active ? 1 : 0.32,
+					onClick: function (event) { pick(node, event); },
 					onKeyDown: function (event) {
-						if (event && (event.key === 'Enter' || event.key === ' ')) toggle(node.path, event);
+						if (event && (event.key === 'Enter' || event.key === ' ')) pick(node, event);
 					},
 				},
 					h('circle', {
 						cx: node.x,
 						cy: node.y,
-						r: (isRoot ? 5 : 3.4) + Math.min(2.4, Math.sqrt(node.count) * 0.4),
-						fill: colorOf(node),
-						'fill-opacity': isRoot ? 1 : 0.75,
-						className: node.path === focus ? 'evrGraphDotOn' : undefined,
+						r: isRoot ? 4.4 : 3.2,
+						className: isRoot ? 'evrGraphDot evrGraphDotRoot' : 'evrGraphDot',
+						stroke: colorOf(node),
 					}),
 					h('text', {
-						x: node.x + (right ? 9 : -9),
-						y: node.y + 3.5,
-						textAnchor: right ? 'start' : 'end',
+						x: labelX,
+						y: node.y + 3.2,
+						textAnchor: flipped ? 'end' : 'start',
+						transform: 'rotate(' + (flipped ? degrees + 180 : degrees).toFixed(1) + ' ' + node.x.toFixed(1) + ' ' + node.y.toFixed(1) + ')',
 						className: isRoot ? 'evrGraphLabel evrGraphRoot' : 'evrGraphLabel',
-					}, tagGraphLabelOf(node)),
+					}, '#' + node.name),
 					h('title', null, '#' + node.path + ' · ' + node.count));
 			});
 
-			return h('div', null,
+			var tipNode = null;
+			if (tip !== null) {
+				layout.nodes.forEach(function (node) { if ('#' + node.path === tip.path) tipNode = node; });
+			}
+			var tipAt = tipNode === null ? null : toScreen(tipNode.x, tipNode.y);
+
+			return h('div', { className: 'evrGraphWrap' },
 				h('svg', {
+					ref: svgRef,
 					className: 'evrGraph',
 					viewBox: '0 0 ' + layout.width + ' ' + layout.height,
 					role: 'img',
 					'aria-label': t('overview.tree.graphLabel'),
-					onClick: function () { setFocus(null); },
+					onPointerDown: function (event) {
+						movedRef.current = false;
+						dragRef.current = { x: event.clientX, y: event.clientY, camera: view, box: event.currentTarget.getBoundingClientRect() };
+					},
+					onPointerMove: function (event) {
+						var drag = dragRef.current;
+						if (drag === null || drag === undefined) return;
+						var dx = event.clientX - drag.x;
+						var dy = event.clientY - drag.y;
+						if (Math.abs(dx) + Math.abs(dy) > 3) movedRef.current = true;
+						if (drag.box.width === 0 || drag.box.height === 0) return;
+						var scaleX = layout.width / drag.box.width;
+						var scaleY = layout.height / drag.box.height;
+						setCamera({ s: drag.camera.s, x: drag.camera.x + dx * scaleX, y: drag.camera.y + dy * scaleY });
+					},
+					onPointerUp: function (event) {
+						var dragged = movedRef.current;
+						dragRef.current = null;
+						if (dragged) return;
+						// A click on the canvas itself, not on a node, fits the tree.
+						if (event.target === event.currentTarget || event.target.tagName === 'svg') {
+							setCamera(null);
+							setTip(null);
+						}
+					},
+					onPointerLeave: function () { dragRef.current = null; },
 				},
 					h('g', {
 						style: {
-							transform: camera,
-							transition: 'transform 280ms ease',
+							transform: 'translate(' + view.x.toFixed(1) + 'px,' + view.y.toFixed(1) + 'px) scale(' + view.s.toFixed(3) + ')',
+							transition: 'transform 260ms ease',
 						},
 					},
 						h('g', null, edgeEls),
-						h('circle', { cx: layout.cx, cy: layout.cy, r: 15, className: 'evrGraphCenter' }),
-						h('text', {
-							x: layout.cx,
-							y: layout.cy + 3.5,
-							textAnchor: 'middle',
-							className: 'evrGraphCenterLabel',
-						}, t('overview.graph.center')),
+						h('circle', { cx: layout.cx, cy: layout.cy, r: 4, className: 'evrGraphHub' }),
 						h('g', null, nodeEls))),
+				tipAt === null ? null : h('div', {
+					className: 'evrGraphTip',
+					style: {
+						left: (tipAt.x / layout.width) * 100 + '%',
+						top: (tipAt.y / layout.height) * 100 + '%',
+					},
+				}, tip.path),
 				h('div', { className: 'evrHint', style: { marginTop: '4px' } }, t('overview.tree.zoomHint')));
 		}
 
@@ -1458,15 +1559,6 @@ window.__ModuleLoader__.load({
 			}));
 		}
 
-		/** The branch colours of the card graph, keyed by top-level tag. */
-		var LINK_BRANCH_COLORS = {
-			'践行': '#4f8a6e',
-			'见闻': '#657ea6',
-			'即兴': '#a77b55',
-			'复盘': '#87679a',
-			'觉察': '#4f8794',
-			'试错': '#9b6b6b',
-		};
 
 		/**
 		 * The colour of one card, by its top-level branch.

@@ -42,7 +42,7 @@ function createRuntime() {
 	function instanceFor(key) {
 		let instance = instances.get(key)
 		if (instance === undefined) {
-			instance = { key, state: [], memo: [], effectSlots: [], pendingEffects: [], cursor: 0 }
+			instance = { key, state: [], memo: [], refs: [], effectSlots: [], pendingEffects: [], cursor: 0 }
 			instances.set(key, instance)
 		}
 		instance.cursor = 0
@@ -91,6 +91,14 @@ function createRuntime() {
 		const previous = instance.effectSlots[index]
 		if (previous !== undefined && sameDeps(previous.deps, deps)) return
 		instance.pendingEffects.push({ index, effect, deps })
+	}
+
+	/** A ref that survives re-renders, like React's. */
+	function useRef(initial) {
+		const instance = currentInstance
+		const index = instance.cursor++
+		if (!(index in instance.refs)) instance.refs[index] = { current: initial }
+		return instance.refs[index]
 	}
 
 	function useCallback(callback, deps) {
@@ -188,7 +196,7 @@ function createRuntime() {
 		return tree
 	}
 
-	return { createElement, useState, useEffect, useCallback, useMemo, renderNode, settle }
+	return { createElement, useState, useEffect, useCallback, useMemo, useRef, renderNode, settle }
 }
 
 /**
@@ -757,23 +765,25 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.ok(graphLabels().filter((label) => label.startsWith('#工作流')).length >= 1, '子标签一开始就在图上')
 		const camera = () => findAll(tree, (node) => node.type === 'g'
 			&& typeof node.props?.style?.transform === 'string' && node.props.style.transform.indexOf('scale(') > -1)[0]
-		assert.equal(camera().props.style.transform.includes('scale(1.9)'), false, '初始是适应全貌的视图')
+		const zoomOf = () => Number(/scale\(([\d.]+)\)/.exec(camera().props.style.transform)[1])
+		const fitted = zoomOf()
 
 		// Clicking a node zooms the same picture instead of replacing the level:
-		// the camera moves, and no label leaves the tree.
+		// the camera moves closer, and no label leaves the tree.
 		const nodeGroup = findAll(tree, (node) => node.type === 'g'
 			&& typeof node.props?.['aria-label'] === 'string' && node.props['aria-label'].startsWith('践行/工作流 ·'))[0]
 		nodeGroup.props.onClick({ preventDefault() {}, stopPropagation() {} })
 		tree = await runtime.settle(render)
-		assert.equal(camera().props.style.transform.includes('scale(1.9)'), true, '点击后放大')
+		assert.ok(zoomOf() > fitted, '点击后放大')
 		assert.ok(graphLabels().filter((label) => label.startsWith('#工作流')).length >= 1, '放大后子标签还在')
 
 		// Clicking the empty space fits the whole tree again.
 		const svg = findAll(tree, (node) => node.type === 'svg'
 			&& typeof node.props?.className === 'string' && node.props.className.includes('evrGraph'))[0]
-		svg.props.onClick()
+		svg.props.onPointerDown({ clientX: 10, clientY: 10, currentTarget: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 460, height: 407 }) } })
+		svg.props.onPointerUp({ clientX: 10, clientY: 10, target: { tagName: 'svg' }, currentTarget: { tagName: 'svg' } })
 		tree = await runtime.settle(render)
-		assert.equal(camera().props.style.transform.includes('scale(1.9)'), false, '初始是适应全貌的视图')
+		assert.equal(zoomOf(), fitted, '点空白回到适应全貌')
 
 		// The overview splits into four sub-tabs; the injected blocks are read-only previews.
 		const subTabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
