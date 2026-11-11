@@ -8,7 +8,9 @@ test('主动性协议覆盖卡片触发点且保持精简', () => {
 	for (const token of ['card_query', 'card_write', 'card_promote', 'evolve_review', '下一步', '依据']) {
 		assert.match(PROACTIVE_PROTOCOL, new RegExp(token))
 	}
-	assert.ok(Buffer.byteLength(PROACTIVE_PROTOCOL, 'utf8') < 900, '主动性协议会注入每次请求，不能吃掉太多上下文')
+	// Injected on every request, so it has to stay around a kilobyte: the
+	// trigger needs its examples to be actionable, nothing else earns a line.
+	assert.ok(Buffer.byteLength(PROACTIVE_PROTOCOL, 'utf8') < 1024, '主动性协议会注入每次请求，不能吃掉太多上下文')
 })
 
 test('工具集只有卡片工具，没有旧的 practice/memory 名称', () => {

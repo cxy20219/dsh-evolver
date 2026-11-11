@@ -231,11 +231,14 @@ test('默认预算容得下带说明的整棵标签树，不会把末尾分支�
 		}
 		const prompt = cardPrompt(store, DEFAULT_PROMPT_BUDGET)
 		assert.equal(prompt.includes('超出预算'), false, '默认预算必须覆盖带说明的树')
-		const branches = prompt.split('\n').filter((line) => line.trim().startsWith('#') && line.includes('('))
+		const branches = prompt.split('\n').filter((line) => line.trim().startsWith('#'))
 		assert.equal(branches.length, Object.keys(TAG_DESCRIPTIONS).length)
 		for (const branch of branches) {
 			assert.match(branch, / — .+/, `分支缺说明：${branch}`)
 		}
+		// No per-branch counts: they change on every card write, and the
+		// injected text is the prefix every request is cached against.
+		assert.equal(/^\s*#\S+ \(\d+\)/m.test(prompt), false, '注入的树不能带卡片计数')
 		assert.equal(prompt.includes('#试错'), true, '最后一个顶层分支也在')
 		assert.ok(Buffer.byteLength(prompt, 'utf8') <= DEFAULT_PROMPT_BUDGET)
 	} finally {
@@ -257,7 +260,7 @@ test('标签描述是数据不是代码：可以给新分支补描述并立刻�
 
 		// An undocumented branch renders without a trailing description.
 		const before = cardPrompt(store, undefined, defaults)
-		assert.match(before, /#见闻\/新分支 \(\d+\)$/m, '未描述的标签后面没有破折号说明')
+		assert.match(before, /#见闻\/新分支$/m, '未描述的标签后面没有破折号说明')
 		assert.equal(before.includes('全新的说明'), false)
 
 		// Writing the map changes the injected text on the next render.
@@ -272,8 +275,8 @@ test('标签描述是数据不是代码：可以给新分支补描述并立刻�
 		}, '空说明被丢弃')
 
 		const after = cardPrompt(store, undefined, await store.tagDescriptions())
-		assert.match(after, /#见闻\/新分支 \(\d+\) — 全新的说明/)
-		assert.match(after, /#践行\/经验 \(\d+\) — 改过的说明/)
+		assert.match(after, /#见闻\/新分支 — 全新的说明/)
+		assert.match(after, /#践行\/经验 — 改过的说明/)
 		assert.equal(after.includes('行动中验证过的判断与边界'), false)
 
 		// The description file is inside the data folder, so it travels with it.
@@ -308,6 +311,32 @@ test('复查是否过期只看整理台账，卡片本身不带日期', async ()
 		const warm = await agent.review(eightMonths)
 		assert.equal(warm.stale, 0, '台账记过之后就不再算陈旧')
 		assert.equal(Object.keys((await store.consolidationLedger()).cards).length, 1)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('往已有分支写卡不会改动注入文本，前缀缓存因此不失效', async () => {
+	const { dir, store } = await fixture()
+	try {
+		await store.put({ body: '第一条践行经验', tags: ['践行/经验'] })
+		await store.put({ body: '第一条见闻', tags: ['见闻/事实'] })
+		const before = cardPrompt(store, undefined, await store.tagDescriptions())
+
+		// Writing into a branch that already exists must not move a byte: the
+		// injected section is the prefix every request in the session is
+		// cached against, and a card write used to renumber the whole tree.
+		await store.put({ body: '第二条践行经验', tags: ['践行/经验'] })
+		await store.put({ body: '第三条践行经验', tags: ['践行/经验'] })
+		const after = cardPrompt(store, undefined, await store.tagDescriptions())
+		assert.equal(after, before)
+
+		// A brand-new branch is a real change and still shows up.
+		await store.put({ body: '一条新枝干的记录', tags: ['见闻/新枝干'] })
+		const grown = cardPrompt(store, undefined, await store.tagDescriptions())
+		assert.notEqual(grown, after)
+		assert.match(grown, /#见闻\/新枝干/)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })

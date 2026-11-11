@@ -35,6 +35,12 @@ export const CARD_DISCIPLINE = [
 /**
  * Render the tag tree, with a description on documented branches.
  *
+ * No per-branch counts: every branch shown has at least one card, so a count
+ * says almost nothing, while changing on every write it forces the whole
+ * request prefix — system prompt and all — to be recomputed. Writing one card
+ * mid-session should not cost a full re-read of a 300K-token conversation.
+ * Counts stay in `card_index` and the panel, where nothing is cached.
+ *
  * @param {object} cards - The card store.
  * @param {Record<string, string>} descriptions - The effective description map.
  * @returns {string[]} One line per branch.
@@ -51,7 +57,7 @@ function treeLines(cards, descriptions) {
 	 */
 	function walk(node, depth) {
 		const description = descriptionOf(node.path, descriptions)
-		lines.push(`${'  '.repeat(depth)}#${node.path} (${node.count})${description === '' ? '' : ` — ${description}`}`)
+		lines.push(`${'  '.repeat(depth)}#${node.path}${description === '' ? '' : ` — ${description}`}`)
 		for (const child of node.children) walk(child, depth + 1)
 	}
 	const rank = (node) => {
