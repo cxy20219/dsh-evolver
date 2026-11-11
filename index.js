@@ -25,6 +25,7 @@ import { BackupService } from './src/backup/service.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
 import { createConsolidationController } from './src/consolidate.js'
 import { createHealthJob } from './src/health.js'
+import { assistantEvents, summarizeUsage } from './src/cache.js'
 import { createHarnessTools } from './src/harness/tools.js'
 import { projectRootOf } from './src/harness/store.js'
 import { createIngestController } from './src/ingest.js'
@@ -567,6 +568,23 @@ export async function apply(ctx, config) {
 				limit: args.limit,
 				commit: args.commit === true,
 			})
+		},
+		/**
+		 * Cache numbers for one session.
+		 *
+		 * Read on demand rather than continuously: the snapshot carries the
+		 * whole event log, which is the expensive part of the question.
+		 *
+		 * @param {string} id - The session id.
+		 * @returns {Promise<object>} The report.
+		 */
+		async cache(id) {
+			const query = ctx.get('sessionQuery')
+			if (query === undefined) throw new Error('这个宿主没有提供会话读取能力（sessionQuery）。')
+			const snapshot = await query.readSession(id)
+			if (snapshot === undefined || snapshot === null) throw new Error(`读不到会话：${id}`)
+			const events = assistantEvents(snapshot)
+			return { session: String(id), ...summarizeUsage(events) }
 		},
 	}
 	const ingestLedger = {

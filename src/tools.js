@@ -146,6 +146,35 @@ export function createTools({ cards, sessions }) {
 			},
 		},
 		{
+			name: 'cache_report',
+			description: '看当前会话的提示词缓存命中情况：每步的输入/缓存读/缓存写、总命中率，以及哪些步是缓存全丢（前缀被重建）。用于判断注入块是否稳定。',
+			parameters: {
+				type: 'object',
+				properties: {
+					session: { type: 'string', description: '会话 id；留空用当前会话' },
+				},
+			},
+			output: OBJECT_OUTPUT,
+			async execute(args, exec) {
+				if (sessions?.cache === undefined) {
+					return { available: false, message: '这个宿主没有提供会话读取能力。' }
+				}
+				const id = String(args?.session ?? exec?.agent?.id ?? '')
+				if (id === '') throw new Error('拿不到会话 id；请显式传 session。')
+				const report = await sessions.cache(id)
+				// The tail is what a person reads; the head is the shape.
+				return {
+					...report,
+					steps: report.messages,
+					largest: report.largest === null ? null : {
+						turn: report.largest.turn,
+						step: report.largest.step,
+						prompt: report.largest.prompt,
+					},
+				}
+			},
+		},
+		{
 			name: 'evolve_review',
 			description: '盘点卡片库：六大枝干数量、#即兴 待整理项、归档数量、最近卡片、久未复查的卡和可执行 hints。',
 			parameters: { type: 'object', properties: {} },

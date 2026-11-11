@@ -13,7 +13,7 @@ test('主动性协议覆盖卡片触发点且保持精简', () => {
 	assert.ok(Buffer.byteLength(PROACTIVE_PROTOCOL, 'utf8') < 1024, '主动性协议会注入每次请求，不能吃掉太多上下文')
 })
 
-test('工具集只有卡片工具，没有旧的 practice/memory 名称', () => {
+test('工具集只有卡片与诊断工具，没有旧的 practice/memory 名称', () => {
 	const tools = createTools({ cards: {} })
 	assert.deepEqual(tools.map((tool) => tool.name), [
 		'card_query',
@@ -23,6 +23,7 @@ test('工具集只有卡片工具，没有旧的 practice/memory 名称', () => 
 		'card_promote',
 		'card_archive',
 		'card_remove',
+		'cache_report',
 		'evolve_review',
 		'session_digest',
 	])

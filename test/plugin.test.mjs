@@ -111,8 +111,9 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 		const { ctx, routes, tools, sections, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
-			// Nine card tools plus the three that maintain a project's harness/.
-			assert.equal(tools.length, 12)
+			// Nine card tools, three that maintain a project's harness/, and one
+			// that reports what the prompt cache is doing.
+			assert.equal(tools.length, 13)
 			assert.deepEqual(
 				tools.map((tool) => tool.name).filter((name) => name.startsWith('harness_')),
 				['harness_catalog', 'harness_write', 'harness_validate'],
