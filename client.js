@@ -104,32 +104,36 @@ window.__ModuleLoader__.load({
 			'overview.notesHint': '全部卡片',
 			'overview.tagsHint': '唯一标签',
 			'overview.daysHint': '自首张卡',
-			'overview.period': '最近 30 天统计',
-			'overview.period.notes': '笔记',
-			'overview.period.words': '字数',
-			'overview.period.maxNotes': '单日最多条数',
-			'overview.period.maxWords': '单日最多字数',
-			'overview.period.activeDays': '坚持记录天数',
-			'overview.yearHeatmap': '最近一年记录',
 			'overview.yearHeatmap.hint': '记录 {notes} 条笔记 · {days} 天有记录。',
-			'overview.heatmap': '最近一个月热力',
-			'overview.heatmap.hint': '按卡片创建日期统计最近 30 天。',
+			'overview.heatmap.section': '记录热力',
 			'overview.heatmap.empty': '还没有卡片活动。',
 			'overview.heatmap.unit': '张',
 			'overview.heatmap.less': '少',
 			'overview.heatmap.more': '多',
-			'overview.tree': '标签树',
+			'overview.graph': '标签关系图',
+			'overview.linkGraph': '链接关系图',
+			'overview.linkGraph.hint': '卡片之间的双向链接，像 Obsidian 的关系图；悬停节点看卡片名。',
+			'overview.linkGraph.label': '卡片链接关系图',
+			'overview.linkGraph.empty': '还没有卡片之间的链接。',
+			'overview.linkGraph.links': '条链接',
+			'overview.linkGraph.summary': '{cards} 张卡片有链接 · {links} 条链接 · {mutual} 组互链',
 			'overview.tree.graphLabel': '标签关系图',
+			'overview.tree.hint': '点击标签放大看它的子标签；点中心返回上一层。',
+			'overview.tree.zoom': '放大标签 {path}',
+			'overview.tree.up': '返回上一层',
+			'overview.tree.all': '全部',
+			'overview.tree.noChildren': '这个标签下没有子标签。',
 			'overview.graph.center': '标签',
 			'overview.tree.empty': '还没有标签。',
-			'overview.injection': '注入的上下文',
-			'overview.injection.hint': 'Agent 每次请求都会拿到这三块，别的地方都不占它的上下文。',
+			'overview.preview.readonly': '只读预览：Agent 每次请求都会收到这一段内容。',
+			'overview.preview.empty': '这一段现在是空的。',
+			'overview.bytes': '大小',
+			'overview.entries': '条目',
+			'overview.truncated': '已截断',
+			'overview.link': '链接',
 			'overview.cards': '标签树',
 			'overview.soul': '灵魂',
 			'overview.preferences': '偏好',
-			'overview.suggestions': '建议',
-			'overview.root': '数据目录',
-			'overview.version': '版本',
 			'overview.budget': '预算',
 			'overview.dropped': '未进索引',
 			'overview.projection': '注入的标签树',
@@ -324,32 +328,36 @@ window.__ModuleLoader__.load({
 			'overview.notesHint': 'All cards',
 			'overview.tagsHint': 'Unique tags',
 			'overview.daysHint': 'Since the first card',
-			'overview.period': 'Last 30 days',
-			'overview.period.notes': 'Notes',
-			'overview.period.words': 'Characters',
-			'overview.period.maxNotes': 'Max notes/day',
-			'overview.period.maxWords': 'Max characters/day',
-			'overview.period.activeDays': 'Active days',
-			'overview.yearHeatmap': 'Last year',
 			'overview.yearHeatmap.hint': '{notes} notes · {days} active days.',
-			'overview.heatmap': 'Last 30 days',
-			'overview.heatmap.hint': 'Cards by creation date over the last 30 days.',
+			'overview.heatmap.section': 'Activity',
 			'overview.heatmap.empty': 'No card activity yet.',
 			'overview.heatmap.unit': 'cards',
 			'overview.heatmap.less': 'Less',
 			'overview.heatmap.more': 'More',
-			'overview.tree': 'Tag tree',
+			'overview.graph': 'Tag graph',
+			'overview.linkGraph': 'Link graph',
+			'overview.linkGraph.hint': 'The links between cards, like the graph in Obsidian; hover a node for its name.',
+			'overview.linkGraph.label': 'Card link graph',
+			'overview.linkGraph.empty': 'No links between cards yet.',
+			'overview.linkGraph.links': 'links',
+			'overview.linkGraph.summary': '{cards} linked cards · {links} links · {mutual} mutual pairs',
 			'overview.tree.graphLabel': 'Tag relationship graph',
+			'overview.tree.hint': 'Click a tag to zoom into its children; click the centre to go back one level.',
+			'overview.tree.zoom': 'Zoom into tag {path}',
+			'overview.tree.up': 'Go up one level',
+			'overview.tree.all': 'All',
+			'overview.tree.noChildren': 'This tag has no children.',
 			'overview.graph.center': 'Tags',
 			'overview.tree.empty': 'No tags yet.',
-			'overview.injection': 'Injected context',
-			'overview.injection.hint': 'The agent gets exactly these three blocks in every request.',
+			'overview.preview.readonly': 'Read-only preview: the agent receives this block on every request.',
+			'overview.preview.empty': 'This block is empty.',
+			'overview.bytes': 'Size',
+			'overview.entries': 'Entries',
+			'overview.truncated': 'Truncated',
+			'overview.link': 'Link',
 			'overview.cards': 'Tag tree',
 			'overview.soul': 'Soul',
 			'overview.preferences': 'Preferences',
-			'overview.suggestions': 'Suggestions',
-			'overview.root': 'Data folder',
-			'overview.version': 'Version',
 			'overview.budget': 'Budget',
 			'overview.dropped': 'Left out of the index',
 			'overview.projection': 'Injected tag tree',
@@ -488,6 +496,7 @@ window.__ModuleLoader__.load({
 			'.evrHead{display:flex;align-items:flex-start;gap:16px;padding:22px 28px 0;flex:none}',
 			'.evrHeadMain{flex:1;min-width:0}',
 			'.evrTitle{margin:0;font-size:18px;font-weight:600;line-height:26px;letter-spacing:-.01em}',
+			'.evrVersion{margin-left:8px;font-size:12px;font-weight:500;letter-spacing:0;color:var(--dsw-alias-label-tertiary);vertical-align:2px}',
 			'.evrSubtitle{margin-top:3px;font-size:12px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 			'.evrHeadActions{display:flex;align-items:center;gap:8px;flex:none;padding-top:3px}',
 			'.evrTabs{display:flex;gap:4px;padding:16px 28px 0;flex:none;flex-wrap:wrap}',
@@ -508,10 +517,6 @@ window.__ModuleLoader__.load({
 			'.evrCardTitle{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}',
 			'.evrCardCount{margin-left:auto;font-size:12px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
 			'.evrCardHint{font-size:11.5px;color:var(--dsw-alias-label-tertiary);line-height:1.55}',
-			'.evrMetricRow{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px}',
-			'.evrMetric{padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1)}',
-			'.evrMetricValue{font-size:24px;font-weight:600;line-height:1.15;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
-			'.evrMetricLabel{font-size:11px;color:var(--dsw-alias-label-tertiary);margin-top:4px}',
 			'.evrCardValue{font-size:22px;font-weight:600;line-height:28px;letter-spacing:-.02em;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}',
 			'.evrSection{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary);margin:22px 0 10px;display:flex;align-items:center;gap:10px}',
 			'.evrSection::after{content:"";flex:1;height:1px;background:var(--dsw-alias-border-l2)}',
@@ -532,24 +537,63 @@ window.__ModuleLoader__.load({
 			'.evrTagCount{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
 			'.evrTagBtnStatic{cursor:default}',
 			'.evrTagBtnStatic:hover{background:transparent;color:var(--dsw-alias-label-secondary)}',
+			'.evrSubTabs{display:flex;gap:4px;flex-wrap:wrap;padding-bottom:8px;margin-bottom:4px;border-bottom:1px solid var(--dsw-alias-border-l2)}',
+			'.evrMetaRow{display:flex;flex-wrap:wrap;gap:6px 20px;margin-bottom:14px}',
+			'.evrMetaItem{display:inline-flex;align-items:baseline;gap:6px;font-size:11.5px;line-height:1.6;color:var(--dsw-alias-label-tertiary)}',
+			'.evrMetaValue{color:var(--dsw-alias-label-primary);font-weight:500;font-variant-numeric:tabular-nums}',
+			'.evrMd{font-size:13px;line-height:1.75;color:var(--dsw-alias-label-primary)}',
+			'.evrMd h1,.evrMd h2,.evrMd h3,.evrMd h4,.evrMd h5,.evrMd h6{margin:16px 0 4px;font-weight:600;line-height:1.4;color:var(--dsw-alias-label-primary)}',
+			'.evrMd h1{font-size:17px}',
+			'.evrMd h2{font-size:15px}',
+			'.evrMd h3{font-size:13.5px}',
+			'.evrMd h4,.evrMd h5,.evrMd h6{font-size:13px}',
+			'.evrMd h1:first-child,.evrMd h2:first-child,.evrMd h3:first-child{margin-top:0}',
+			'.evrMdLine{margin:0}',
+			'.evrMdList{margin:2px 0 8px;padding-left:18px}',
+			'.evrMdList li{margin:2px 0}',
+			'.evrMdQuote{margin:6px 0;padding:2px 0 2px 12px;border-left:2px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary)}',
+			'.evrMd code{font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px;padding:1px 5px;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-3)}',
+			'.evrMdPre{margin:8px 0;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2);overflow-x:auto;font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px;line-height:1.65;white-space:pre-wrap}',
+			'.evrMdPre code{padding:0;background:transparent}',
+			'.evrMd hr{border:0;border-top:1px solid var(--dsw-alias-border-l2);margin:14px 0}',
+			'.evrMd a{color:var(--dsw-alias-state-business-primary)}',
 			'.evrOverviewSplit{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}',
-			'.evrOverviewHeat{flex:0 1 360px;min-width:300px;max-width:360px}',
-			'.evrOverviewTags{flex:1 1 560px;min-width:420px;max-width:none}',
-			'.evrGraph{width:100%;height:auto;max-height:560px;display:block;margin:0 auto}',
+			'.evrOverviewGraph{flex:1 1 520px;min-width:0}',
+			'.evrOverviewTree{flex:0 1 320px;min-width:260px}',
+			'.evrLinkGraph{width:100%;height:auto;max-width:320px;display:block;margin:0 auto}',
+			'.evrLinkEdge{fill:none;stroke:var(--dsw-alias-label-tertiary);stroke-width:1;stroke-opacity:.5}',
+			'.evrLinkEdgeMutual{stroke-opacity:.85;stroke-width:1.4}',
+			'.evrLinkNode circle{stroke:var(--dsw-alias-bg-base);stroke-width:1}',
+			'.evrLinkList{display:flex;flex-direction:column;gap:3px;margin-top:8px}',
+			'.evrLinkItem{display:flex;align-items:center;gap:7px;font-size:11.5px;line-height:1.7;color:var(--dsw-alias-label-secondary)}',
+			'.evrLinkDot{flex:none;width:7px;height:7px;border-radius:50%}',
+			'.evrLinkName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+			'.evrLinkCount{flex:none;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
+			'.evrCrumb{display:flex;align-items:center;gap:2px;flex-wrap:wrap;margin-bottom:6px;font-size:11.5px;line-height:1.7}',
+			'.evrCrumbBtn{padding:1px 5px;border:none;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer}',
+			'.evrCrumbBtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+			'.evrCrumbBtn:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}',
+			'.evrCrumbBtnActive{color:var(--dsw-alias-label-primary);font-weight:500}',
+			'.evrCrumbSep{color:var(--dsw-alias-label-tertiary)}',
+			'.evrGraph{width:100%;height:auto;max-width:420px;display:block;margin:0 auto}',
 			'.evrGraphEdge{fill:none;stroke-width:1;stroke-opacity:.38}',
 			'.evrGraphLabel{fill:var(--dsw-alias-label-secondary);font-size:10.5px;font-family:inherit}',
 			'.evrGraphRoot{fill:var(--dsw-alias-label-primary);font-size:11px;font-weight:500}',
 			'.evrGraphCount{fill:var(--dsw-alias-label-tertiary);font-size:9px}',
-			'.evrGraphCenter{fill:var(--dsw-alias-bg-layer-3);stroke:var(--dsw-alias-border-l2)}',
-			'.evrGraphCenterLabel{fill:var(--dsw-alias-label-secondary);font-size:11px;font-family:inherit}',
-			'.evrHeatmapWrap{--eh-cell:18px;--eh-gap:4px;overflow-x:auto;padding:2px 0}',
-			'.evrHeatmapDense{--eh-cell:13px;--eh-gap:3px}',
-			'.evrHeatmapBody{display:flex;gap:6px;align-items:flex-start}',
-			'.evrHeatmapDays{display:grid;grid-template-rows:repeat(7,var(--eh-cell));gap:var(--eh-gap);font-size:9px;line-height:var(--eh-cell);color:var(--dsw-alias-label-tertiary);text-align:right;width:12px}',
-			'.evrHeatmapMonths{display:grid;grid-auto-flow:column;grid-auto-columns:var(--eh-cell);gap:var(--eh-gap);margin-left:18px;margin-bottom:4px;font-size:10px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}',
-			'.evrHeatmap{display:flex;gap:var(--eh-gap);align-items:flex-start}',
-			'.evrHeatmapWeek{display:grid;grid-template-rows:repeat(7,var(--eh-cell));gap:var(--eh-gap)}',
-			'.evrHeatCell{width:var(--eh-cell);height:var(--eh-cell);border-radius:3px;background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l1);box-sizing:border-box}',
+			'.evrGraphZoomable{cursor:pointer}',
+			'.evrGraphZoomable:hover .evrGraphLabel,.evrGraphZoomable:focus .evrGraphLabel{fill:var(--dsw-alias-label-primary)}',
+			'.evrGraphZoomable:focus{outline:none}',
+			'.evrGraphCenter{fill:var(--dsw-alias-bg-layer-3);stroke:var(--dsw-alias-border-l2);cursor:pointer}',
+			'.evrGraphCenterStatic{cursor:default}',
+			'.evrGraphCenterLabel{fill:var(--dsw-alias-label-secondary);font-size:11px;font-family:inherit;cursor:pointer}',
+			'.evrHeatmapWrap{--eh-cols:53;--eh-gap:2px;--eh-min:7px;--eh-max:18px;--eh-h:auto;--eh-ar:1;--eh-width:calc(var(--eh-cols) * var(--eh-max) + (var(--eh-cols) - 1) * var(--eh-gap));overflow-x:auto;padding:2px 18px 2px 0}',
+			'.evrHeatmapBody{display:grid;grid-template-columns:12px minmax(0,1fr);gap:6px;align-items:stretch}',
+			'.evrHeatmapDays{display:grid;grid-template-rows:repeat(7,1fr);font-size:9px;color:var(--dsw-alias-label-tertiary);text-align:right}',
+			'.evrHeatmapDays span{display:flex;align-items:center;justify-content:flex-end}',
+			'.evrHeatmapMonths{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(var(--eh-min),1fr);gap:var(--eh-gap);margin-left:18px;margin-bottom:4px;max-width:var(--eh-width);font-size:10px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}',
+			'.evrHeatmap{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(var(--eh-min),1fr);gap:var(--eh-gap);max-width:var(--eh-width)}',
+			'.evrHeatmapWeek{display:grid;grid-template-rows:repeat(7,auto);gap:var(--eh-gap)}',
+			'.evrHeatCell{width:100%;height:var(--eh-h);aspect-ratio:var(--eh-ar);border-radius:3px;background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l1);box-sizing:border-box}',
 			'.evrHeat1{background:rgba(72,187,120,.28)}',
 			'.evrHeat2{background:rgba(72,187,120,.55)}',
 			'.evrHeat3{background:rgba(47,174,114,.85)}',
@@ -655,6 +699,46 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The exact local time of a timestamp.
+		 *
+		 * @param {string} iso - ISO timestamp.
+		 * @param {boolean} withSeconds - Whether to include the seconds.
+		 * @returns {string} The formatted time.
+		 */
+		function absoluteTime(iso, withSeconds) {
+			var stamp = Date.parse(iso);
+			if (!Number.isFinite(stamp)) return '';
+			var date = new Date(stamp);
+			var pad = function (value) { return String(value).padStart(2, '0'); };
+			var text = date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+				+ ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+			return withSeconds === true ? text + ':' + pad(date.getSeconds()) : text;
+		}
+
+		/**
+		 * The time of a card: relative while it is fresh, exact once it is old.
+		 *
+		 * Cards from the last day read as "3 分钟前"; older ones fall back to
+		 * the exact local time, because a date alone hides when it happened.
+		 *
+		 * @param {string} iso - ISO timestamp.
+		 * @param {Function} t - Translator.
+		 * @returns {string} The formatted time.
+		 */
+		function cardTime(iso, t) {
+			if (typeof iso !== 'string' || iso === '') return '';
+			var stamp = Date.parse(iso);
+			if (!Number.isFinite(stamp)) return '';
+			var seconds = Math.max(0, Math.round((Date.now() - stamp) / 1000));
+			if (seconds < 60) return t('time.justNow');
+			var minutes = Math.round(seconds / 60);
+			if (minutes < 60) return t('time.minutes', { n: minutes });
+			var hours = Math.round(minutes / 60);
+			if (hours < 24) return t('time.hours', { n: hours });
+			return absoluteTime(iso, false);
+		}
+
+		/**
 		 * Human-readable file size.
 		 *
 		 * @param {number} size - Byte count.
@@ -735,11 +819,12 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * A radial graph of the six root tags and their descendants.
+		 * A radial graph of the tag tree, drawn in a fixed pixel space.
 		 *
-		 * The angular span of each branch is proportional to its leaf count;
-		 * the graph is display-only, while the cards tab keeps the filterable
-		 * collapsible tree.
+		 * One level is visible at a time: the root tags around the centre, or
+		 * the children of the focused tag. Clicking a tag zooms into it and
+		 * clicking the centre goes one level up, so the graph stays readable in
+		 * a narrow column.
 		 *
 		 * @param {object} props - Component props.
 		 * @returns {object} The element tree.
@@ -747,77 +832,181 @@ window.__ModuleLoader__.load({
 		function TagGraph(props) {
 			var t = props.t;
 			var nodes = Array.isArray(props.nodes) ? props.nodes : [];
+			var [focus, setFocus] = useState(null);
 			if (nodes.length === 0) return h('div', { className: 'evrHint' }, t('overview.tree.empty'));
-			var width = 820;
-			var height = 600;
+			var colors = ['#4f8a6e', '#657ea6', '#a77b55', '#87679a', '#4f8794', '#9b6b6b'];
+			var width = 320;
+			var height = 300;
 			var cx = width / 2;
 			var cy = height / 2;
-			var colors = ['#4f8a6e', '#657ea6', '#a77b55', '#87679a', '#4f8794', '#9b6b6b'];
+
+			/**
+			 * Find a node by its full path.
+			 *
+			 * @param {object[]} list - The nodes to search.
+			 * @param {string} path - The full tag path.
+			 * @returns {object|null} The node, or null when it is gone.
+			 */
+			function findNode(list, path) {
+				for (var index = 0; index < list.length; index += 1) {
+					var node = list[index];
+					if (node.path === path) return node;
+					var found = findNode(node.children ?? [], path);
+					if (found !== null) return found;
+				}
+				return null;
+			}
+
+			/**
+			 * Estimate the rendered width of a label.
+			 *
+			 * @param {string} text - The label text.
+			 * @param {number} fontSize - The font size in graph units.
+			 * @returns {number} The estimated width.
+			 */
+			function labelWidth(text, fontSize) {
+				var total = 0;
+				for (var index = 0; index < text.length; index += 1) {
+					total += text.charCodeAt(index) > 0x2e80 ? fontSize : fontSize * 0.56;
+				}
+				return total;
+			}
+
+			var focused = focus === null ? null : findNode(nodes, focus);
+			var visible = focused === null ? nodes : (focused.children ?? []);
+			var labelSize = focused === null ? 11 : 10.5;
+			var centerLabel = focused === null ? t('overview.graph.center') : '#' + focused.name;
+			var centerRadius = Math.max(15, labelWidth(centerLabel, 11) / 2 + 7);
+			var rootIndex = 0;
+			if (focused !== null) {
+				var rootPath = focused.path.split('/')[0];
+				nodes.forEach(function (node, index) {
+					if (node.path === rootPath) rootIndex = index;
+				});
+			}
+			var reserve = 0;
+			visible.forEach(function (node) {
+				reserve = Math.max(reserve, labelWidth('#' + node.name + ' ' + node.count, labelSize) + 14);
+			});
+			var rx = Math.max(centerRadius + 30, cx - reserve);
+			var ry = Math.max(centerRadius + 30, cy - 16);
 			var edges = [];
 			var elements = [];
-			function leaves(node) {
-				var children = node.children ?? [];
-				return children.length === 0 ? 1 : children.reduce(function (sum, child) { return sum + leaves(child); }, 0);
-			}
-			var total = nodes.reduce(function (sum, node) { return sum + leaves(node); }, 0);
-			var startAngle = -Math.PI / 2;
-			function place(node, start, end, depth, parent, colorIndex, rootPath) {
-				var angle = (start + end) / 2;
-				var radius = depth === 0 ? 105 : depth === 1 ? 195 : 270 + (depth - 2) * 55;
-				var x = cx + Math.cos(angle) * radius;
-				var y = cy + Math.sin(angle) * radius;
-				var color = colors[colorIndex % colors.length];
-				var edge = null;
-				if (parent === null) {
-					edge = 'M ' + cx + ' ' + cy + ' L ' + x.toFixed(2) + ' ' + y.toFixed(2);
-				} else {
-					var midAngle = (parent.angle + angle) / 2;
-					var midRadius = (parent.radius + radius) / 2;
-					var qx = cx + Math.cos(midAngle) * midRadius;
-					var qy = cy + Math.sin(midAngle) * midRadius;
-					edge = 'M ' + parent.x.toFixed(2) + ' ' + parent.y.toFixed(2) + ' Q ' + qx.toFixed(2) + ' ' + qy.toFixed(2) + ' ' + x.toFixed(2) + ' ' + y.toFixed(2);
-				}
-				edges.push(h('path', { key: 'e-' + node.path, d: edge, className: 'evrGraphEdge', stroke: color }));
+			visible.forEach(function (node, index) {
+				var angle = -Math.PI / 2 + (index * Math.PI * 2) / Math.max(1, visible.length);
+				var x = cx + Math.cos(angle) * rx;
+				var y = cy + Math.sin(angle) * ry;
+				var color = colors[rootIndex % colors.length];
+				var zoomable = (node.children ?? []).length > 0;
+				edges.push(h('path', {
+					key: 'e-' + node.path,
+					d: 'M ' + cx + ' ' + cy + ' L ' + x.toFixed(2) + ' ' + y.toFixed(2),
+					className: 'evrGraphEdge',
+					stroke: color,
+				}));
 				var right = x >= cx;
-				var labelX = x + (right ? 9 : -9);
-				var textProps = {
-					key: 'l-' + node.path,
-					x: labelX,
-					y: y + 3,
-					textAnchor: right ? 'start' : 'end',
-					className: depth === 0 ? 'evrGraphLabel evrGraphRoot' : 'evrGraphLabel',
+				var zoomNode = function (event) {
+					if (event && typeof event.preventDefault === 'function') event.preventDefault();
+					setFocus(node.path);
 				};
-				elements.push(h('g', { key: node.path, className: 'evrGraphNode' },
-					h('circle', { cx: x, cy: y, r: depth === 0 ? 5 : 3.2, fill: color }),
-					h('text', textProps, '#' + node.name, h('tspan', { dx: 6, className: 'evrGraphCount' }, String(node.count))),
+				elements.push(h('g', {
+					key: node.path,
+					className: 'evrGraphNode' + (zoomable ? ' evrGraphZoomable' : ''),
+					role: zoomable ? 'button' : undefined,
+					tabIndex: zoomable ? 0 : undefined,
+					'aria-label': zoomable ? t('overview.tree.zoom').replace('{path}', node.path) : undefined,
+					onClick: zoomable ? zoomNode : undefined,
+					onKeyDown: zoomable
+						? function (event) {
+							if (event && (event.key === 'Enter' || event.key === ' ')) zoomNode(event);
+						}
+						: undefined,
+				},
+					h('circle', {
+						cx: x,
+						cy: y,
+						r: zoomable ? 4.5 : 3,
+						fill: color,
+						'fill-opacity': zoomable ? 1 : 0.45,
+					}),
+					h('text', {
+						key: 'l-' + node.path,
+						x: x + (right ? 8 : -8),
+						y: y + 3.5,
+						textAnchor: right ? 'start' : 'end',
+						className: focused === null ? 'evrGraphLabel evrGraphRoot' : 'evrGraphLabel',
+					}, '#' + node.name, h('tspan', { dx: 5, className: 'evrGraphCount' }, String(node.count))),
 					h('title', null, '#' + node.path + ' · ' + node.count)));
-				var children = node.children ?? [];
-				if (children.length > 0) {
-					var weight = children.reduce(function (sum, child) { return sum + leaves(child); }, 0);
-					var cursor = start;
-					children.forEach(function (child) {
-						var span = (end - start) * (leaves(child) / weight);
-						place(child, cursor, cursor + span, depth + 1, { x: x, y: y, angle: angle, radius: radius }, colorIndex, node.path);
-						cursor += span;
-					});
-				}
-			}
-			var cursor = startAngle;
-			nodes.forEach(function (node, index) {
-				var span = (Math.PI * 2) * (leaves(node) / total);
-				place(node, cursor, cursor + span, 0, null, index, node.path);
-				cursor += span;
 			});
-			return h('svg', {
-				className: 'evrGraph',
-				viewBox: '0 0 ' + width + ' ' + height,
-				role: 'img',
-				'aria-label': t('overview.tree.graphLabel'),
-			},
-				h('g', null, edges),
-				h('circle', { cx: cx, cy: cy, r: 22, className: 'evrGraphCenter' }),
-				h('text', { x: cx, y: cy + 3, textAnchor: 'middle', className: 'evrGraphCenterLabel' }, t('overview.graph.center')),
-				h('g', null, elements));
+
+			/**
+			 * The path of the parent of the focused tag.
+			 *
+			 * @returns {string|null} The parent path, or null at the top.
+			 */
+			function parentPath() {
+				if (focused === null) return null;
+				var segments = focused.path.split('/');
+				segments.pop();
+				return segments.length === 0 ? null : segments.join('/');
+			}
+
+			var up = function (event) {
+				if (event && typeof event.preventDefault === 'function') event.preventDefault();
+				setFocus(parentPath());
+			};
+			var crumbs = [h('button', {
+				key: 'all',
+				type: 'button',
+				className: 'evrCrumbBtn' + (focused === null ? ' evrCrumbBtnActive' : ''),
+				onClick: function () { setFocus(null); },
+			}, t('overview.tree.all'))];
+			if (focused !== null) {
+				var segments = focused.path.split('/');
+				var prefix = '';
+				segments.forEach(function (segment, index) {
+					prefix = prefix === '' ? segment : prefix + '/' + segment;
+					var target = prefix;
+					crumbs.push(h('span', { key: 'sep-' + index, className: 'evrCrumbSep' }, '›'));
+					crumbs.push(h('button', {
+						key: 'crumb-' + index,
+						type: 'button',
+						className: 'evrCrumbBtn' + (index === segments.length - 1 ? ' evrCrumbBtnActive' : ''),
+						onClick: function () { setFocus(target); },
+					}, '#' + segment));
+				});
+			}
+			return h('div', null,
+				focused === null ? null : h('div', { className: 'evrCrumb', role: 'navigation', 'aria-label': t('overview.tree.graphLabel') }, crumbs),
+				visible.length === 0
+					? h('div', { className: 'evrHint' }, t('overview.tree.noChildren'))
+					: h('svg', {
+						className: 'evrGraph',
+						viewBox: '0 0 ' + width + ' ' + height,
+						role: 'group',
+						'aria-label': t('overview.tree.graphLabel'),
+					},
+						h('g', null, edges),
+						h('g', {
+							className: 'evrGraphCenterNode',
+							role: focused === null ? undefined : 'button',
+							tabIndex: focused === null ? undefined : 0,
+							'aria-label': focused === null ? undefined : t('overview.tree.up'),
+							onClick: focused === null ? undefined : up,
+							onKeyDown: focused === null
+								? undefined
+								: function (event) {
+									if (event && (event.key === 'Enter' || event.key === ' ')) up(event);
+								},
+						},
+							h('circle', {
+								cx: cx,
+								cy: cy,
+								r: centerRadius,
+								className: 'evrGraphCenter' + (focused === null ? ' evrGraphCenterStatic' : ''),
+							}),
+							h('text', { x: cx, y: cy + 3.5, textAnchor: 'middle', className: 'evrGraphCenterLabel' }, centerLabel)),
+						h('g', null, elements)));
 		}
 
 		/**
@@ -882,7 +1071,10 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The last-30-days card activity heatmap.
+		 * The card activity heatmap.
+		 *
+		 * The grid is fluid: the cells share the width of the pane, so the
+		 * whole year of weeks fills the row whatever the pane is wide.
 		 *
 		 * @param {object} props - Component props.
 		 * @returns {object} The element tree.
@@ -930,7 +1122,8 @@ window.__ModuleLoader__.load({
 				if (count === 2) return 2;
 				return 3;
 			}
-			return h('div', { className: 'evrHeatmapWrap' + (props.dense === true ? ' evrHeatmapDense' : '') },
+			var style = { '--eh-cols': String(weeks.length) };
+			return h('div', { className: 'evrHeatmapWrap', style: style },
 				h('div', { className: 'evrHeatmapMonths' }, monthLabels.map(function (label, index) {
 					return h('span', { key: index }, label);
 				})),
@@ -958,15 +1151,375 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * One compact overview metric.
+		 * Whether a link target is safe to follow.
+		 *
+		 * @param {string} url - The link target.
+		 * @returns {boolean} True for web, mail and in-document links.
+		 */
+		function safeUrl(url) {
+			return /^(https?:|mailto:|#|\/|\.\/)/i.test(String(url ?? ''));
+		}
+
+		/**
+		 * Parse a Markdown document into flat blocks.
+		 *
+		 * Only the constructs the injected documents use are supported:
+		 * headings, lists, quotes, fenced code, rules and paragraphs. Every
+		 * source line stays on its own line, because the tag tree is a line
+		 * map and must not be merged into a paragraph.
+		 *
+		 * @param {string} text - The Markdown source.
+		 * @returns {object[]} The parsed blocks.
+		 */
+		function parseMarkdown(text) {
+			var lines = String(text ?? '').split('\n');
+			var blocks = [];
+			var index = 0;
+
+			/**
+			 * Whether a line opens another block.
+			 *
+			 * @param {string} line - The source line.
+			 * @returns {boolean} True when the line starts a new block.
+			 */
+			function opensBlock(line) {
+				return /^\s*```/.test(line)
+					|| /^(#{1,6})\s/.test(line)
+					|| /^\s*>\s?/.test(line)
+					|| /^(\s*)([-*+]|\d+[.)])\s+/.test(line)
+					|| /^\s*([-*_])\s*(\1\s*){2,}$/.test(line);
+			}
+
+			while (index < lines.length) {
+				var line = lines[index];
+				if (/^\s*$/.test(line)) {
+					index += 1;
+					continue;
+				}
+				if (/^\s*```/.test(line)) {
+					var code = [];
+					index += 1;
+					while (index < lines.length && !/^\s*```/.test(lines[index])) {
+						code.push(lines[index]);
+						index += 1;
+					}
+					index += 1;
+					blocks.push({ type: 'code', text: code.join('\n') });
+					continue;
+				}
+				var heading = /^(#{1,6})\s+(.*)$/.exec(line);
+				if (heading !== null) {
+					blocks.push({ type: 'heading', level: heading[1].length, text: heading[2] });
+					index += 1;
+					continue;
+				}
+				if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) {
+					blocks.push({ type: 'rule' });
+					index += 1;
+					continue;
+				}
+				if (/^\s*>\s?/.test(line)) {
+					var quoted = [];
+					while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
+						quoted.push(lines[index].replace(/^\s*>\s?/, ''));
+						index += 1;
+					}
+					blocks.push({ type: 'quote', lines: quoted });
+					continue;
+				}
+				var first = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line);
+				if (first !== null) {
+					var items = [];
+					var base = first[1].length;
+					while (index < lines.length) {
+						var entry = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[index]);
+						if (entry === null) break;
+						items.push({
+							level: Math.max(0, Math.round((entry[1].length - base) / 2)),
+							text: entry[3],
+						});
+						index += 1;
+					}
+					blocks.push({ type: 'list', items: items });
+					continue;
+				}
+				blocks.push({
+					type: 'line',
+					indent: (/^\s*/.exec(line))[0].length,
+					text: line.trim(),
+				});
+				index += 1;
+			}
+			return blocks;
+		}
+
+		/**
+		 * Render the inline Markdown of one line.
+		 *
+		 * @param {string} text - The line text.
+		 * @param {string} key - The key prefix of the produced nodes.
+		 * @returns {object[]} The rendered nodes.
+		 */
+		function inlineMarkdown(text, key) {
+			var nodes = [];
+			var pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\*[^*\n]+\*)/g;
+			var last = 0;
+			var count = 0;
+			var match;
+			while ((match = pattern.exec(text)) !== null) {
+				if (match.index > last) nodes.push(text.slice(last, match.index));
+				var token = match[0];
+				if (token.indexOf('**') === 0) {
+					nodes.push(h('strong', { key: key + 'b' + count }, token.slice(2, -2)));
+				} else if (token.charAt(0) === '`') {
+					nodes.push(h('code', { key: key + 'c' + count }, token.slice(1, -1)));
+				} else if (token.charAt(0) === '[') {
+					var link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token);
+					if (link !== null && safeUrl(link[2])) {
+						nodes.push(h('a', {
+							key: key + 'l' + count,
+							href: link[2],
+							target: '_blank',
+							rel: 'noreferrer',
+						}, link[1]));
+					} else {
+						nodes.push(token);
+					}
+				} else {
+					nodes.push(h('em', { key: key + 'i' + count }, token.slice(1, -1)));
+				}
+				last = match.index + token.length;
+				count += 1;
+			}
+			if (last < text.length) nodes.push(text.slice(last));
+			return nodes;
+		}
+
+		/**
+		 * A read-only Markdown preview of an injected block.
 		 *
 		 * @param {object} props - Component props.
 		 * @returns {object} The element tree.
 		 */
-		function Metric(props) {
-			return h('div', { className: 'evrMetric' },
-				h('div', { className: 'evrMetricValue' }, props.value),
-				h('div', { className: 'evrMetricLabel' }, props.label));
+		function Markdown(props) {
+			var t = props.t;
+			var text = typeof props.text === 'string' ? props.text : '';
+			if (text.trim() === '') return h('div', { className: 'evrHint' }, t('overview.preview.empty'));
+			var blocks = parseMarkdown(text);
+			return h('div', { className: 'evrMd' }, blocks.map(function (block, index) {
+				var key = 'b' + index;
+				if (block.type === 'heading') {
+					return h('h' + Math.min(6, block.level), { key: key }, inlineMarkdown(block.text, key));
+				}
+				if (block.type === 'rule') return h('hr', { key: key });
+				if (block.type === 'code') {
+					return h('pre', { key: key, className: 'evrMdPre' }, h('code', null, block.text));
+				}
+				if (block.type === 'quote') {
+					return h('blockquote', { key: key, className: 'evrMdQuote' }, block.lines.map(function (line, lineIndex) {
+						return h('p', { key: key + 'q' + lineIndex }, inlineMarkdown(line, key + 'q' + lineIndex));
+					}));
+				}
+				if (block.type === 'list') {
+					return h('ul', { key: key, className: 'evrMdList' }, block.items.map(function (item, itemIndex) {
+						return h('li', {
+							key: key + 'i' + itemIndex,
+							style: item.level > 0 ? { marginLeft: (item.level * 16) + 'px' } : undefined,
+						}, inlineMarkdown(item.text, key + 'i' + itemIndex));
+					}));
+				}
+				return h('p', {
+					key: key,
+					className: 'evrMdLine',
+					style: block.indent > 0 ? { paddingLeft: (block.indent * 6) + 'px' } : undefined,
+				}, inlineMarkdown(block.text, key));
+			}));
+		}
+
+		/**
+		 * A graph of the cards and the links between them.
+		 *
+		 * Every card that links to another card, or is linked back to, becomes
+		 * a node and a link becomes an edge. The layout is a small
+		 * deterministic force simulation, so the picture is stable between
+		 * renders and needs no animation.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function LinkGraph(props) {
+			var t = props.t;
+			var list = Array.isArray(props.cards) ? props.cards : [];
+			var byId = {};
+			list.forEach(function (card) { byId[card.id] = card; });
+			var seen = {};
+			var edges = [];
+			list.forEach(function (card) {
+				(card.links ?? []).forEach(function (target) {
+					if (byId[target] === undefined) return;
+					var key = card.id + '>' + target;
+					if (seen[key] === true) return;
+					seen[key] = true;
+					edges.push({
+						source: card.id,
+						target: target,
+						mutual: seen[target + '>' + card.id] === true,
+					});
+				});
+			});
+			var involved = {};
+			edges.forEach(function (edge) {
+				involved[edge.source] = true;
+				involved[edge.target] = true;
+			});
+			var nodes = list.filter(function (card) { return involved[card.id] === true; });
+			if (nodes.length === 0) {
+				return h('div', { className: 'evrHint' }, t('overview.linkGraph.empty'));
+			}
+			var width = 320;
+			var height = 300;
+			var cx = width / 2;
+			var cy = height / 2;
+			var degree = {};
+			edges.forEach(function (edge) {
+				degree[edge.source] = (degree[edge.source] ?? 0) + 1;
+				degree[edge.target] = (degree[edge.target] ?? 0) + 1;
+			});
+			var placed = nodes.map(function (card, index) {
+				var angle = (index / nodes.length) * Math.PI * 2;
+				return {
+					card: card,
+					x: cx + Math.cos(angle) * 90,
+					y: cy + Math.sin(angle) * 90,
+					vx: 0,
+					vy: 0,
+				};
+			});
+			var index = {};
+			placed.forEach(function (node) { index[node.card.id] = node; });
+			for (var step = 0; step < 220; step += 1) {
+				for (var i = 0; i < placed.length; i += 1) {
+					for (var j = i + 1; j < placed.length; j += 1) {
+						var dx = placed[j].x - placed[i].x;
+						var dy = placed[j].y - placed[i].y;
+						var distance = Math.max(2, Math.sqrt(dx * dx + dy * dy));
+						var push = 1400 / (distance * distance);
+						var fx = (dx / distance) * push;
+						var fy = (dy / distance) * push;
+						placed[i].vx -= fx;
+						placed[i].vy -= fy;
+						placed[j].vx += fx;
+						placed[j].vy += fy;
+					}
+				}
+				edges.forEach(function (edge) {
+					var source = index[edge.source];
+					var target = index[edge.target];
+					if (source === undefined || target === undefined) return;
+					var ex = target.x - source.x;
+					var ey = target.y - source.y;
+					var span = Math.max(2, Math.sqrt(ex * ex + ey * ey));
+					var pull = (span - 84) * 0.03;
+					source.vx += (ex / span) * pull;
+					source.vy += (ey / span) * pull;
+					target.vx -= (ex / span) * pull;
+					target.vy -= (ey / span) * pull;
+				});
+				placed.forEach(function (node) {
+					node.vx += (cx - node.x) * 0.012;
+					node.vy += (cy - node.y) * 0.012;
+					node.x += node.vx * 0.4;
+					node.y += node.vy * 0.4;
+					node.vx *= 0.86;
+					node.vy *= 0.86;
+				});
+			}
+			var minX = Infinity;
+			var minY = Infinity;
+			var maxX = -Infinity;
+			var maxY = -Infinity;
+			placed.forEach(function (node) {
+				minX = Math.min(minX, node.x);
+				minY = Math.min(minY, node.y);
+				maxX = Math.max(maxX, node.x);
+				maxY = Math.max(maxY, node.y);
+			});
+			var spanX = Math.max(1, maxX - minX);
+			var spanY = Math.max(1, maxY - minY);
+			var scale = Math.min((width - 40) / spanX, (height - 40) / spanY);
+			var offsetX = (width - spanX * scale) / 2;
+			var offsetY = (height - spanY * scale) / 2;
+			placed.forEach(function (node) {
+				node.x = offsetX + (node.x - minX) * scale;
+				node.y = offsetY + (node.y - minY) * scale;
+			});
+			var branchColors = {
+				'践行': '#4f8a6e',
+				'见闻': '#657ea6',
+				'即兴': '#a77b55',
+				'复盘': '#87679a',
+				'觉察': '#4f8794',
+				'试错': '#9b6b6b',
+			};
+			function colorOf(card) {
+				var root = (card.tags ?? [])[0];
+				var branch = root === undefined ? '' : root.split('/')[0];
+				return branchColors[branch] ?? '#8a8f98';
+			}
+			var paths = edges.map(function (edge, edgeIndex) {
+				var source = index[edge.source];
+				var target = index[edge.target];
+				var mx = (source.x + target.x) / 2;
+				var my = (source.y + target.y) / 2;
+				var dx = target.x - source.x;
+				var dy = target.y - source.y;
+				var length = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+				var bend = edge.mutual === true ? 14 : 6;
+				var qx = mx - (dy / length) * bend;
+				var qy = my + (dx / length) * bend;
+				return h('path', {
+					key: 'e-' + edgeIndex,
+					d: 'M ' + source.x.toFixed(1) + ' ' + source.y.toFixed(1)
+						+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
+						+ ' ' + target.x.toFixed(1) + ' ' + target.y.toFixed(1),
+					className: 'evrLinkEdge' + (edge.mutual === true ? ' evrLinkEdgeMutual' : ''),
+				});
+			});
+			var dots = placed.map(function (node) {
+				var card = node.card;
+				var count = degree[card.id] ?? 0;
+				return h('g', {
+					key: card.id,
+					className: 'evrLinkNode',
+				},
+					h('circle', {
+						cx: node.x,
+						cy: node.y,
+						r: 3.5 + Math.min(4, count * 1.1),
+						fill: colorOf(card),
+					}),
+					h('title', null, card.label + ' · ' + count + ' ' + t('overview.linkGraph.links')));
+			});
+			return h('div', null,
+				h('svg', {
+					className: 'evrLinkGraph',
+					viewBox: '0 0 ' + width + ' ' + height,
+					role: 'img',
+					'aria-label': t('overview.linkGraph.label'),
+				},
+					h('g', null, paths),
+					h('g', null, dots)),
+				h('div', { className: 'evrHint', style: { marginTop: '6px' } },
+					t('overview.linkGraph.summary')
+						.replace('{cards}', String(nodes.length))
+						.replace('{links}', String(edges.length))
+						.replace('{mutual}', String(edges.filter(function (edge) { return edge.mutual === true; }).length))),
+				h('div', { className: 'evrLinkList' }, nodes.map(function (card) {
+					return h('div', { key: card.id, className: 'evrLinkItem' },
+						h('span', { className: 'evrLinkDot', style: { background: colorOf(card) } }),
+						h('span', { className: 'evrLinkName', title: card.label }, card.label),
+						h('span', { className: 'evrLinkCount' }, String(degree[card.id] ?? 0)));
+				})));
 		}
 
 		/**
@@ -996,88 +1549,101 @@ window.__ModuleLoader__.load({
 			var t = props.t;
 			var injection = props.injection;
 			var overview = props.overview;
+			var [section, setSection] = useState('stats');
 			if (injection === null || overview === null) return h(Spinner, null, t('state.loading'));
-			var projection = overview.projection ?? {};
 			var stats = overview.stats ?? {};
-			var period = overview.period ?? {};
 			var year = overview.year ?? {};
 			var activity = Array.isArray(overview.activity) ? overview.activity : [];
 			var tree = Array.isArray(overview.tree) ? overview.tree : [];
+			var heatHint = t('overview.yearHeatmap.hint')
+				.replace('{notes}', String(year.notes ?? 0))
+				.replace('{days}', String(year.activeDays ?? 0));
+			var prefsLink = injection.preferences.link.kind !== 'link'
+				? t('prefs.link.missing')
+				: (injection.preferences.link.ours === false ? t('prefs.link.foreign') : t('prefs.link.linked'));
+			var sections = [
+				{ id: 'stats', label: t('overview.stats') },
+				{ id: 'cards', label: t('overview.cards') },
+				{ id: 'soul', label: t('overview.soul') },
+				{ id: 'preferences', label: t('overview.preferences') },
+			];
+
+			/**
+			 * A row of key and value pairs.
+			 *
+			 * @param {Array} pairs - The pairs to show.
+			 * @returns {object} The element tree.
+			 */
+			function metaRow(pairs) {
+				return h('div', { className: 'evrMetaRow' }, pairs.map(function (pair, index) {
+					return h('span', { key: index, className: 'evrMetaItem' },
+						h('span', { className: 'evrMetaLabel' }, pair[0]),
+						h('span', { className: 'evrMetaValue' }, pair[1]));
+				}));
+			}
+
+			/**
+			 * A read-only preview of one injected block.
+			 *
+			 * @param {string} title - The block title.
+			 * @param {Array} pairs - The key and value pairs of the block.
+			 * @param {string} text - The injected text.
+			 * @returns {object} The element tree.
+			 */
+			function preview(title, pairs, text) {
+				return h('div', { role: 'tabpanel' },
+					h('div', { className: 'evrSection' }, title),
+					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.preview.readonly')),
+					metaRow(pairs),
+					h(Markdown, { t: t, text: text }));
+			}
+
 			return h('div', null,
-				h('div', { className: 'evrSection' }, t('overview.stats')),
-				h('div', { className: 'evrGrid' },
-					h(StatCard, { title: t('overview.notes'), value: String(stats.cards ?? 0), hint: t('overview.notesHint') }),
-					h(StatCard, { title: t('overview.tags'), value: String(stats.tags ?? 0), hint: t('overview.tagsHint') }),
-					h(StatCard, { title: t('overview.days'), value: String(stats.days ?? 0), hint: t('overview.daysHint') })),
-				h('div', { className: 'evrSection' }, t('overview.period')),
-				h('div', { className: 'evrMetricRow' },
-					h(Metric, { value: String(period.notes ?? 0), label: t('overview.period.notes') }),
-					h(Metric, { value: String(period.words ?? 0), label: t('overview.period.words') }),
-					h(Metric, { value: String(period.maxNotes ?? 0), label: t('overview.period.maxNotes') }),
-					h(Metric, { value: String(period.maxWords ?? 0), label: t('overview.period.maxWords') }),
-					h(Metric, { value: String(period.activeDays ?? 0), label: t('overview.period.activeDays') })),
-				h('div', { className: 'evrOverviewSplit' },
-					h('div', { className: 'evrOverviewPane evrOverviewHeat' },
-						h('div', { className: 'evrSection' }, t('overview.heatmap')),
-						h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.heatmap.hint')),
-						h(Heatmap, { t: t, activity: activity.slice(-30) })),
-					h('div', { className: 'evrOverviewPane evrOverviewTags' },
-						h('div', { className: 'evrSection' }, t('overview.tree')),
-						tree.length === 0
-							? h('div', { className: 'evrHint' }, t('overview.tree.empty'))
-							: h(TagGraph, { t: t, nodes: tree }))),
-				h('div', { className: 'evrSection' }, t('overview.yearHeatmap')),
-				h('div', { className: 'evrHint', style: { marginBottom: '8px' } },
-					t('overview.yearHeatmap.hint').replace('{notes}', String(year.notes ?? 0)).replace('{days}', String(year.activeDays ?? 0))),
-				h(Heatmap, { t: t, activity: activity, dense: true }),
-				h('div', { className: 'evrSection' }, t('overview.injection')),
-				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('overview.injection.hint')),
-				h('div', { className: 'evrGrid' },
-					h(StatCard, {
-						title: t('overview.cards'),
-						count: injection.cards.entries,
-						value: formatBytes(injection.cards.bytes),
-						hint: t('overview.budget') + ' ' + formatBytes(injection.cards.budget)
-							+ ' · ' + t('overview.dropped') + ' ' + injection.cards.dropped,
-					}),
-					h(StatCard, {
-						title: t('overview.soul'),
-						value: formatBytes(injection.soul.bytes),
-						hint: t('overview.budget') + ' ' + formatBytes(injection.soul.budget),
-					}),
-					h(StatCard, {
-						title: t('overview.preferences'),
-						value: formatBytes(injection.preferences.bytes),
-						hint: injection.preferences.link.kind !== 'link'
-							? t('prefs.link.missing')
-							: (injection.preferences.link.ours === false ? t('prefs.link.foreign') : t('prefs.link.linked')),
-					}),
-					h(StatCard, {
-						title: t('overview.root'),
-						value: String(projection.entries ?? 0),
-						hint: overview.root ?? '',
-					}),
-					h(StatCard, {
-						title: t('overview.version'),
-						value: overview.version ? 'v' + overview.version : '—',
-						hint: 'dsh-evolver',
-					})),
-				h('div', { className: 'evrSection' }, t('overview.projection')),
-				h('pre', { className: 'evrPre' }, injection.cards.text ?? ''),
-				h('div', { className: 'evrSection' }, t('overview.suggestions')),
-				(overview.suggestions ?? []).length === 0
-					? h('div', { className: 'evrHint' }, t('suggestion.empty'))
-					: h('div', null, (overview.suggestions ?? []).map(function (item, index) {
-						return h('div', {
-							key: index,
-							className: 'evrRow',
-							style: { cursor: 'default' },
-						},
-							h('div', { className: 'evrRowMain' },
-								h('div', { className: 'evrRowTitle' }, item.path ?? ''),
-								h('div', { className: 'evrRowMeta' }, item.message ?? '')),
-							h('span', { className: 'evrTag' }, item.kind === 'stale' ? t('suggestion.stale') : t('suggestion.problem')));
-					}))
+				h('div', { className: 'evrSubTabs', role: 'tablist', 'aria-label': t('tab.overview') }, sections.map(function (item) {
+					return h('button', {
+						key: item.id,
+						type: 'button',
+						role: 'tab',
+						className: 'evrTab' + (section === item.id ? ' evrTabActive' : ''),
+						'aria-selected': section === item.id,
+						onClick: function () { setSection(item.id); },
+					}, item.label);
+				})),
+				section === 'cards'
+					? preview(t('overview.projection'), [
+						[t('overview.bytes'), formatBytes(injection.cards.bytes)],
+						[t('overview.budget'), formatBytes(injection.cards.budget)],
+						[t('overview.dropped'), String(injection.cards.dropped)],
+						[t('overview.entries'), String(injection.cards.entries)],
+					], injection.cards.text ?? '')
+					: section === 'soul'
+						? preview(t('overview.soul'), [
+							[t('overview.bytes'), formatBytes(injection.soul.bytes)],
+							[t('overview.budget'), formatBytes(injection.soul.budget)],
+						].concat(injection.soul.truncated === true ? [[t('overview.truncated'), '—']] : []), injection.soul.text ?? '')
+						: section === 'preferences'
+							? preview(t('overview.preferences'), [
+								[t('overview.bytes'), formatBytes(injection.preferences.bytes)],
+								[t('overview.link'), prefsLink],
+							], injection.preferences.text ?? '')
+							: h('div', { role: 'tabpanel' },
+								h('div', { className: 'evrSection' }, t('overview.heatmap.section')),
+								h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, heatHint),
+								h(Heatmap, { t: t, activity: activity }),
+								h('div', { className: 'evrSection' }, t('overview.stats')),
+								h('div', { className: 'evrGrid' },
+									h(StatCard, { title: t('overview.notes'), value: String(stats.cards ?? 0), hint: t('overview.notesHint') }),
+									h(StatCard, { title: t('overview.tags'), value: String(stats.tags ?? 0), hint: t('overview.tagsHint') }),
+									h(StatCard, { title: t('overview.days'), value: String(stats.days ?? 0), hint: t('overview.daysHint') })),
+								h('div', { className: 'evrOverviewSplit' },
+									h('div', { className: 'evrOverviewPane evrOverviewGraph' },
+										h('div', { className: 'evrSection' }, t('overview.graph')),
+										h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.tree.hint')),
+										h(TagGraph, { t: t, nodes: tree })),
+									h('div', { className: 'evrOverviewPane evrOverviewTree' },
+										h('div', { className: 'evrSection' }, t('overview.linkGraph')),
+										h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('overview.linkGraph.hint')),
+										h(LinkGraph, { t: t, cards: props.cards?.cards ?? [] }))))
 			);
 		}
 
@@ -1155,7 +1721,10 @@ window.__ModuleLoader__.load({
 								(card.tags ?? []).map(function (tag) {
 									return h('span', { key: tag, className: 'evrTag' }, "#" + tag);
 								}))),
-						h('div', { className: 'evrRowTime' }, String(card.updated ?? '').slice(0, 10)));
+						h('div', {
+							className: 'evrRowTime',
+							title: absoluteTime(card.updated ?? '', true),
+						}, cardTime(card.updated ?? '', t)));
 				}));
 			}
 
@@ -2506,7 +3075,7 @@ window.__ModuleLoader__.load({
 					h('div', null, t('state.error')),
 					h('div', { className: 'evrMono' }, error));
 			} else if (tab === 'overview') {
-				body = h(OverviewTab, { t: t, injection: injection, overview: overview });
+				body = h(OverviewTab, { t: t, injection: injection, overview: overview, cards: cards });
 			} else if (tab === 'cards') {
 				body = h(CardsTab, {
 					t: t,
@@ -2590,7 +3159,11 @@ window.__ModuleLoader__.load({
 			return h('div', { className: 'evrRoot' },
 				h('div', { className: 'evrHead' },
 					h('div', { className: 'evrHeadMain' },
-						h('h1', { className: 'evrTitle' }, t('panel')),
+						h('h1', { className: 'evrTitle' },
+							t('panel'),
+							overview === null || overview === undefined || !overview.version
+								? null
+								: h('span', { className: 'evrVersion' }, 'v' + overview.version)),
 						h('div', { className: 'evrSubtitle', title: subtitle }, subtitle)),
 					h('div', { className: 'evrHeadActions' },
 						h('button', {

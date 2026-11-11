@@ -120,7 +120,6 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 			assert.ok(overview.stats.cards >= 2)
 			assert.equal(Array.isArray(overview.activity), true)
 			assert.equal(overview.activity.length, 365)
-			assert.ok(overview.period.notes >= 2)
 			assert.ok(overview.year.notes >= 2)
 			assert.ok(overview.stats.words > 0)
 			assert.equal(Array.isArray(overview.tree), true)

@@ -310,10 +310,10 @@ export async function apply(ctx, config) {
 	}
 
 	/**
-	 * Build overview statistics: totals, a 30-day period and a 365-day heatmap.
+	 * Build overview statistics: totals and a 365-day heatmap.
 	 *
 	 * @param {object[]} cards - The card views.
-	 * @returns {object} Totals, period metrics, year metrics and daily activity.
+	 * @returns {object} Totals, year metrics and daily activity.
 	 */
 	function overviewStats(cards) {
 		const createdDays = cards
@@ -366,7 +366,6 @@ export async function apply(ctx, config) {
 			days: span,
 			words,
 			activity,
-			period: summarize(activity.slice(-30)),
 			year: summarize(activity),
 		}
 	}
@@ -390,7 +389,6 @@ export async function apply(ctx, config) {
 			return {
 				...base,
 				stats: { cards: stats.cards, tags: stats.tags, days: stats.days, words: stats.words },
-				period: stats.period,
 				year: stats.year,
 				activity: stats.activity,
 				tree: store.tagTree(),

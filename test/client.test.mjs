@@ -351,7 +351,6 @@ function apiPayload(endpoint, payload) {
 				projection: { entries: 3, injectedBytes: 100, injectedBudget: 2048, byKind: [] },
 				cards: { total: 3 },
 				stats: { cards: 3, tags: 2, days: 10, words: 120 },
-				period: { days: 30, notes: 3, words: 120, maxNotes: 2, maxWords: 80, activeDays: 2 },
 				year: { days: 365, notes: 3, words: 120, maxNotes: 2, maxWords: 80, activeDays: 2 },
 				activity: [{ date: '2026-11-09', count: 1 }, { date: '2026-11-10', count: 2 }],
 				tree: [{
@@ -364,7 +363,7 @@ function apiPayload(endpoint, payload) {
 		case 'injection':
 			return {
 				cards: { text: '[卡片]', bytes: 10, budget: 2048, entries: 3, dropped: 0 },
-				soul: { text: 'soul', bytes: 4, budget: 1024 },
+				soul: { text: '## 灵魂\n- 一条纪律\n- 另一条纪律\n\n> 引用一句', bytes: 4, budget: 1024 },
 				preferences: { text: 'prefs', bytes: 5, link: { kind: 'missing' } },
 				totalBytes: 19,
 			}
@@ -406,9 +405,17 @@ function apiPayload(endpoint, payload) {
 					label: '卡片标题',
 					body: '卡片正文',
 					tags: ['践行/验证/浏览器'],
-					links: [],
+					links: ['card-01HF7YAT00S37S1ZGTH35DPPW2'],
 					resources: [],
 					updated: '2026-11-10T00:00:00.000Z',
+				}, {
+					id: 'card-01HF7YAT00S37S1ZGTH35DPPW2',
+					label: '被引用的卡片',
+					body: '正文',
+					tags: ['见闻/git'],
+					links: [],
+					resources: [],
+					updated: '2026-11-09T00:00:00.000Z',
 				}],
 				tree: [{
 					path: '践行', name: '践行', count: 2, direct: 0, children: [{
@@ -623,22 +630,91 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		let tree = await runtime.settle(render)
 		const tabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.stats').length >= 1)
-		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.heatmap').length >= 1)
-		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.tree').length >= 1)
-		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.period').length >= 1)
-		assert.equal(findAll(tree, (node) => node.props?.className === 'evrMetric').length, 5)
-		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.yearHeatmap').length >= 1)
-		assert.ok(findAll(tree, (node) => node.props?.className === 'evrHeatmapWrap evrHeatmapDense').length === 1)
+		assert.ok(findAll(tree, (node) => textOf(node).includes('overview.heatmap.section')).length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.graph').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.linkGraph').length >= 1)
+		// The link graph draws one node per linked card and one edge per link.
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkGraph').length, 1)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkEdge').length, 1)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkNode').length, 2)
+		assert.equal(findAll(tree, (node) => textOf(node) === 'overview.yearHeatmap').length, 0)
+		// The version sits next to the panel title; the injected-context cards are gone.
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrVersion' && textOf(node) === 'v9.9.9').length, 1)
+		const cardTitles = findAll(tree, (node) => node.props?.className === 'evrCardTitle').map((node) => textOf(node))
+		assert.deepEqual(cardTitles, ['overview.notes', 'overview.tags', 'overview.days'])
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrHeatmapWrap').length, 1)
 		assert.ok(findAll(tree, (node) => node.props?.className === 'evrGraph').length === 1)
 		assert.ok(findAll(tree, (node) => textOf(node).includes('#践行')).length >= 1)
 		assert.ok(tabs.includes('tab.cards'))
 		assert.ok(tabs.includes('tab.soul'))
 		assert.equal(tabs.includes('tab.sight'), false)
 
+		// One heatmap, always the whole year; no range switch.
+		const heatmap = findAll(tree, (node) => node.props?.className === 'evrHeatmapWrap')
+		assert.equal(heatmap.length, 1)
+		assert.equal(heatmap[0].props.style['--eh-cols'], '1')
+		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.range.year').length, 0)
+		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.range.days').length, 0)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.yearHeatmap.hint').length >= 1)
+
+		// The radial graph zooms into one tag; the centre goes one level back up.
+		const graphLabels = () => findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.includes('evrGraphLabel')).map((node) => textOf(node))
+		assert.equal(graphLabels().filter((label) => label.startsWith('#工作流')).length, 0)
+		const zoom = findAll(tree, (node) => node.type === 'g' && node.props?.['aria-label'] === 'overview.tree.zoom')
+		assert.equal(zoom.length, 1)
+		zoom[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(graphLabels().filter((label) => label.startsWith('#工作流')).length >= 1)
+		const up = findAll(tree, (node) => node.type === 'g' && node.props?.['aria-label'] === 'overview.tree.up')
+		assert.equal(up.length, 1)
+		up[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(graphLabels().filter((label) => label.startsWith('#工作流')).length, 0)
+
+		// The overview splits into four sub-tabs; the injected blocks are read-only previews.
+		const subTabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
+		for (const label of ['overview.stats', 'overview.cards', 'overview.soul', 'overview.preferences']) {
+			assert.ok(subTabs.includes(label), `missing sub-tab ${label}`)
+		}
+		// The tag tree sits next to the relationship graph, and the graph keeps the drill-down.
+		assert.ok(findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.includes('evrOverviewGraph')).length === 1)
+		assert.ok(findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.includes('evrOverviewTree')).length === 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.graph').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.linkGraph.hint').length >= 1)
+		const cardsSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.cards')
+		assert.equal(cardsSubTab.length, 1)
+		cardsSubTab[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(findAll(tree, (node) => node.props?.className === 'evrMd').length === 1)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrPre').length, 0)
+		assert.ok(findAll(tree, (node) => textOf(node) === '[卡片]').length >= 1)
+
+		const soulSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.soul')
+		assert.equal(soulSubTab.length, 1)
+		soulSubTab[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(findAll(tree, (node) => node.type === 'h2' && textOf(node) === '灵魂').length === 1)
+		assert.equal(findAll(tree, (node) => node.type === 'li').length, 2)
+		assert.ok(findAll(tree, (node) => node.type === 'blockquote').length === 1)
+
+		const prefsSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.preferences')
+		assert.equal(prefsSubTab.length, 1)
+		prefsSubTab[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'prefs').length >= 1)
+
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
 		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.new').length === 1)
 		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.execution').length === 1)
+		// The list time is relative while fresh, exact once the card is old.
+		const rowTime = findAll(tree, (node) => node.props?.className === 'evrRowTime')
+		assert.equal(rowTime.length, 2)
+		assert.ok(/^(time\.(justNow|minutes|hours)|\d{4}-\d{2}-\d{2} \d{2}:\d{2})$/.test(textOf(rowTime[0])))
+		assert.match(rowTime[0].props.title, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
 		assert.ok(findAll(tree, (node) => node.props?.['aria-label'] === '收起标签 践行').length === 1)
 		assert.ok(findAll(tree, (node) => textOf(node) === '#工作流').length >= 1)
 		findAll(tree, (node) => node.props?.['aria-label'] === '收起标签 践行')[0].props.onClick()
