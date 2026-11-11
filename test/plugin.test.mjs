@@ -424,49 +424,6 @@ test('会话整理：宿主能力缺失时状态如实报告', async () => {
 	})
 })
 
-test('见闻向量模型：状态、切换后端与密钥不回传', async () => {
-	await withHome(async (home) => {
-		const { ctx, routes, effects } = fakeContext()
-		await apply(ctx, { dataDir: join(home, 'evolver') })
-		try {
-			const status = await (await post(routes, 'embedding-status', {})).json()
-			assert.ok(Array.isArray(status.catalog))
-			assert.ok(status.catalog.some((model) => model.id === 'multilingual-e5-small'))
-			assert.equal(status.embedding.provider, 'local')
-			assert.equal(status.store.embedder, 'local')
-			assert.equal(typeof status.runtime.hint, 'string')
-			assert.equal(Object.hasOwn(status.embedding, 'apiKey'), false)
-
-			const probed = await (await post(routes, 'embedding-test', {})).json()
-			assert.equal(probed.backend, 'local')
-			assert.equal(probed.dimensions, 256)
-
-			// 切到无向量后端：记忆库必须换实例并报告新后端
-			const switched = await (await post(routes, 'embedding-save', { embedding: { provider: 'none' } })).json()
-			assert.equal(switched.embedding.provider, 'none')
-			assert.equal(switched.store.embedder, 'none')
-
-			// HTTP 的密钥只写不读
-			const saved = await (await post(routes, 'embedding-save', {
-				embedding: { provider: 'none', baseURL: 'http://127.0.0.1:9/v1', model: 'test-model', apiKey: 'EMB-SEKRET' },
-			})).json()
-			assert.equal(saved.embedding.hasApiKey, true)
-			assert.equal(JSON.stringify(saved).includes('EMB-SEKRET'), false)
-			const settingsPath = join(home, 'evolver.config.json')
-			assert.match(await readFile(settingsPath, 'utf8'), /EMB-SEKRET/)
-
-			const cleared = await (await post(routes, 'embedding-save', { embedding: { clearApiKey: true } })).json()
-			assert.equal(cleared.embedding.hasApiKey, false)
-
-			const missing = await post(routes, 'embedding-download', { model: 'no-such-model' })
-			assert.equal(missing.status, 400)
-			assert.match((await missing.json()).error.message, /未知模型/)
-		} finally {
-			await disposeEffects(effects)
-		}
-	})
-})
-
 test('立即备份走完整链路：上传 tar、按保留份数清理、记录状态', async () => {
 	const oss = await fakeOss()
 	try {

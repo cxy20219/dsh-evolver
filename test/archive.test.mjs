@@ -7,8 +7,8 @@ import assert from 'node:assert/strict'
 import { extractArchiveFile, isGzip, writeArchiveFile, writeTarFile } from '../src/backup/archive.js'
 import { createTar, readTar } from '../src/backup/tar.js'
 
-/** A 3 MB stand-in for an ONNX model. */
-const MODEL_BYTES = Buffer.alloc(3 * 1024 * 1024, 7)
+/** A 3 MB resource: big enough that the writer has to stream it. */
+const BIG_BYTES = Buffer.alloc(3 * 1024 * 1024, 7)
 
 /**
  * Build a small data folder, including a model-sized file.
@@ -21,17 +21,16 @@ async function dataFolder() {
 	await mkdir(join(root, 'knowledge', 'resources'), { recursive: true })
 	await mkdir(join(root, 'sight'), { recursive: true })
 	await mkdir(join(root, 'preferences'), { recursive: true })
-	await mkdir(join(root, 'models', 'test-model'), { recursive: true })
 	await writeFile(join(root, 'knowledge', 'cards', 'cards.jsonl'), '{"id":"card-1"}\n', 'utf8')
 	await writeFile(join(root, 'knowledge', 'resources', 'run.sh'), '#!/bin/sh\n', 'utf8')
+	await writeFile(join(root, 'knowledge', 'resources', 'big.bin'), BIG_BYTES)
 	await writeFile(join(root, 'sight', 'soul.md'), '# 灵魂\n', 'utf8')
 	await writeFile(join(root, 'preferences', 'AGENTS.md'), '# 偏好\n', 'utf8')
-	await writeFile(join(root, 'models', 'test-model', 'model.onnx'), MODEL_BYTES)
 	await chmod(join(root, 'knowledge', 'resources', 'run.sh'), 0o755)
 	return root
 }
 
-test('流式导出 .tar.gz 再解压：内容、权限和 models 目录都在', async () => {
+test('流式导出 .tar.gz 再解压：内容与权限都在', async () => {
 	const source = await dataFolder()
 	const target = await mkdtemp(join(tmpdir(), 'evr-archive-out-'))
 	const out = await mkdtemp(join(tmpdir(), 'evr-archive-file-'))
@@ -46,7 +45,6 @@ test('流式导出 .tar.gz 再解压：内容、权限和 models 目录都在', 
 		assert.equal(restored.skipped, 0)
 		assert.equal(await readFile(join(target, 'knowledge', 'cards', 'cards.jsonl'), 'utf8').then((text) => text.includes('card-1')), true)
 		assert.equal((await stat(join(target, 'knowledge', 'resources', 'run.sh'))).mode & 0o777, 0o755)
-		assert.deepEqual(await readFile(join(target, 'models', 'test-model', 'model.onnx')), MODEL_BYTES)
 	} finally {
 		await rm(source, { recursive: true, force: true })
 		await rm(target, { recursive: true, force: true })
@@ -66,8 +64,8 @@ test('流式 tar（云端备份格式）也能解压，且不需要整包进内�
 		const entries = readTar(await readFile(tar))
 		assert.deepEqual(entries.map((entry) => entry.path).sort(), [
 			'knowledge/cards/cards.jsonl',
+			'knowledge/resources/big.bin',
 			'knowledge/resources/run.sh',
-			'models/test-model/model.onnx',
 			'preferences/AGENTS.md',
 			'sight/soul.md',
 		])

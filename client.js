@@ -218,44 +218,6 @@ window.__ModuleLoader__.load({
 			'settings.consolidate.done': '整理完成 · 复查 {batch} 张 · 改动 {applied} 处',
 			'settings.consolidate.trashHint': '回收站：数据目录的 knowledge/trash.jsonl；整理记录：knowledge/consolidation.json',
 			'settings.section.backup': '云端备份',
-			'settings.section.embedding': '向量模型',
-			'settings.embedding.title': '见闻向量模型',
-			'settings.embedding.hint': '决定「见闻」记忆用什么向量做语义召回。本地哈希零配置；本地模型需要先下载权重并安装运行时；HTTP 服务可接 Ollama、LM Studio、llama.cpp 等。切换后在后台重建全部向量，期间召回自动只用关键词。',
-			'settings.embedding.status': '当前状态',
-			'settings.embedding.backend': '后端',
-			'settings.embedding.dimensions': '维度',
-			'settings.embedding.aligned': '向量已对齐',
-			'settings.embedding.rebuilding': '向量重建中',
-			'settings.embedding.entries': '卡片条数',
-			'settings.embedding.provider': '后端类型',
-			'settings.embedding.providerLocal': '本地哈希（零配置）',
-			'settings.embedding.providerModel': '本地 ONNX 模型',
-			'settings.embedding.providerHttp': 'HTTP 服务',
-			'settings.embedding.localHint': '哈希向量只用词面相似度，不联网、不占内存；语义相近但用词不同的记忆可能召回不到。',
-			'settings.embedding.catalog': '可选模型',
-			'settings.embedding.download': '下载权重',
-			'settings.embedding.cancel': '取消下载',
-			'settings.embedding.downloaded': '已下载',
-			'settings.embedding.notDownloaded': '未下载',
-			'settings.embedding.downloading': '正在下载',
-			'settings.embedding.downloadDone': '权重已下载完成',
-			'settings.embedding.runtime': '运行时目录',
-			'settings.embedding.runtimeReady': '运行时可用',
-			'settings.embedding.runtimeMissing': '运行时未安装（本地模型需要 transformers.js）',
-			'settings.embedding.runtimeHint': '在终端执行下面的命令安装（约 300 MB），装完保存或测试即可生效：',
-			'settings.embedding.runtimeFieldHint': '留空用默认位置（数据目录之外）',
-			'settings.embedding.storage': '权重保存在数据目录的 models/ 下，随备份、导入、导出一起走；大模型会明显增大备份与导出体积。',
-			'settings.embedding.mirror': '下载源',
-			'settings.embedding.mirrorHint': '默认 hf-mirror.com；在国外可改成 https://huggingface.co',
-			'settings.embedding.baseURL': '服务地址',
-			'settings.embedding.baseURLHint': 'OpenAI 兼容的 /v1/embeddings，例如 http://127.0.0.1:11434/v1（Ollama）',
-			'settings.embedding.modelName': '模型名称',
-			'settings.embedding.apiKey': 'API Key（可选）',
-			'settings.embedding.hasKey': '已保存；留空表示不修改',
-			'settings.embedding.save': '保存向量设置',
-			'settings.embedding.test': '测试后端',
-			'settings.embedding.testOk': '后端可用',
-			'settings.embedding.fellBack': '配置的后端不可用，已退回本地哈希',
 			'settings.backup.status': '备份状态',
 			'settings.backup.lastBackup': '上次成功',
 			'settings.backup.lastAttempt': '上次尝试',
@@ -452,44 +414,6 @@ window.__ModuleLoader__.load({
 			'settings.consolidate.done': 'Done · reviewed {batch} · applied {applied}',
 			'settings.consolidate.trashHint': 'Trash: knowledge/trash.jsonl in the data folder; review ledger: knowledge/consolidation.json',
 			'settings.section.backup': 'Cloud backup',
-			'settings.section.embedding': 'Embeddings',
-			'settings.embedding.title': 'Memory embeddings',
-			'settings.embedding.hint': 'Choose how memories are vectorised. Hashing needs no setup; a local model needs downloaded weights plus the ONNX runtime; an HTTP service can point at Ollama, LM Studio or llama.cpp. Changing this rebuilds every vector in the background — recall falls back to keywords meanwhile.',
-			'settings.embedding.status': 'Current state',
-			'settings.embedding.backend': 'Backend',
-			'settings.embedding.dimensions': 'Dimensions',
-			'settings.embedding.aligned': 'Vectors aligned',
-			'settings.embedding.rebuilding': 'Rebuilding vectors',
-			'settings.embedding.entries': 'Cards',
-			'settings.embedding.provider': 'Backend type',
-			'settings.embedding.providerLocal': 'Local hashing (no setup)',
-			'settings.embedding.providerModel': 'Local ONNX model',
-			'settings.embedding.providerHttp': 'HTTP service',
-			'settings.embedding.localHint': 'Hashing only compares word overlap: offline and cheap, but a memory phrased differently may be missed.',
-			'settings.embedding.catalog': 'Available models',
-			'settings.embedding.download': 'Download',
-			'settings.embedding.cancel': 'Cancel download',
-			'settings.embedding.downloaded': 'Downloaded',
-			'settings.embedding.notDownloaded': 'Not downloaded',
-			'settings.embedding.downloading': 'Downloading',
-			'settings.embedding.downloadDone': 'Weights downloaded',
-			'settings.embedding.runtime': 'Runtime folder',
-			'settings.embedding.runtimeReady': 'Runtime available',
-			'settings.embedding.runtimeMissing': 'Runtime missing (the local model needs transformers.js)',
-			'settings.embedding.runtimeHint': 'Install it once in a terminal (about 300 MB), then save or test:',
-			'settings.embedding.runtimeFieldHint': 'Empty uses the default (outside the data folder)',
-			'settings.embedding.storage': 'Weights live in data/models and travel with backups, imports and exports; a large model makes both noticeably bigger.',
-			'settings.embedding.mirror': 'Download source',
-			'settings.embedding.mirrorHint': 'Defaults to hf-mirror.com; use https://huggingface.co elsewhere',
-			'settings.embedding.baseURL': 'Service URL',
-			'settings.embedding.baseURLHint': 'OpenAI-compatible /v1/embeddings, e.g. http://127.0.0.1:11434/v1 (Ollama)',
-			'settings.embedding.modelName': 'Model name',
-			'settings.embedding.apiKey': 'API key (optional)',
-			'settings.embedding.hasKey': 'Stored; leave empty to keep it',
-			'settings.embedding.save': 'Save embedding settings',
-			'settings.embedding.test': 'Test backend',
-			'settings.embedding.testOk': 'Backend works',
-			'settings.embedding.fellBack': 'Configured backend unavailable; fell back to hashing',
 			'settings.backup.status': 'Backup status',
 			'settings.backup.lastBackup': 'Last success',
 			'settings.backup.lastAttempt': 'Last attempt',
@@ -2434,23 +2358,6 @@ window.__ModuleLoader__.load({
 					h('div', { className: 'evrCardHint evrMono' }, preferences?.path ?? '')));
 		}
 
-		/**
-		 * The form values of the embedding settings.
-		 *
-		 * @param {object | null | undefined} status - The embedding status.
-		 * @returns {object} The form values.
-		 */
-		function embeddingFormOf(status) {
-			var e = (status && status.embedding) || {};
-			return {
-				provider: e.provider || 'local',
-				model: e.model || 'multilingual-e5-small',
-				runtimePath: e.runtimePath || '',
-				baseURL: e.baseURL || '',
-				apiKey: '',
-				mirror: e.mirror || 'https://hf-mirror.com',
-			};
-		}
 
 		/**
 		 * The initial values of the ingest form.
@@ -2537,16 +2444,6 @@ window.__ModuleLoader__.load({
 					setExportName(settings.suggestedArchiveName);
 				}
 			}, [settings, exportDir, exportName]);
-
-			var embeddingDownloading = props.embedding !== null
-				&& props.embedding !== undefined
-				&& props.embedding.download !== undefined
-				&& props.embedding.download.status === 'downloading';
-			useEffect(function () {
-				if (!embeddingDownloading) return undefined;
-				var timer = setInterval(function () { props.onRefreshEmbedding(); }, 900);
-				return function () { clearInterval(timer); };
-			}, [embeddingDownloading, props.onRefreshEmbedding]);
 
 			if (settings === null || settings === undefined) return h(Spinner, null, t('state.loading'));
 
@@ -2695,157 +2592,11 @@ window.__ModuleLoader__.load({
 					}, t('settings.action.pick')));
 			}
 
-			/**
-			 * The embedding backend settings.
-			 *
-			 * @returns {object} The section.
-			 */
-			function renderEmbedding() {
-				var status = props.embedding;
-				var form = props.embeddingDraft;
-				if (!status || !form) return h('div', { className: 'evrHint' }, t('state.loading'));
-				var runtime = status.runtime || {};
-				var store = status.store || {};
-				var download = status.download || {};
-				var catalog = Array.isArray(status.catalog) ? status.catalog : [];
-				var present = status.present || {};
-				var set = function (patch) { props.onEmbeddingDraft(patch); };
-				var downloading = download.status === 'downloading';
-				var percent = download.totalBytes > 0 ? Math.min(100, Math.round(download.bytes / download.totalBytes * 100)) : 0;
-				var providers = [
-					{ id: 'local', label: t('settings.embedding.providerLocal') },
-					{ id: 'model', label: t('settings.embedding.providerModel') },
-					{ id: 'http', label: t('settings.embedding.providerHttp') },
-				];
-				return h('div', null,
-					h('div', { className: 'evrSection' }, t('settings.embedding.title')),
-					h('div', { className: 'evrHint', style: { marginBottom: '6px' } }, t('settings.embedding.hint')),
-					h('div', { className: 'evrHint evrMono', style: { marginBottom: '10px' } }, t('settings.embedding.storage')),
-					h('div', { className: 'evrCard' },
-						h('div', { className: 'evrCardHead' },
-							h('span', { className: 'evrCardTitle' }, t('settings.embedding.status')),
-							h('span', { className: 'evrCardCount' }, store.embedder || '—')),
-						h('div', { className: 'evrCardHint' },
-							t('settings.embedding.backend') + ': ' + (store.embedder || '—')
-							+ ' · ' + t('settings.embedding.dimensions') + ': ' + (store.dimensions || '—')
-							+ ' · ' + (store.aligned ? t('settings.embedding.aligned') : t('settings.embedding.rebuilding'))
-							+ ' · ' + t('settings.embedding.entries') + ': ' + (store.cards ?? store.entries ?? 0))),
-					h(Field, { label: t('settings.embedding.provider') },
-						h('div', { style: { display: 'flex', gap: '14px', flexWrap: 'wrap' } },
-							providers.map(function (item) {
-								return h('label', { key: item.id, style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-									h('input', {
-										type: 'radio',
-										name: 'evr-embedding-provider',
-										checked: form.provider === item.id,
-										onChange: function () {
-											var patch = { provider: item.id };
-											var known = catalog.some(function (model) { return model.id === form.model; });
-											if (item.id === 'model' && !known && catalog.length > 0) patch.model = catalog[0].id;
-											set(patch);
-										},
-									}),
-									item.label);
-							}))),
-					form.provider === 'local'
-						? h('div', { className: 'evrHint' }, t('settings.embedding.localHint'))
-						: null,
-					form.provider === 'model' ? h('div', null,
-						h('div', { className: 'evrSection' }, t('settings.embedding.catalog')),
-						catalog.map(function (model) {
-							var selected = form.model === model.id;
-							var downloaded = present[model.id] === true;
-							return h('div', { key: model.id, className: 'evrRow', style: { cursor: 'default', marginBottom: '6px' } },
-								h('input', {
-									type: 'radio',
-									name: 'evr-embedding-model',
-									checked: selected,
-									onChange: function () { set({ model: model.id }); },
-								}),
-								h('div', { className: 'evrRowMain' },
-									h('div', { className: 'evrRowTitle' }, model.label),
-									h('div', { className: 'evrRowMeta' }, model.languages + ' · ' + model.dimensions + ' ' + t('settings.embedding.dimensions') + ' · ' + formatBytes(model.bytes) + ' · ' + (downloaded ? t('settings.embedding.downloaded') : t('settings.embedding.notDownloaded'))),
-									h('div', { className: 'evrRowMeta' }, model.note)),
-								downloaded
-									? h('button', { type: 'button', className: 'evrBtn evrBtnOk', disabled: true }, t('settings.embedding.downloaded'))
-									: downloading && download.model === model.id
-										? h('span', { className: 'evrStatus' }, percent + '%')
-										: h('button', {
-											type: 'button',
-											className: 'evrBtn',
-											disabled: props.busy || downloading,
-											onClick: function () { props.onEmbeddingDownload(model.id); },
-										}, t('settings.embedding.download')));
-						}),
-						downloading
-							? h('div', { className: 'evrCard' },
-								h('div', { className: 'evrHint' }, t('settings.embedding.downloading') + ' · ' + download.model + ' · ' + formatBytes(download.bytes) + ' / ' + formatBytes(download.totalBytes)),
-								h('div', { className: 'evrBar' }, h('div', { className: 'evrBarFill', style: { width: percent + '%' } })),
-								h('button', { type: 'button', className: 'evrBtn', onClick: props.onEmbeddingCancel }, t('settings.embedding.cancel')))
-							: null,
-						download.status === 'done'
-							? h('div', { className: 'evrHint' }, t('settings.embedding.downloadDone'))
-							: null,
-						download.status === 'error'
-							? h('div', { className: 'evrHint evrError' }, t('settings.embedding.downloading') + ': ' + (download.error || ''))
-							: null,
-						h('div', { style: { marginTop: '10px' } },
-							h(Field, { label: t('settings.embedding.runtime'), hint: t('settings.embedding.runtimeFieldHint') },
-								pathField(function (value) { set({ runtimePath: value }); }, form.runtimePath, status.resolved?.runtimePath ?? ''))),
-						h('div', { className: 'evrHint' + (runtime.available ? '' : ' evrWarn') },
-							runtime.available ? t('settings.embedding.runtimeReady') : t('settings.embedding.runtimeMissing')),
-						runtime.available ? null : h('pre', { className: 'evrPre', style: { marginTop: '6px' } }, t('settings.embedding.runtimeHint') + '\n' + (runtime.hint || '')),
-						h(Field, { label: t('settings.embedding.mirror'), hint: t('settings.embedding.mirrorHint') },
-							h('input', {
-								className: 'evrInput',
-								value: form.mirror,
-								onChange: function (event) { set({ mirror: event.target.value }); },
-							}))
-					) : null,
-					form.provider === 'http' ? h('div', null,
-						h(Field, { label: t('settings.embedding.baseURL'), hint: t('settings.embedding.baseURLHint') },
-							h('input', {
-								className: 'evrInput',
-								value: form.baseURL,
-								placeholder: 'http://127.0.0.1:11434/v1',
-								onChange: function (event) { set({ baseURL: event.target.value }); },
-							})),
-						h(Field, { label: t('settings.embedding.modelName') },
-							h('input', {
-								className: 'evrInput',
-								value: form.model,
-								placeholder: 'nomic-embed-text',
-								onChange: function (event) { set({ model: event.target.value }); },
-							})),
-						h(Field, { label: t('settings.embedding.apiKey'), hint: status.embedding?.hasApiKey ? t('settings.embedding.hasKey') : '' },
-							h('input', {
-								className: 'evrInput',
-								type: 'password',
-								value: form.apiKey,
-								onChange: function (event) { set({ apiKey: event.target.value }); },
-							}))
-					) : null,
-					h('div', { className: 'evrEditorFoot' },
-						h('button', {
-							type: 'button',
-							className: 'evrBtn evrBtnPrimary',
-							disabled: props.busy,
-							onClick: function () { props.onEmbeddingSave(form); },
-						}, t('settings.embedding.save')),
-						h('button', {
-							type: 'button',
-							className: 'evrBtn',
-							disabled: props.busy,
-							onClick: props.onEmbeddingTest,
-						}, t('settings.embedding.test'))));
-			}
-
 			var sectionBar = h('div', { className: 'evrToolbar', role: 'tablist' }, [
 				{ id: 'data', label: t('settings.data') },
 				{ id: 'transfer', label: t('settings.transfer') },
 				{ id: 'organize', label: t('settings.section.organize') },
 				{ id: 'backup', label: t('settings.section.backup') },
-				{ id: 'embedding', label: t('settings.section.embedding') },
 			].map(function (item) {
 				return h('button', {
 					key: item.id,
@@ -3154,7 +2905,6 @@ window.__ModuleLoader__.load({
 					t('settings.backup.settingsPath') + ': ' + (settings.settingsPath || '')),
 				],
 				organize: renderOrganize(),
-				embedding: [renderEmbedding()],
 			};
 
 			return h.apply(null, ['div', null, sectionBar].concat(sections[section] ?? []));
@@ -3182,8 +2932,6 @@ window.__ModuleLoader__.load({
 			var [preferences, setPreferences] = useState(null);
 			var [settings, setSettings] = useState(null);
 			var [settingsEpoch, setSettingsEpoch] = useState(0);
-			var [embedding, setEmbedding] = useState(null);
-			var [embeddingDraft, setEmbeddingDraft] = useState(null);
 			var [ingest, setIngest] = useState(null);
 			var [ingestDraft, setIngestDraft] = useState(null);
 			var [consolidate, setConsolidate] = useState(null);
@@ -3219,7 +2967,6 @@ window.__ModuleLoader__.load({
 					call('soul'),
 					call('preferences'),
 					call('settings'),
-					call('embedding-status'),
 					call('ingest-status'),
 					call('consolidate-status').catch(function () { return null; }),
 					call('card-list', {}),
@@ -3232,14 +2979,12 @@ window.__ModuleLoader__.load({
 					setSoul(results[2]);
 					setPreferences(results[3]);
 					setSettings(results[4]);
-					setEmbedding(results[5]);
-					setEmbeddingDraft(function (current) { return current === null || current === undefined ? embeddingFormOf(results[5]) : current; });
-					setIngest(results[6]);
-					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(results[6]) : current; });
-					setConsolidate(results[7]);
-					setConsolidateDraft(function (current) { return current === null || current === undefined ? consolidateFormOf(results[7]) : current; });
-					setCards(results[8]);
-					setDescriptions(results[9]?.descriptions ?? null);
+					setIngest(results[5]);
+					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(results[5]) : current; });
+					setConsolidate(results[6]);
+					setConsolidateDraft(function (current) { return current === null || current === undefined ? consolidateFormOf(results[6]) : current; });
+					setCards(results[7]);
+					setDescriptions(results[8]?.descriptions ?? null);
 					setError(null);
 				}).catch(function (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
@@ -3428,49 +3173,6 @@ window.__ModuleLoader__.load({
 					return null;
 				});
 			}, [call, ctx, report, t]);
-
-			var patchEmbeddingDraft = useCallback(function (patch) {
-				setEmbeddingDraft(function (current) { return { ...(current ?? {}), ...patch }; });
-			}, []);
-
-			var refreshEmbedding = useCallback(function () {
-				return call('embedding-status').then(function (value) {
-					setEmbedding(value);
-					return value;
-				}).catch(function (reason) {
-					notify(reason instanceof Error ? reason.message : String(reason), true);
-					return null;
-				});
-			}, [call, notify]);
-
-			var saveEmbedding = useCallback(function (form) {
-				setBusy(true);
-				return call('embedding-save', { embedding: form }).then(function (value) {
-					setEmbedding(value);
-					setEmbeddingDraft(embeddingFormOf(value));
-					notify(t('state.saved'), false);
-				}).catch(function (reason) {
-					notify(reason instanceof Error ? reason.message : String(reason), true);
-				}).finally(function () { setBusy(false); });
-			}, [call, notify, t]);
-
-			var downloadEmbedding = useCallback(function (model) {
-				setBusy(true);
-				return call('embedding-download', { model: model }).then(function (value) {
-					setEmbedding(value);
-					notify(t('settings.embedding.downloading'), false);
-				}).catch(function (reason) {
-					notify(reason instanceof Error ? reason.message : String(reason), true);
-				}).finally(function () { setBusy(false); });
-			}, [call, notify, t]);
-
-			var cancelEmbedding = useCallback(function () {
-				return call('embedding-cancel').then(function (value) {
-					setEmbedding(value);
-				}).catch(function (reason) {
-					notify(reason instanceof Error ? reason.message : String(reason), true);
-				});
-			}, [call, notify]);
 
 			var patchIngestDraft = useCallback(function (patch) {
 				setIngestDraft(function (current) { return { ...(current ?? ingestFormOf(ingest)), ...patch }; });
@@ -3684,17 +3386,6 @@ window.__ModuleLoader__.load({
 				reader.readAsDataURL(file);
 			}, [call, notify, openCard, refreshCards, t]);
 
-			var testEmbedding = useCallback(function () {
-				setBusy(true);
-				return call('embedding-test', {}, 120000).then(function (value) {
-					var message = t('settings.embedding.testOk') + ' · ' + String(value.backend) + ' · ' + String(value.dimensions) + ' 维 · ' + String(value.latencyMs) + ' ms';
-					if (value.backend !== value.configured) message += ' · ' + t('settings.embedding.fellBack');
-					notify(message, false);
-				}).catch(function (reason) {
-					notify(reason instanceof Error ? reason.message : String(reason), true);
-				}).finally(function () { setBusy(false); });
-			}, [call, notify, t]);
-
 			var body = null;
 			if (error !== null) {
 				body = h('div', { className: 'evrEmpty' },
@@ -3777,14 +3468,6 @@ window.__ModuleLoader__.load({
 					onConsolidateDraft: patchConsolidateDraft,
 					onConsolidateSave: saveConsolidate,
 					onConsolidateRun: runConsolidate,
-					embedding: embedding,
-					embeddingDraft: embeddingDraft,
-					onEmbeddingDraft: patchEmbeddingDraft,
-					onEmbeddingSave: saveEmbedding,
-					onEmbeddingDownload: downloadEmbedding,
-					onEmbeddingCancel: cancelEmbedding,
-					onEmbeddingTest: testEmbedding,
-					onRefreshEmbedding: refreshEmbedding,
 				});
 			}
 

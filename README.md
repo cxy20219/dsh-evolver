@@ -15,7 +15,6 @@
     trash.jsonl                  ← 卡片整理删掉的内容
   sight/soul.md                  ← 灵魂（注入）
   preferences/AGENTS.md          ← 全局偏好（链到 ~/.dsh/AGENTS.md）
-  models/<模型>/                 ← 本地 embedding 权重（随备份/导出）
 ```
 
 ## 卡片模型
@@ -66,7 +65,7 @@
 
 | 工具 | 作用 |
 | --- | --- |
-| `card_query` | 按关键词/层级标签检索；`archivedOnly` 只看归档 |
+| `card_query` | 按关键词/层级标签检索（BM25 + 标签过滤 + 生命周期加权）；`archivedOnly` 只看归档 |
 | `card_read` | 读一张卡：正文、链接、附件 |
 | `card_write` | 写入/更新；分类由 tags 表达 |
 | `card_index` | 完整标签树与说明（不含卡片正文） |
@@ -92,14 +91,12 @@
 
 ## 设置
 
-「设置」页五个子标签：数据目录、导入 / 导出、整理、云端备份、向量模型。
+「设置」页四个子标签：数据目录、导入 / 导出、整理、云端备份。
 
 - **数据目录**默认 `~/.dsh/evolver`；迁移是先完整复制再切换，旧目录原样保留可回滚。
-- **导入 / 导出**用 `.tar.gz`，包内只允许写 `knowledge/`、`sight/`、`preferences/`、`models/`。
+- **导入 / 导出**用 `.tar.gz`，包内只允许写 `knowledge/`、`sight/`、`preferences/`。
 - **云端备份**把整个数据目录打成一个标准 tar 传 OSS（V1 签名；`http(s)://` 完整地址走路径风格，兼容 MinIO）。
   密钥只写本机 `~/.dsh/evolver.config.json`（0600），不回传浏览器，也不会被打进备份。
-- **向量模型**默认本地哈希（零配置、离线，只比词面）；可换成本地 ONNX 或任意 OpenAI 兼容服务，
-  切换后在后台重建全部向量，期间召回退回关键词。权重在 `models/<模型>/`，随备份走。
 
 设置文件 `~/.dsh/evolver.config.json` 不在数据目录里：移动数据目录不丢设置，云备份也不带密钥。
 

@@ -7,7 +7,6 @@ import { join } from 'node:path'
  * Everything lives in the plugin's own folder as plain files:
  *
  *   memories.jsonl    one record per line (last line wins, deleted removes)
- *   vectors.json      embedding vectors, keyed by record id
  *
  * Plain files were chosen over an embedded database on purpose: they are
  * readable, greppable, diffable, and they travel with the folder when it is
@@ -21,11 +20,9 @@ import { join } from 'node:path'
  */
 
 const MEMORIES_FILE = 'memories.jsonl'
-const VECTORS_FILE = 'vectors.json'
 
 /** The symbolic names a dirty mark may use. */
 const MEMORIES = 'memories'
-const VECTORS = 'vectors'
 
 /** How long a change waits before it is written out. */
 const FLUSH_DELAY_MS = 400
@@ -65,49 +62,19 @@ export function tokenize(text) {
 }
 
 /**
- * Encode a vector as base64 of its 32-bit floats.
- *
- * The previous format was a JSON array of numbers, which costs roughly two
- * and a half times the bytes of the binary payload and is slower to parse.
- *
- * @param {Float32Array | number[]} vector - The vector.
- * @returns {string} The encoded vector.
- */
-function encodeVector(vector) {
-	const view = vector instanceof Float32Array ? vector : Float32Array.from(vector)
-	return Buffer.from(view.buffer, view.byteOffset, view.byteLength).toString('base64')
-}
-
-/**
- * Decode a stored base64 vector.
- *
- * @param {unknown} value - The stored value.
- * @returns {Float32Array | undefined} The vector.
- */
-function decodeVector(value) {
-	if (typeof value !== 'string') return undefined
-	const buffer = Buffer.from(value, 'base64')
-	if (buffer.byteLength === 0 || buffer.byteLength % 4 !== 0) return undefined
-	return new Float32Array(Uint8Array.from(buffer).buffer)
-}
-
-/**
- * The memory store: records, a keyword index, and the vectors.
+ * The memory store: records and a keyword index.
  */
 export class MemoryDatabase {
 	/**
-	 * @param {{dataDir: string, embedder?: object, logger?: object}} deps - Store dependencies.
+	 * @param {{dataDir: string, logger?: object}} deps - Store dependencies.
 	 */
-	constructor({ dataDir, embedder, logger, folder = 'memory', logName = MEMORIES_FILE }) {
+	constructor({ dataDir, logger, folder = 'memory', logName = MEMORIES_FILE }) {
 		this.dataDir = dataDir
 		this.folderName = folder
 		this.logName = logName
-		this.embedder = embedder
 		this.logger = logger
 		/** @type {Map<string, object>} */
 		this.memories = new Map()
-		/** @type {Map<string, Float32Array>} */
-		this.vectors = new Map()
 		/** @type {Map<string, Map<string, number>>} */
 		this.postings = new Map()
 		/** @type {Map<string, number>} */
@@ -133,12 +100,6 @@ export class MemoryDatabase {
 		this.logLength = 0
 		/** Forces the next memory write to rewrite instead of append. */
 		this.logRewrite = false
-		/** Which embedding backend produced the stored vectors. */
-		this.vectorBackend = undefined
-		/** The width of the stored vectors. */
-		this.vectorDimensions = undefined
-		/** Which model produced the stored vectors. */
-		this.vectorModel = undefined
 	}
 
 	/** The folder the store owns. */
@@ -157,46 +118,9 @@ export class MemoryDatabase {
 		this.pendingAppends = []
 		this.logRewrite = false
 		this.memories = await this.readMemories()
-		await this.readVectors()
 		this.rebuildIndex()
 		// Whatever was on disk is the current state; nothing to write back.
 		this.dirty.clear()
-	}
-
-	/**
-	 * Load the vectors, tolerating a broken file.
-	 *
-	 * A store whose vectors are unreadable still has its memories; the vectors
-	 * are derived data and can be rebuilt. The broken file is kept next to the
-	 * new one so the reason is not lost.
-	 *
-	 * @returns {Promise<void>} Resolves once the vectors are loaded.
-	 */
-	async readVectors() {
-		let raw
-		try {
-			raw = await readFile(join(this.folder, VECTORS_FILE), 'utf8')
-		} catch {
-			return
-		}
-		try {
-			const parsed = JSON.parse(raw)
-			const stored = parsed?.vectors
-			for (const [id, value] of Object.entries(stored ?? {})) {
-				const vector = decodeVector(value)
-				if (vector !== undefined && vector.length > 0) this.vectors.set(id, vector)
-			}
-			this.vectorBackend = typeof parsed?.backend === 'string' ? parsed.backend : undefined
-			this.vectorDimensions = typeof parsed?.dimensions === 'number' ? parsed.dimensions : undefined
-			this.vectorModel = typeof parsed?.model === 'string' ? parsed.model : undefined
-		} catch (error) {
-			this.logger?.warn?.(`dsh-evolver: vectors.json 无法解析，向量会在下次嵌入时重建：${error instanceof Error ? error.message : String(error)}`)
-			await rename(join(this.folder, VECTORS_FILE), join(this.folder, `${VECTORS_FILE}.broken`)).catch(() => {})
-			this.vectors = new Map()
-			this.vectorBackend = undefined
-			this.vectorDimensions = undefined
-			this.vectorModel = undefined
-		}
 	}
 
 	/**
@@ -384,10 +308,8 @@ export class MemoryDatabase {
 		if (previous === undefined) return false
 		this.memories.delete(id)
 		this.unindex(id)
-		this.vectors.delete(id)
 		this.pendingAppends.push({ id, deleted: true })
 		this.markDirty(MEMORIES)
-		this.markDirty(VECTORS)
 		return true
 	}
 
@@ -428,63 +350,6 @@ export class MemoryDatabase {
 			.map(([id, score]) => ({ id, score }))
 			.sort((left, right) => right.score - left.score || left.id.localeCompare(right.id))
 			.slice(0, limit)
-	}
-
-	//#endregion
-
-	//#region vectors
-
-	/**
-	 * The vector of a memory.
-	 *
-	 * @param {string} id - Memory id.
-	 * @returns {Float32Array | undefined} The vector.
-	 */
-	vector(id) {
-		return this.vectors.get(id)
-	}
-
-	/**
-	 * Store the vector of a memory.
-	 *
-	 * @param {string} id - Memory id.
-	 * @param {Float32Array | number[]} vector - The vector.
-	 * @returns {Promise<void>} Resolves once the vector is scheduled for writing.
-	 */
-	async setVector(id, vector, { adopt = false } = {}) {
-		if (!vector || vector.length === 0) return
-		const first = this.vectors.size === 0
-		this.vectors.set(id, vector instanceof Float32Array ? vector : Float32Array.from(vector))
-		const backend = this.embedder?.id
-		const model = this.embedder?.modelName
-		const sameSpace = this.vectorBackend === backend && this.vectorModel === model
-		// The metadata describes the *whole* vector set. A single save must not
-		// relabel old vectors as belonging to a new backend: after a restart the
-		// store would believe it was aligned and compare vectors from two
-		// different spaces. Only a rebuild (adopt) or an empty store may relabel.
-		if (adopt || first || sameSpace) {
-			this.vectorBackend = backend
-			this.vectorModel = model
-			this.vectorDimensions = vector.length
-		}
-		this.markDirty(VECTORS)
-	}
-
-	/**
-	 * Embed and store the vector of a memory.
-	 *
-	 * @param {object} memory - The memory record.
-	 * @returns {Promise<void>} Resolves once the vector is scheduled for writing.
-	 */
-	async embedMemory(memory) {
-		if (this.embedder === undefined || this.embedder.id === 'none') return
-		try {
-			const embed = this.embedder.embedDocument ?? this.embedder.embed
-			const vector = await embed.call(this.embedder, this.searchableText(memory))
-			await this.setVector(memory.id, vector)
-		} catch (error) {
-			this.logger?.warn?.(`dsh-evolver: embedding failed for ${memory.id}: ${error instanceof Error ? error.message : String(error)}`)
-		}
 	}
 
 	//#endregion
@@ -542,7 +407,6 @@ export class MemoryDatabase {
 		try {
 			await mkdir(this.folder, { recursive: true, mode: 0o700 })
 			if (pending.has(MEMORIES)) await this.writeMemories()
-			if (pending.has(VECTORS)) await this.writeFileAtomic(VECTORS_FILE, this.vectorsDocument())
 		} catch (error) {
 			// Nothing was committed as a whole; keep the marks so the next
 			// attempt (or the shutdown flush) retries them.
@@ -590,23 +454,6 @@ export class MemoryDatabase {
 			this.pendingAppends = appends
 			throw error
 		}
-	}
-
-	/**
-	 * The on-disk shape of the vectors.
-	 *
-	 * @returns {string} The JSON document.
-	 */
-	vectorsDocument() {
-		const vectors = {}
-		for (const [id, vector] of this.vectors) vectors[id] = encodeVector(vector)
-		return `${JSON.stringify({
-			backend: this.vectorBackend,
-			model: this.vectorModel,
-			dimensions: this.vectorDimensions,
-			encoding: 'f32-base64',
-			vectors,
-		})}\n`
 	}
 
 	/**

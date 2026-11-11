@@ -339,11 +339,6 @@ async function loadPanel(runtime) {
 }
 
 /**
- * Whether the stubbed embedding model is already downloaded.
- */
-let embeddingPresent = false
-
-/**
  * Answer the panel's API calls.
  *
  * @param {string} endpoint - The endpoint name.
@@ -486,31 +481,6 @@ function apiPayload(endpoint, payload) {
 				lastAutoAt: 0,
 				ledger: { processed: 0, lastCommitAt: '' },
 			}
-		case 'embedding-status':
-			return {
-				embedding: {
-					provider: 'local',
-					model: 'multilingual-e5-small',
-					modelPath: '',
-					runtimePath: '',
-					baseURL: '',
-					hasApiKey: false,
-					mirror: 'https://hf-mirror.com',
-				},
-				resolved: { modelsDir: '/data/models', runtimePath: '/data/runtime' },
-				runtime: { path: '/data/runtime', available: false, hint: 'npm install --prefix /data/runtime @huggingface/transformers' },
-				catalog: [{
-					id: 'multilingual-e5-small',
-					label: 'E5 Small',
-					languages: '中文 + 英文',
-					dimensions: 384,
-					bytes: 135392183,
-					note: '默认推荐',
-				}],
-				present: { 'multilingual-e5-small': embeddingPresent },
-				download: { status: 'idle', model: '', file: '', fileIndex: 0, fileCount: 0, bytes: 0, totalBytes: 0, error: '' },
-				store: { embedder: 'local', dimensions: 256, aligned: true, ready: false, backend: 'local', model: '', entries: 0 },
-			}
 		case 'data-archives':
 			return {
 				dir: payload.dir,
@@ -574,78 +544,6 @@ test('点击导出后面板显示可见的成功提示', async () => {
 	}
 })
 
-test('设置里的向量模型子标签展示可选模型和下载入口', async () => {
-	const runtime = createRuntime()
-	const previousFetch = globalThis.fetch
-	globalThis.fetch = async (url, options) => {
-		const endpoint = String(url).split('/').pop()
-		let payload = {}
-		try {
-			payload = JSON.parse(options?.body ?? '{}')
-		} catch {
-			payload = {}
-		}
-		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
-	}
-	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
-		let tree = await runtime.settle(render)
-		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
-		tree = await runtime.settle(render)
-		const embeddingTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.section.embedding')
-		assert.equal(embeddingTab.length, 1)
-		embeddingTab[0].props.onClick()
-		tree = await runtime.settle(render)
-		// 切到“本地模型”，模型目录与下载按钮才会出现
-		const providers = findAll(tree, (node) => node.type === 'input' && node.props?.name === 'evr-embedding-provider')
-		assert.equal(providers.length, 3)
-		providers[1].props.onChange({ target: { checked: true } })
-		tree = await runtime.settle(render)
-		const text = textOf(tree)
-		assert.match(text, /E5 Small/)
-		assert.match(text, /settings\.embedding\.download/)
-		assert.match(text, /settings\.embedding\.providerModel/)
-	} finally {
-		globalThis.fetch = previousFetch
-	}
-})
-
-test('已下载的模型显示绿色不可点的“已下载”', async () => {
-	embeddingPresent = true
-	const runtime = createRuntime()
-	const previousFetch = globalThis.fetch
-	globalThis.fetch = async (url, options) => {
-		const endpoint = String(url).split('/').pop()
-		let payload = {}
-		try {
-			payload = JSON.parse(options?.body ?? '{}')
-		} catch {
-			payload = {}
-		}
-		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
-	}
-	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
-		let tree = await runtime.settle(render)
-		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
-		tree = await runtime.settle(render)
-		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.section.embedding')[0].props.onClick()
-		tree = await runtime.settle(render)
-		const providers = findAll(tree, (node) => node.type === 'input' && node.props?.name === 'evr-embedding-provider')
-		providers[1].props.onChange({ target: { checked: true } })
-		tree = await runtime.settle(render)
-		const done = findAll(tree, (node) => typeof node.props?.className === 'string' && node.props.className.split(' ').includes('evrBtnOk'))
-		assert.equal(done.length, 1)
-		assert.equal(done[0].props.disabled, true)
-		assert.equal(textOf(done[0]), 'settings.embedding.downloaded')
-	} finally {
-		embeddingPresent = false
-		globalThis.fetch = previousFetch
-	}
-})
-
 test('两个整理器都在设置里，卡片页不再自带整理块', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
@@ -688,7 +586,6 @@ test('两个整理器都在设置里，卡片页不再自带整理块', async ()
 		tree = await runtime.settle(render)
 		assert.ok(findAll(tree, (node) => node.type === 'input' && node.props?.value === 30).length >= 1)
 	} finally {
-		embeddingPresent = false
 		globalThis.fetch = previousFetch
 	}
 })

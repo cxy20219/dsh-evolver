@@ -26,7 +26,7 @@ import { defaultConsolidate, defaultSettings, normalizeConsolidate } from '../sr
  */
 async function fixture(consolidate = {}) {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-consolidate-'))
-	const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
+	const store = new CardStore({ dataDir: dir })
 	await store.init()
 	const state = { ...defaultSettings(), consolidate: { ...defaultConsolidate(), ...consolidate } }
 	const settings = {

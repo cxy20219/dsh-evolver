@@ -23,7 +23,6 @@ async function fixture(options = {}) {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-cards-'))
 	const store = new CardStore({
 		dataDir: dir,
-		embedding: { id: 'none' },
 		cardMaxChars: options.cardMaxChars,
 	})
 	await store.init()

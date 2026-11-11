@@ -34,7 +34,7 @@ export const MAX_IMPORT_BYTES = 8 * 1024 * 1024 * 1024
 const MAX_IMPORT_ENTRIES = 20000
 
 /** The only top-level folders an archive may write into. */
-const IMPORT_ROOTS = ['knowledge/', 'sight/', 'preferences/', 'models/']
+const IMPORT_ROOTS = ['knowledge/', 'sight/', 'preferences/']
 
 /** Files that are never part of an archive. */
 function isTransient(name) {
@@ -279,7 +279,7 @@ function isImportable(path) {
 /**
  * Extract an archive file into a data folder.
  *
- * Only `knowledge/`, `sight/`, `preferences/` and `models/` are accepted: an
+ * Only `knowledge/`, `sight/`, `preferences/` are accepted: an
  * archive is a data folder backup, not a way to drop arbitrary files next to
  * it. Symlinked parents are refused after the directories are created, so an
  * archive cannot redirect a write outside the folder.

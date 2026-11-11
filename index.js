@@ -22,12 +22,10 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { MAX_IMPORT_BYTES, extractArchiveFile, writeArchiveFile } from './src/backup/archive.js'
 import { BackupService } from './src/backup/service.js'
-import { EMBEDDING_MODELS, ModelDownloader, embeddingConfig, embeddingLocations, modelPresent, probeEmbedding, runtimeState } from './src/embedding.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
 import { createConsolidationController } from './src/consolidate.js'
 import { createIngestController } from './src/ingest.js'
 import { SessionLedger, digestSessions } from './src/sessions.js'
-import { createEmbedder } from './src/memory/embed.js'
 import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { createTools } from './src/tools.js'
@@ -199,31 +197,6 @@ export async function apply(ctx, config) {
 	const tagDescriptionsRef = { current: { ...TAG_DESCRIPTIONS } }
 
 	/**
-	 * The embedding configuration the settings currently ask for.
-	 *
-	 * @returns {object} The createEmbedder configuration.
-	 */
-	function currentEmbeddingConfig() {
-		return embeddingConfig(settings.get().embedding, { dataDir: evolver.root, dshHome, logger: ctx.logger })
-	}
-
-	/**
-	 * Rebuild the store after the embedding backend changed.
-	 *
-	 * The new store is opened before the old one is dropped, so a failing
-	 * backend never leaves the plugin without a memory store.
-	 *
-	 * @returns {Promise<void>} Resolves once the swap is done.
-	 */
-	async function reopenEmbedding() {
-		const nextCards = await createCards(evolver.root)
-		const previousCards = cardStoreRef.current
-		useCards(nextCards)
-		await previousCards?.close().catch(() => {})
-		ctx.logger.info(`dsh-evolver: embedding backend reopened (${nextCards.status().embedder})`)
-	}
-
-	/**
 	 * Build (and initialise) the card store of one data folder.
 	 *
 	 * @param {string} root - The data folder.
@@ -233,7 +206,6 @@ export async function apply(ctx, config) {
 		const store = new CardStore({
 			dataDir: root,
 			logger: ctx.logger,
-			embedding: createEmbedder(currentEmbeddingConfig()),
 			cardMaxChars: settings.get().cardMaxChars,
 		})
 		await store.init()
@@ -801,82 +773,10 @@ export async function apply(ctx, config) {
 		}
 	}
 
-	/**
-	 * A signature of the fields that require a new embedder instance.
-	 *
-	 * @param {object} embedding - The settings block.
-	 * @returns {string} The signature.
-	 */
-	function embeddingSignature(embedding) {
-		return [embedding.provider, embedding.model, embedding.runtimePath, embedding.baseURL, embedding.apiKey].join('\u0000')
-	}
-
-	const downloader = new ModelDownloader({
-		logger: ctx.logger,
-		onDone: async ({ model }) => {
-			const current = settings.get().embedding
-			// Only pick the weights up when they are the ones the user selected.
-			if (current.provider !== 'model' || current.model !== model) return
-			await reopenEmbedding()
-		},
-	})
-
-	/**
-	 * The status the panel's embedding settings are built from.
-	 *
-	 * @returns {Promise<object>} The status.
-	 */
-	async function embeddingStatus() {
-		const raw = settings.get().embedding
-		const locations = embeddingLocations(raw, { dataDir: evolver.root, dshHome })
-		const present = {}
-		for (const model of EMBEDDING_MODELS) present[model.id] = await modelPresent(model, locations.modelsDir)
-		return {
-			embedding: settings.publicView(workspace.state()).embedding,
-			resolved: { modelsDir: locations.modelsDir, runtimePath: locations.runtimePath },
-			runtime: runtimeState(locations.runtimePath),
-			catalog: EMBEDDING_MODELS.map((model) => ({
-				id: model.id,
-				label: model.label,
-				languages: model.languages,
-				dimensions: model.dimensions,
-				bytes: model.bytes,
-				note: model.note,
-			})),
-			present,
-			download: downloader.state(),
-			store: cardStoreRef.current.status(),
-		}
-	}
-
-	const embedding = {
-		status: embeddingStatus,
-		async save(patch) {
-			const before = embeddingSignature(settings.get().embedding)
-			await settings.update({ embedding: patch })
-			if (embeddingSignature(settings.get().embedding) !== before) await reopenEmbedding()
-			return embeddingStatus()
-		},
-		async download(model) {
-			const raw = settings.get().embedding
-			const locations = embeddingLocations(raw, { dataDir: evolver.root, dshHome })
-			await downloader.start({ model, mirror: raw.mirror, modelsDir: locations.modelsDir })
-			return embeddingStatus()
-		},
-		cancel() {
-			downloader.cancel()
-			return embeddingStatus()
-		},
-		async test() {
-			return probeEmbedding(currentEmbeddingConfig())
-		},
-	}
-
 	/** Everything that has to be undone, in registration order. */
 	const disposers = []
 
 	ctx.effect(() => () => {
-		downloader.cancel()
 		for (const dispose of disposers) {
 			try {
 				dispose()
@@ -954,7 +854,7 @@ export async function apply(ctx, config) {
 		save: (patch) => consolidate.save(patch),
 		run: () => consolidate.run(),
 	}
-	const handler = createEvolverHandler({ evolver, settings, backup, workspace, view, embedding, ingest: ingestApi, consolidate: consolidateApi, cards: cardsApi })
+	const handler = createEvolverHandler({ evolver, settings, backup, workspace, view, ingest: ingestApi, consolidate: consolidateApi, cards: cardsApi })
 	for (const endpoint of ENDPOINTS) {
 		disposers.push(connection.fetch.register({
 			path: `${API_PREFIX}/${endpoint}`,

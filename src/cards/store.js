@@ -7,7 +7,7 @@
  *   #践行 / #见闻 / #即兴 / #复盘 / #觉察 / #试错
  *
  * There is no separate type/shape/status/category field. The search engine
- * (BM25 + vectors) and the tag tree are the retrieval surface;
+ * (BM25) and the tag tree are the retrieval surface;
  * the prompt injects only the tag tree, never card bodies.
  */
 
@@ -117,9 +117,9 @@ function assertResourceReferences(body, cardId, names) {
  */
 export class CardStore {
 	/**
-	 * @param {{dataDir: string, embedding?: object, logger?: object, cardMaxChars?: number}} deps - Dependencies.
+	 * @param {{dataDir: string, logger?: object, cardMaxChars?: number}} deps - Dependencies.
 	 */
-	constructor({ dataDir, embedding, logger, cardMaxChars = DEFAULT_CARD_MAX_CHARS }) {
+	constructor({ dataDir, logger, cardMaxChars = DEFAULT_CARD_MAX_CHARS }) {
 		this.dataDir = dataDir
 		this.logger = logger
 		this.cardMaxChars = Math.max(1, Math.min(4000, Math.round(Number(cardMaxChars) || DEFAULT_CARD_MAX_CHARS)))
@@ -127,7 +127,6 @@ export class CardStore {
 			dataDir,
 			folder: 'knowledge/cards',
 			logName: 'cards.jsonl',
-			embedding,
 			logger,
 		})
 		this.resources = new ResourceStore({ root: dataDir })
@@ -296,7 +295,7 @@ export class CardStore {
 	/**
 	 * Lifecycle counters.
 	 *
-	 * @returns {object} Counters and vector state.
+	 * @returns {object} Counters.
 	 */
 	status() {
 		const cards = this.all()
@@ -315,8 +314,6 @@ export class CardStore {
 			cards: cards.length,
 			roots,
 			archived,
-			embedder: this.cards.status().embedder,
-			vectorsReady: this.cards.vectorsReady(),
 		}
 	}
 
@@ -497,21 +494,10 @@ export class CardStore {
 		const queryText = String(text ?? '').trim()
 		const size = Math.max(1, Math.min(50, Math.round(Number(limit) || 8)))
 		if (queryText === '') return this.list({ tags, anyTags, limit: size, includeArchived, archivedOnly })
-		let queryVector
-		if (this.cards.vectorsReady()) {
-			try {
-				const embed = this.cards.embedder.embedQuery ?? this.cards.embedder.embed
-				queryVector = await embed.call(this.cards.embedder, queryText)
-			} catch {
-				queryVector = undefined
-			}
-		}
 		const results = await hybridRetrieve({
 			db: this.cards.db,
 			query: queryText,
-			queryVector,
 			limit: Math.max(size * 4, 20),
-			floor: queryVector === undefined ? undefined : this.cards.embedder.relevanceFloor,
 		})
 		return results
 			.map((result) => this.cardOf(result.memory))

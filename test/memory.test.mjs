@@ -39,31 +39,6 @@ test('并发 flush 不再撞同一个临时文件', async () => {
 	}
 })
 
-test('向量按 base64 落盘并读回', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'evr-vec-'))
-	try {
-		const db = new MemoryDatabase({ dataDir: dir, embedder: { id: 'local' } })
-		await db.init()
-		await db.put({ id: 'm1', text: 'hello', kind: 'fact', updatedAt: STAMP })
-		await db.setVector('m1', new Float32Array([0.6, 0.8]))
-		await db.close()
-
-		const raw = JSON.parse(await readFile(join(dir, 'memory', 'vectors.json'), 'utf8'))
-		assert.equal(raw.encoding, 'f32-base64')
-		assert.equal(typeof raw.vectors.m1, 'string')
-
-		const reopened = new MemoryDatabase({ dataDir: dir })
-		await reopened.init()
-		const vector = reopened.vector('m1')
-		assert.equal(vector.length, 2)
-		assert.ok(Math.abs(vector[0] - 0.6) < 1e-6)
-		assert.ok(Math.abs(vector[1] - 0.8) < 1e-6)
-		await reopened.close()
-	} finally {
-		await rm(dir, { recursive: true, force: true })
-	}
-})
-
 test('bm25 用索引期的文档长度，并按相关度排序', async () => {
 	const { dir, db } = await fixture()
 	try {
@@ -112,43 +87,6 @@ test('hybridRetrieve 去掉中文近重复结果', async () => {
 		assert.equal(results.length, 1)
 		assert.equal(results[0].id, 'a')
 		await db.close()
-	} finally {
-		await rm(dir, { recursive: true, force: true })
-	}
-})
-
-test('重建向量时初始化不被阻塞，重建完成前检索只用关键词', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'evr-store-'))
-	let release
-	const gate = new Promise((resolve) => { release = resolve })
-	try {
-		// 先写一条旧后端的记忆与向量，模拟一次后端替换。
-		const old = new MemoryDatabase({ dataDir: dir, embedder: { id: 'old' } })
-		await old.init()
-		await old.put({ id: 'a', text: '插件注册验证', kind: 'fact', updatedAt: STAMP })
-		await old.setVector('a', new Float32Array([1, 0]))
-		await old.close()
-
-		const store = new MemoryStore({
-			dataDir: dir,
-			embedding: {
-				id: 'new',
-				embedBatch: async (texts) => {
-					await gate
-					return texts.map(() => new Float32Array([0, 1]))
-				},
-			},
-		})
-		await store.init()
-		// init 已经返回，但重建还卡在 gate 上：仍然可以读，只是不走向量。
-		assert.equal(store.vectorsReady(), false)
-		const early = await hybridRetrieve({ db: store.db, query: '插件 注册', limit: 5 })
-		assert.ok(early.length >= 1)
-
-		release()
-		await store.ready
-		assert.equal(store.vectorsReady(), true)
-		await store.close()
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}
@@ -231,107 +169,10 @@ test('日志膨胀后会自动压实，旧版本不再留在文件里', async ()
 	}
 })
 
-test('重建向量时只要有一批失败就整体不落盘', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'evr-partial-'))
-	let calls = 0
-	try {
-		const old = new MemoryDatabase({ dataDir: dir, embedder: { id: 'old' } })
-		await old.init()
-		for (let index = 0; index < 40; index += 1) {
-			await old.put({ id: `m${index}`, text: `记忆 ${index}`, kind: 'fact', updatedAt: STAMP })
-			await old.setVector(`m${index}`, new Float32Array([1, 0]))
-		}
-		await old.close()
-
-		const store = new MemoryStore({
-			dataDir: dir,
-			embedding: {
-				id: 'new',
-				embedBatch: async (texts) => {
-					calls += 1
-					if (calls === 2) throw new Error('endpoint down')
-					return texts.map(() => new Float32Array([0, 1]))
-				},
-			},
-		})
-		await store.init()
-		await store.ready
-		assert.equal(store.vectorsReady(), false)
-		// 旧向量原样保留：重新打开仍然属于旧后端。
-		const reopened = new MemoryDatabase({ dataDir: dir })
-		await reopened.init()
-		assert.equal(reopened.vectorBackend, 'old')
-		assert.ok(Math.abs(reopened.vector('m0')[0] - 1) < 1e-6)
-		await reopened.close()
-	} finally {
-		await rm(dir, { recursive: true, force: true })
-	}
-})
-
-test('未对齐时保存不会把整库向量标成新后端', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'evr-mixed-'))
-	try {
-		const old = new MemoryDatabase({ dataDir: dir, embedder: { id: 'old', modelName: 'a' } })
-		await old.init()
-		await old.put({ id: 'a', text: '旧记忆', kind: 'fact', updatedAt: STAMP })
-		await old.setVector('a', new Float32Array([1, 0]))
-		await old.close()
-
-		const next = new MemoryDatabase({ dataDir: dir, embedder: { id: 'new', modelName: 'b' } })
-		await next.init()
-		await next.put({ id: 'b', text: '新记忆', kind: 'fact', updatedAt: STAMP })
-		await next.setVector('b', new Float32Array([0, 1]))
-		await next.close()
-
-		// 只保存一条新记忆不能把整库标成新后端；重启后仍会触发重建，
-		// 而不是把两个向量空间混在一起比较。
-		const reopened = new MemoryDatabase({ dataDir: dir })
-		await reopened.init()
-		assert.equal(reopened.vectorBackend, 'old')
-		assert.equal(reopened.vectorModel, 'a')
-		assert.equal(reopened.vectors.size, 2)
-		await reopened.close()
-	} finally {
-		await rm(dir, { recursive: true, force: true })
-	}
-})
-
-test('关闭记忆库会等后台重建落盘', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'evr-close-'))
-	try {
-		const old = new MemoryDatabase({ dataDir: dir, embedder: { id: 'old' } })
-		await old.init()
-		await old.put({ id: 'a', text: '插件注册验证', kind: 'fact', updatedAt: STAMP })
-		await old.setVector('a', new Float32Array([1, 0]))
-		await old.close()
-
-		const store = new MemoryStore({
-			dataDir: dir,
-			embedding: {
-				id: 'new',
-				embedBatch: async (texts) => {
-					await new Promise((resolve) => setTimeout(resolve, 40))
-					return texts.map(() => new Float32Array([0, 1]))
-				},
-			},
-		})
-		await store.init()
-		// 直接关闭：必须等重建完成，否则导出的只是半套向量。
-		await store.close()
-
-		const reopened = new MemoryDatabase({ dataDir: dir })
-		await reopened.init()
-		assert.equal(reopened.vectorBackend, 'new')
-		await reopened.close()
-	} finally {
-		await rm(dir, { recursive: true, force: true })
-	}
-})
-
 test('卡片记忆可以按限制列出，总数仍在店里', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-list-'))
 	try {
-		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
+		const store = new CardStore({ dataDir: dir })
 		await store.init()
 		const agent = createCardAgent(store)
 		await agent.saveFleeting({ content: '第一条记忆', kind: 'fact' })
@@ -348,7 +189,7 @@ test('卡片记忆可以按限制列出，总数仍在店里', async () => {
 test('卡片记忆不保存密钥', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-secret-'))
 	try {
-		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
+		const store = new CardStore({ dataDir: dir })
 		await store.init()
 		const agent = createCardAgent(store)
 		const result = await agent.saveFleeting({ content: 'API key 是 sk-abcdefghijklmnopqrstuvwx', kind: 'fact' })
@@ -361,35 +202,10 @@ test('卡片记忆不保存密钥', async () => {
 	}
 })
 
-test('小卡片库的语义命中不会被统计门槛全部滤掉', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'evr-small-'))
-	try {
-		const store = new CardStore({
-			dataDir: dir,
-			embedding: {
-				id: 'fake',
-				dimensions: 2,
-				embedDocument: async (text) => (text.includes('甲') ? new Float32Array([1, 0]) : new Float32Array([0, 1])),
-				embedQuery: async () => new Float32Array([1, 0]),
-			},
-		})
-		await store.init()
-		const agent = createCardAgent(store)
-		await agent.saveFleeting({ content: '甲：向量召回测试', kind: 'fact' })
-		await agent.saveFleeting({ content: '乙：另一条无关记忆', kind: 'fact' })
-		assert.equal(store.status().vectorsReady, true)
-		const results = await store.query({ text: '完全不同的说法', tags: ['即兴'], limit: 5 })
-		assert.ok(results.some((card) => card.body.includes('甲')), '小库的语义命中被过滤了')
-		await store.close()
-	} finally {
-		await rm(dir, { recursive: true, force: true })
-	}
-})
-
 test('相同内容会合并到同一张 #即兴 卡，不同内容各自成卡', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-merge-'))
 	try {
-		const store = new CardStore({ dataDir: dir, embedding: { id: 'none' } })
+		const store = new CardStore({ dataDir: dir })
 		await store.init()
 		const agent = createCardAgent(store)
 		const text = '插件改动是否生效要用槽查询确认'
@@ -409,26 +225,15 @@ test('相同内容会合并到同一张 #即兴 卡，不同内容各自成卡',
 	}
 })
 
-test('向量分低于底线时，BM25 排第一的卡仍然会返回', async () => {
+test('关键词排第一的卡不会被重叠阈值滤掉', async () => {
 	const { dir, db } = await fixture()
 	try {
 		await db.put({ id: 'a', text: '插件登记两处', kind: 'fact', updatedAt: STAMP })
 		await db.put({ id: 'b', text: '导出必须是单个压缩包', kind: 'fact', updatedAt: STAMP })
-		// A hashing backend scores a paraphrase below its floor, and the floor
-		// outranks nothing: the card BM25 already ranked first has to survive.
-		db.vectors = new Map([
-			['a', Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0])],
-			['b', Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0])],
-		])
-		const query = '改完以后为什么界面上看不到变化插件'
-		const results = await hybridRetrieve({
-			db,
-			query,
-			queryVector: Float32Array.from([0.3, 1, 0, 0, 0, 0, 0, 0]),
-			floor: 0.9,
-			limit: 5,
-		})
-		assert.ok(results.length > 0, '关键词命中不能被向量底线清空')
+		// A paraphrase shares almost none of the card's words; BM25 ranked it
+		// first, so the overlap gate must not throw it away.
+		const results = await hybridRetrieve({ db, query: '改完以后为什么界面上看不到变化插件', limit: 5 })
+		assert.ok(results.length > 0, '关键词命中不能被重叠阈值清空')
 		assert.equal(results[0].id, 'a', 'BM25 排第一的卡就是答案')
 		await db.close()
 	} finally {
