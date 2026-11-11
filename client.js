@@ -2,7 +2,7 @@
  * dsh-evolver — browser half.
  *
  * One sidebar entry opens one panel with five tabs:
- * 概览 / 卡片 / 灵魂 / 偏好 / 建议.
+ * 概览 / 卡片 / 灵魂 / 偏好 / 设置.
  *
  * The panel shows the same three things the agent gets: the card projection,
  * the soul and the global preferences — plus the health of the folder.
@@ -81,7 +81,6 @@ window.__ModuleLoader__.load({
 			'sight.ingest.sessionsUnit': '个会话',
 			'sight.ingest.memoriesUnit': '条记忆',
 			'tab.preferences': '偏好',
-			'tab.suggestions': '建议',
 			'tab.settings': '设置',
 			'state.migrated': '已迁移到新目录',
 			'state.exported': '已导出',
@@ -117,7 +116,6 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.label': '卡片链接关系图',
 			'overview.linkGraph.empty': '还没有卡片之间的链接。',
 			'overview.linkGraph.links': '条链接',
-			'overview.linkGraph.summary': '{cards} 张卡片有链接 · {links} 条链接 · {mutual} 组互链',
 			'overview.tree.graphLabel': '标签关系图',
 			'overview.tree.hint': '点击标签放大看它的子标签；点中心返回上一层。',
 			'overview.tree.zoom': '放大标签 {path}',
@@ -153,9 +151,6 @@ window.__ModuleLoader__.load({
 			'prefs.link.linked': '已链接',
 			'prefs.link.foreign': '被其他来源占用',
 			'prefs.link.missing': '未链接',
-			'suggestion.empty': '没有待办：卡片库是健康的。',
-			'suggestion.problem': '结构问题',
-			'suggestion.stale': '久未验证',
 			'time.justNow': '刚刚',
 			'time.minutes': '{n} 分钟前',
 			'time.hours': '{n} 小时前',
@@ -327,7 +322,6 @@ window.__ModuleLoader__.load({
 			'sight.ingest.sessionsUnit': 'sessions',
 			'sight.ingest.memoriesUnit': 'memories',
 			'tab.preferences': 'Preferences',
-			'tab.suggestions': 'Suggestions',
 			'tab.settings': 'Settings',
 			'state.migrated': 'Moved to the new folder',
 			'state.exported': 'Exported',
@@ -363,7 +357,6 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.label': 'Card link graph',
 			'overview.linkGraph.empty': 'No links between cards yet.',
 			'overview.linkGraph.links': 'links',
-			'overview.linkGraph.summary': '{cards} linked cards · {links} links · {mutual} mutual pairs',
 			'overview.tree.graphLabel': 'Tag relationship graph',
 			'overview.tree.hint': 'Click a tag to zoom into its children; click the centre to go back one level.',
 			'overview.tree.zoom': 'Zoom into tag {path}',
@@ -399,9 +392,6 @@ window.__ModuleLoader__.load({
 			'prefs.link.linked': 'linked',
 			'prefs.link.foreign': 'linked elsewhere',
 			'prefs.link.missing': 'not linked',
-			'suggestion.empty': 'Nothing to do: the card store is healthy.',
-			'suggestion.problem': 'Structure problem',
-			'suggestion.stale': 'Not verified for a while',
 			'time.justNow': 'just now',
 			'time.minutes': '{n} min ago',
 			'time.hours': '{n} h ago',
@@ -527,7 +517,6 @@ window.__ModuleLoader__.load({
 			{ id: 'cards', label: 'tab.cards' },
 			{ id: 'soul', label: 'tab.soul' },
 			{ id: 'preferences', label: 'tab.preferences' },
-			{ id: 'suggestions', label: 'tab.suggestions' },
 			{ id: 'settings', label: 'tab.settings' },
 		];
 
@@ -1556,7 +1545,6 @@ window.__ModuleLoader__.load({
 				node.x = offsetX + (node.x - minX) * scale;
 				node.y = offsetY + (node.y - minY) * scale;
 			});
-			var mutual = edges.filter(function (edge) { return edge.mutual === true; }).length;
 			return {
 				width: width,
 				height: height,
@@ -1588,7 +1576,6 @@ window.__ModuleLoader__.load({
 							+ ' ' + target.x.toFixed(1) + ' ' + target.y.toFixed(1),
 					};
 				}),
-				summary: { cards: placed.length, links: edges.length, mutual: mutual },
 			};
 		}
 
@@ -1628,11 +1615,7 @@ window.__ModuleLoader__.load({
 							h('circle', { cx: node.x, cy: node.y, r: node.r, fill: node.color }),
 							h('title', null, node.label + ' · ' + node.degree + ' ' + t('overview.linkGraph.links')));
 					}))),
-				h('div', { className: 'evrHint', style: { marginTop: '6px' } },
-					t('overview.linkGraph.summary')
-						.replace('{cards}', String(layout.summary.cards))
-						.replace('{links}', String(layout.summary.links))
-						.replace('{mutual}', String(layout.summary.mutual))));
+				);
 		}
 
 		/**
@@ -2180,29 +2163,6 @@ window.__ModuleLoader__.load({
 					h('div', { className: 'evrCardHint evrMono' }, preferences?.globalPath ?? ''),
 					foreign ? h('div', { className: 'evrCardHint evrMono' }, '→ ' + (link.target ?? '')) : null,
 					h('div', { className: 'evrCardHint evrMono' }, preferences?.path ?? '')));
-		}
-
-		/**
-		 * The suggestions: what could move and what looks stale.
-		 *
-		 * @param {object} props - Component props.
-		 * @returns {object} The element tree.
-		 */
-		function SuggestionsTab(props) {
-			var t = props.t;
-			var suggestions = props.suggestions ?? [];
-			if (suggestions.length === 0) return h(Empty, null, t('suggestion.empty'));
-			return h('div', null, suggestions.map(function (item, index) {
-				return h('div', {
-					key: index,
-					className: 'evrRow',
-					style: { cursor: 'default' },
-				},
-					h('div', { className: 'evrRowMain' },
-						h('div', { className: 'evrRowTitle' }, item.path ?? ''),
-						h('div', { className: 'evrRowMeta' }, item.message ?? '')),
-					h('span', { className: 'evrTag' }, item.kind === 'stale' ? t('suggestion.stale') : t('suggestion.problem')));
-			}));
 		}
 
 		/**
@@ -3557,8 +3517,6 @@ window.__ModuleLoader__.load({
 					onEmbeddingTest: testEmbedding,
 					onRefreshEmbedding: refreshEmbedding,
 				});
-			} else {
-				body = h(SuggestionsTab, { t: t, suggestions: overview?.suggestions ?? [] });
 			}
 
 			var subtitle = useMemo(function () {
