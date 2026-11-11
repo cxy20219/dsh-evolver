@@ -117,11 +117,8 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.empty': '还没有卡片之间的链接。',
 			'overview.linkGraph.links': '条链接',
 			'overview.tree.graphLabel': '标签关系图',
-			'overview.tree.hint': '点击标签放大看它的子标签；点中心返回上一层。',
-			'overview.tree.zoom': '放大标签 {path}',
-			'overview.tree.up': '返回上一层',
-			'overview.tree.all': '全部',
-			'overview.tree.noChildren': '这个标签下没有子标签。',
+			'overview.tree.hint': '整棵树一直可见；点节点放大那一枝。',
+			'overview.tree.zoomHint': '点节点放大，再点一次或点空白回到全貌。',
 			'overview.graph.center': '标签',
 			'overview.tree.empty': '还没有标签。',
 			'overview.descriptions': '标签描述',
@@ -358,11 +355,8 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.empty': 'No links between cards yet.',
 			'overview.linkGraph.links': 'links',
 			'overview.tree.graphLabel': 'Tag relationship graph',
-			'overview.tree.hint': 'Click a tag to zoom into its children; click the centre to go back one level.',
-			'overview.tree.zoom': 'Zoom into tag {path}',
-			'overview.tree.up': 'Go up one level',
-			'overview.tree.all': 'All',
-			'overview.tree.noChildren': 'This tag has no children.',
+			'overview.tree.hint': 'The whole tree stays visible; click a node to zoom into its branch.',
+			'overview.tree.zoomHint': 'Click a node to zoom, again (or the empty space) to fit the tree.',
 			'overview.graph.center': 'Tags',
 			'overview.tree.empty': 'No tags yet.',
 			'overview.descriptions': 'Tag descriptions',
@@ -613,14 +607,9 @@ window.__ModuleLoader__.load({
 			'.evrLinkEdge{fill:none;stroke:var(--dsw-alias-label-tertiary);stroke-width:1;stroke-opacity:.5}',
 			'.evrLinkEdgeMutual{stroke-opacity:.85;stroke-width:1.4}',
 			'.evrLinkNode circle{stroke:var(--dsw-alias-bg-base);stroke-width:1}',
-			'.evrCrumb{display:flex;align-items:center;gap:2px;flex-wrap:wrap;margin-bottom:6px;font-size:11.5px;line-height:1.7}',
-			'.evrCrumbBtn{padding:1px 5px;border:none;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11.5px;cursor:pointer}',
-			'.evrCrumbBtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
-			'.evrCrumbBtn:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}',
-			'.evrCrumbBtnActive{color:var(--dsw-alias-label-primary);font-weight:500}',
-			'.evrCrumbSep{color:var(--dsw-alias-label-tertiary)}',
-			'.evrGraph{width:100%;height:auto;max-width:420px;display:block;margin:0 auto}',
+			'.evrGraph{width:100%;height:auto;max-width:460px;display:block;margin:0 auto}',
 			'.evrGraphEdge{fill:none;stroke-width:1;stroke-opacity:.38}',
+			'.evrGraphDotOn{stroke:var(--dsw-alias-label-primary);stroke-width:1.5}',
 			'.evrGraphLabel{fill:var(--dsw-alias-label-secondary);font-size:10.5px;font-family:inherit}',
 			'.evrGraphRoot{fill:var(--dsw-alias-label-primary);font-size:11px;font-weight:500}',
 			'.evrGraphCount{fill:var(--dsw-alias-label-tertiary);font-size:9px}',
@@ -865,194 +854,280 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * A radial graph of the tag tree, drawn in a fixed pixel space.
+		 * How much angular room a subtree needs.
 		 *
-		 * One level is visible at a time: the root tags around the centre, or
-		 * the children of the focused tag. Clicking a tag zooms into it and
-		 * clicking the centre goes one level up, so the graph stays readable in
-		 * a narrow column.
+		 * A branch's share of the circle is proportional to how many leaf tags
+		 * hang off it, so a node with six children never gets the same slice
+		 * as a node with none.
+		 *
+		 * @param {object} node - The tag node.
+		 * @returns {number} The weight.
+		 */
+		/**
+		 * The label of one node.
+		 *
+		 * Only roots carry their count: on a crowded ring the extra number is
+		 * what pushes neighbouring labels into each other, and the exact
+		 * count is one hover away.
+		 *
+		 * @param {object} node - The laid-out node.
+		 * @returns {string} The label text.
+		 */
+		function tagGraphLabelOf(node) {
+			return node.depth === 0 ? '#' + node.name + ' ' + node.count : '#' + node.name;
+		}
+
+		/**
+		 * Estimate the rendered width of a label in graph units.
+		 *
+		 * @param {string} text - The label text.
+		 * @returns {number} The width.
+		 */
+		function labelExtent(text) {
+			var total = 0;
+			for (var index = 0; index < text.length; index += 1) {
+				total += text.charCodeAt(index) > 0x2e80 ? 10.5 : 5.9;
+			}
+			return total;
+		}
+
+		function tagGraphWeight(node) {
+			var children = node.children ?? [];
+			if (children.length === 0) return 1;
+			return Math.max(1, children.reduce(function (sum, child) { return sum + tagGraphWeight(child); }, 0));
+		}
+
+		/**
+		 * Lay the whole tag forest out as one radial picture.
+		 *
+		 * Every level is placed at once: roots on the inner ring, each deeper
+		 * level one ring further out, and every subtree owns an angular sector
+		 * of its parent's. Nothing is hidden, because the picture is zoomed
+		 * rather than rebuilt when a node is clicked.
+		 *
+		 * @param {object[]} roots - Root tag nodes.
+		 * @returns {object|null} The layout, or null when there is nothing to draw.
+		 */
+		function tagGraphLayout(roots) {
+			var list = Array.isArray(roots) ? roots : [];
+			if (list.length === 0) return null;
+			var width = 520;
+			var height = 460;
+			var cx = width / 2;
+			var cy = height / 2;
+			var inner = 94;
+			var ring = 64;
+			var stagger = 20;
+			var margin = 0.05;
+			var nodes = [];
+			var edges = [];
+			/**
+			 * Place one node, its sector already decided.
+			 *
+			 * @param {object} node - The tag node.
+			 * @param {string} key - The full tag path.
+			 * @param {number} from - Sector start angle.
+			 * @param {number} to - Sector end angle.
+			 * @param {number} depth - Distance from the centre in rings.
+			 * @param {object|null} parent - The parent position, if any.
+			 * @param {number} offset - Extra radius for this node.
+			 * @returns {void}
+			 */
+			function place(node, key, from, to, depth, parent, offset) {
+				var middle = (from + to) / 2;
+				var radius = inner + depth * ring + (offset ?? 0);
+				var x = cx + Math.cos(middle) * radius;
+				var y = cy + Math.sin(middle) * radius;
+				var root = parent === null ? key : parent.root;
+				nodes.push({ path: key, name: node.name, count: node.count, depth: depth, x: x, y: y, angle: middle, root: root });
+				edges.push({ from: parent === null ? { x: cx, y: cy } : { x: parent.x, y: parent.y }, to: { x: x, y: y }, root: root });
+				var children = node.children ?? [];
+				if (children.length === 0) return;
+				var weights = children.map(tagGraphWeight);
+				var total = weights.reduce(function (sum, weight) { return sum + weight; }, 0);
+				var pad = (to - from) * margin;
+				var cursor = from + pad;
+				var usable = (to - from) - pad * 2;
+				children.forEach(function (child, index) {
+					var span = (weights[index] / total) * usable;
+					// Alternate two radii: neighbours on the same ring would
+					// otherwise land within a label width of each other.
+					place(child, key + '/' + child.name, cursor, cursor + span, depth + 1, { x: x, y: y, root: root }, (index % 2) * stagger);
+					cursor += span;
+				});
+			}
+			var weights = list.map(tagGraphWeight);
+			var total = weights.reduce(function (sum, weight) { return sum + weight; }, 0);
+			var cursor = -Math.PI / 2;
+			list.forEach(function (node, index) {
+				var span = (weights[index] / total) * Math.PI * 2;
+				place(node, node.path, cursor, cursor + span, 0, null, 0);
+				cursor += span;
+			});
+
+			// Labels sit outside their dot, so the picture is as wide as the
+			// widest label, not just as wide as the outermost ring. Measure
+			// everything, then scale the whole thing to fill the box — that way
+			// a deep or crowded tree shrinks instead of overlapping.
+			var minX = Infinity;
+			var minY = Infinity;
+			var maxX = -Infinity;
+			var maxY = -Infinity;
+			nodes.forEach(function (node) {
+				var right = Math.cos(node.angle) >= 0;
+				var textWidth = labelExtent(tagGraphLabelOf(node));
+				var left = right ? node.x - 6 : node.x - 9 - textWidth;
+				var rightEdge = right ? node.x + 9 + textWidth : node.x + 6;
+				minX = Math.min(minX, left);
+				maxX = Math.max(maxX, rightEdge);
+				minY = Math.min(minY, node.y - 9);
+				maxY = Math.max(maxY, node.y + 9);
+			});
+			var spanX = Math.max(1, maxX - minX);
+			var spanY = Math.max(1, maxY - minY);
+			var fit = Math.min(width / spanX, height / spanY, 1.6);
+			var ox = (width - spanX * fit) / 2 - minX * fit;
+			var oy = (height - spanY * fit) / 2 - minY * fit;
+			return { width: width, height: height, cx: cx, cy: cy, nodes: nodes, edges: edges, fit: fit, ox: ox, oy: oy };
+		}
+
+		/**
+		 * Layouts already computed, keyed by the node array they came from.
+		 *
+		 * @type {WeakMap<object[], object|null>}
+		 */
+		var tagGraphCache = new WeakMap();
+
+		/**
+		 * One radial graph of the whole tag tree.
+		 *
+		 * The full tree is drawn at all times — roots inside, their children
+		 * outside. Clicking a node zooms the picture around it instead of
+		 * replacing the level, so you keep seeing the shape of the whole tree
+		 * while reading one branch. Clicking it again, or the empty space,
+		 * goes back to the fit-everything view.
 		 *
 		 * @param {object} props - Component props.
 		 * @returns {object} The element tree.
 		 */
 		function TagGraph(props) {
 			var t = props.t;
-			var nodes = Array.isArray(props.nodes) ? props.nodes : [];
+			var roots = Array.isArray(props.nodes) ? props.nodes : [];
+			var layout = useMemo(function () {
+				if (Array.isArray(props.nodes) && tagGraphCache.has(props.nodes)) return tagGraphCache.get(props.nodes);
+				var computed = tagGraphLayout(props.nodes);
+				if (Array.isArray(props.nodes)) tagGraphCache.set(props.nodes, computed);
+				return computed;
+			}, [props.nodes]);
 			var [focus, setFocus] = useState(null);
-			if (nodes.length === 0) return h('div', { className: 'evrHint' }, t('overview.tree.empty'));
-			var colors = ['#4f8a6e', '#657ea6', '#a77b55', '#87679a', '#4f8794', '#9b6b6b'];
-			var width = 320;
-			var height = 300;
-			var cx = width / 2;
-			var cy = height / 2;
+			if (layout === null) return h('div', { className: 'evrHint' }, t('overview.tree.empty'));
+			var colors = { '践行': '#4f8a6e', '见闻': '#657ea6', '即兴': '#a77b55', '复盘': '#87679a', '觉察': '#4f8794', '试错': '#9b6b6b' };
+			function colorOf(node) { return colors[node.root.split('/')[0]] ?? '#8a8f98'; }
 
-			/**
-			 * Find a node by its full path.
-			 *
-			 * @param {object[]} list - The nodes to search.
-			 * @param {string} path - The full tag path.
-			 * @returns {object|null} The node, or null when it is gone.
-			 */
-			function findNode(list, path) {
-				for (var index = 0; index < list.length; index += 1) {
-					var node = list[index];
-					if (node.path === path) return node;
-					var found = findNode(node.children ?? [], path);
-					if (found !== null) return found;
-				}
-				return null;
-			}
+			var focused = null;
+			layout.nodes.forEach(function (node) { if (node.path === focus) focused = node; });
+			if (focused === null && focus !== null) focus = null;
 
-			/**
-			 * Estimate the rendered width of a label.
-			 *
-			 * @param {string} text - The label text.
-			 * @param {number} fontSize - The font size in graph units.
-			 * @returns {number} The estimated width.
-			 */
-			function labelWidth(text, fontSize) {
-				var total = 0;
-				for (var index = 0; index < text.length; index += 1) {
-					total += text.charCodeAt(index) > 0x2e80 ? fontSize : fontSize * 0.56;
-				}
-				return total;
-			}
-
-			var focused = focus === null ? null : findNode(nodes, focus);
-			var visible = focused === null ? nodes : (focused.children ?? []);
-			var labelSize = focused === null ? 11 : 10.5;
-			var centerLabel = focused === null ? t('overview.graph.center') : '#' + focused.name;
-			var centerRadius = Math.max(15, labelWidth(centerLabel, 11) / 2 + 7);
-			var rootIndex = 0;
+			// One camera for both jobs: the layout's own fit transform, plus an
+			// extra layer that pulls the clicked node to the middle.
+			// CSS transform needs units on translate; a unitless pair is dropped
+			// silently and the picture would render unscaled.
+			var fitTransform = 'translate(' + layout.ox.toFixed(1) + 'px,' + layout.oy.toFixed(1) + 'px) scale(' + layout.fit.toFixed(3) + ')';
+			var camera = fitTransform;
 			if (focused !== null) {
-				var rootPath = focused.path.split('/')[0];
-				nodes.forEach(function (node, index) {
-					if (node.path === rootPath) rootIndex = index;
+				// Frame the whole branch, not just the clicked dot: its children
+				// fan out from here and would otherwise land off the edge.
+				var zoom = 1.9;
+				var sumX = 0;
+				var sumY = 0;
+				var framed = 0;
+				layout.nodes.forEach(function (node) {
+					if (node.path === focus || node.path.indexOf(focus + '/') === 0) {
+						sumX += node.x;
+						sumY += node.y;
+						framed += 1;
+					}
 				});
+				var anchorX = layout.ox + layout.fit * (framed === 0 ? focused.x : sumX / framed);
+				var anchorY = layout.oy + layout.fit * (framed === 0 ? focused.y : sumY / framed);
+				camera = 'translate(' + (layout.cx - zoom * anchorX).toFixed(1) + 'px,' + (layout.cy - zoom * anchorY).toFixed(1) + 'px)'
+					+ ' scale(' + zoom + ') ' + fitTransform;
 			}
-			var reserve = 0;
-			visible.forEach(function (node) {
-				reserve = Math.max(reserve, labelWidth('#' + node.name + ' ' + node.count, labelSize) + 14);
-			});
-			var rx = Math.max(centerRadius + 30, cx - reserve);
-			var ry = Math.max(centerRadius + 30, cy - 16);
-			var edges = [];
-			var elements = [];
-			visible.forEach(function (node, index) {
-				var angle = -Math.PI / 2 + (index * Math.PI * 2) / Math.max(1, visible.length);
-				var x = cx + Math.cos(angle) * rx;
-				var y = cy + Math.sin(angle) * ry;
-				var color = colors[rootIndex % colors.length];
-				var zoomable = (node.children ?? []).length > 0;
-				edges.push(h('path', {
-					key: 'e-' + node.path,
-					d: 'M ' + cx + ' ' + cy + ' L ' + x.toFixed(2) + ' ' + y.toFixed(2),
+			function toggle(path, event) {
+				if (event && typeof event.preventDefault === 'function') event.preventDefault();
+				if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+				setFocus(focus === path ? null : path);
+			}
+
+			var edgeEls = layout.edges.map(function (edge, index) {
+				var dim = focus !== null && edge.root !== focus.split('/')[0];
+				return h('path', {
+					key: 'e-' + index,
+					d: 'M ' + edge.from.x.toFixed(1) + ' ' + edge.from.y.toFixed(1) + ' L ' + edge.to.x.toFixed(1) + ' ' + edge.to.y.toFixed(1),
 					className: 'evrGraphEdge',
-					stroke: color,
-				}));
-				var right = x >= cx;
-				var zoomNode = function (event) {
-					if (event && typeof event.preventDefault === 'function') event.preventDefault();
-					setFocus(node.path);
-				};
-				elements.push(h('g', {
+					stroke: colors[edge.root.split('/')[0]] ?? '#8a8f98',
+					'stroke-opacity': dim ? 0.18 : 0.55,
+				});
+			});
+
+			var nodeEls = layout.nodes.map(function (node) {
+				var active = focus === null || node.path === focus || node.path.indexOf(focus + '/') === 0 || focus.indexOf(node.path + '/') === 0;
+				var isRoot = node.depth === 0;
+				var right = Math.cos(node.angle) >= 0;
+				return h('g', {
 					key: node.path,
-					className: 'evrGraphNode' + (zoomable ? ' evrGraphZoomable' : ''),
-					role: zoomable ? 'button' : undefined,
-					tabIndex: zoomable ? 0 : undefined,
-					'aria-label': zoomable ? t('overview.tree.zoom').replace('{path}', node.path) : undefined,
-					onClick: zoomable ? zoomNode : undefined,
-					onKeyDown: zoomable
-						? function (event) {
-							if (event && (event.key === 'Enter' || event.key === ' ')) zoomNode(event);
-						}
-						: undefined,
+					className: 'evrGraphNode',
+					role: 'button',
+					tabIndex: 0,
+					'aria-label': node.path + ' · ' + node.count,
+					opacity: active ? 1 : 0.28,
+					style: { cursor: 'pointer' },
+					onClick: function (event) { toggle(node.path, event); },
+					onKeyDown: function (event) {
+						if (event && (event.key === 'Enter' || event.key === ' ')) toggle(node.path, event);
+					},
 				},
 					h('circle', {
-						cx: x,
-						cy: y,
-						r: zoomable ? 4.5 : 3,
-						fill: color,
-						'fill-opacity': zoomable ? 1 : 0.45,
+						cx: node.x,
+						cy: node.y,
+						r: (isRoot ? 5 : 3.4) + Math.min(2.4, Math.sqrt(node.count) * 0.4),
+						fill: colorOf(node),
+						'fill-opacity': isRoot ? 1 : 0.75,
+						className: node.path === focus ? 'evrGraphDotOn' : undefined,
 					}),
 					h('text', {
-						key: 'l-' + node.path,
-						x: x + (right ? 8 : -8),
-						y: y + 3.5,
+						x: node.x + (right ? 9 : -9),
+						y: node.y + 3.5,
 						textAnchor: right ? 'start' : 'end',
-						className: focused === null ? 'evrGraphLabel evrGraphRoot' : 'evrGraphLabel',
-					}, '#' + node.name, h('tspan', { dx: 5, className: 'evrGraphCount' }, String(node.count))),
-					h('title', null, '#' + node.path + ' · ' + node.count)));
+						className: isRoot ? 'evrGraphLabel evrGraphRoot' : 'evrGraphLabel',
+					}, tagGraphLabelOf(node)),
+					h('title', null, '#' + node.path + ' · ' + node.count));
 			});
 
-			/**
-			 * The path of the parent of the focused tag.
-			 *
-			 * @returns {string|null} The parent path, or null at the top.
-			 */
-			function parentPath() {
-				if (focused === null) return null;
-				var segments = focused.path.split('/');
-				segments.pop();
-				return segments.length === 0 ? null : segments.join('/');
-			}
-
-			var up = function (event) {
-				if (event && typeof event.preventDefault === 'function') event.preventDefault();
-				setFocus(parentPath());
-			};
-			var crumbs = [h('button', {
-				key: 'all',
-				type: 'button',
-				className: 'evrCrumbBtn' + (focused === null ? ' evrCrumbBtnActive' : ''),
-				onClick: function () { setFocus(null); },
-			}, t('overview.tree.all'))];
-			if (focused !== null) {
-				var segments = focused.path.split('/');
-				var prefix = '';
-				segments.forEach(function (segment, index) {
-					prefix = prefix === '' ? segment : prefix + '/' + segment;
-					var target = prefix;
-					crumbs.push(h('span', { key: 'sep-' + index, className: 'evrCrumbSep' }, '›'));
-					crumbs.push(h('button', {
-						key: 'crumb-' + index,
-						type: 'button',
-						className: 'evrCrumbBtn' + (index === segments.length - 1 ? ' evrCrumbBtnActive' : ''),
-						onClick: function () { setFocus(target); },
-					}, '#' + segment));
-				});
-			}
 			return h('div', null,
-				focused === null ? null : h('div', { className: 'evrCrumb', role: 'navigation', 'aria-label': t('overview.tree.graphLabel') }, crumbs),
-				visible.length === 0
-					? h('div', { className: 'evrHint' }, t('overview.tree.noChildren'))
-					: h('svg', {
-						className: 'evrGraph',
-						viewBox: '0 0 ' + width + ' ' + height,
-						role: 'group',
-						'aria-label': t('overview.tree.graphLabel'),
-					},
-						h('g', null, edges),
-						h('g', {
-							className: 'evrGraphCenterNode',
-							role: focused === null ? undefined : 'button',
-							tabIndex: focused === null ? undefined : 0,
-							'aria-label': focused === null ? undefined : t('overview.tree.up'),
-							onClick: focused === null ? undefined : up,
-							onKeyDown: focused === null
-								? undefined
-								: function (event) {
-									if (event && (event.key === 'Enter' || event.key === ' ')) up(event);
-								},
+				h('svg', {
+					className: 'evrGraph',
+					viewBox: '0 0 ' + layout.width + ' ' + layout.height,
+					role: 'img',
+					'aria-label': t('overview.tree.graphLabel'),
+					onClick: function () { setFocus(null); },
+				},
+					h('g', {
+						style: {
+							transform: camera,
+							transition: 'transform 280ms ease',
 						},
-							h('circle', {
-								cx: cx,
-								cy: cy,
-								r: centerRadius,
-								className: 'evrGraphCenter' + (focused === null ? ' evrGraphCenterStatic' : ''),
-							}),
-							h('text', { x: cx, y: cy + 3.5, textAnchor: 'middle', className: 'evrGraphCenterLabel' }, centerLabel)),
-						h('g', null, elements)));
+					},
+						h('g', null, edgeEls),
+						h('circle', { cx: layout.cx, cy: layout.cy, r: 15, className: 'evrGraphCenter' }),
+						h('text', {
+							x: layout.cx,
+							y: layout.cy + 3.5,
+							textAnchor: 'middle',
+							className: 'evrGraphCenterLabel',
+						}, t('overview.graph.center')),
+						h('g', null, nodeEls))),
+				h('div', { className: 'evrHint', style: { marginTop: '4px' } }, t('overview.tree.zoomHint')));
 		}
 
 		/**

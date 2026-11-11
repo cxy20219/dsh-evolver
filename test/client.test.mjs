@@ -750,20 +750,30 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.range.days').length, 0)
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.yearHeatmap.hint').length >= 1)
 
-		// The radial graph zooms into one tag; the centre goes one level back up.
+		// The graph draws the whole tree at once: roots and their children are
+		// both in the picture before anything is clicked.
 		const graphLabels = () => findAll(tree, (node) => typeof node.props?.className === 'string'
 			&& node.props.className.includes('evrGraphLabel')).map((node) => textOf(node))
-		assert.equal(graphLabels().filter((label) => label.startsWith('#工作流')).length, 0)
-		const zoom = findAll(tree, (node) => node.type === 'g' && node.props?.['aria-label'] === 'overview.tree.zoom')
-		assert.equal(zoom.length, 1)
-		zoom[0].props.onClick()
+		assert.ok(graphLabels().filter((label) => label.startsWith('#工作流')).length >= 1, '子标签一开始就在图上')
+		const camera = () => findAll(tree, (node) => node.type === 'g'
+			&& typeof node.props?.style?.transform === 'string' && node.props.style.transform.indexOf('scale(') > -1)[0]
+		assert.equal(camera().props.style.transform.includes('scale(1.9)'), false, '初始是适应全貌的视图')
+
+		// Clicking a node zooms the same picture instead of replacing the level:
+		// the camera moves, and no label leaves the tree.
+		const nodeGroup = findAll(tree, (node) => node.type === 'g'
+			&& typeof node.props?.['aria-label'] === 'string' && node.props['aria-label'].startsWith('践行/工作流 ·'))[0]
+		nodeGroup.props.onClick({ preventDefault() {}, stopPropagation() {} })
 		tree = await runtime.settle(render)
-		assert.ok(graphLabels().filter((label) => label.startsWith('#工作流')).length >= 1)
-		const up = findAll(tree, (node) => node.type === 'g' && node.props?.['aria-label'] === 'overview.tree.up')
-		assert.equal(up.length, 1)
-		up[0].props.onClick()
+		assert.equal(camera().props.style.transform.includes('scale(1.9)'), true, '点击后放大')
+		assert.ok(graphLabels().filter((label) => label.startsWith('#工作流')).length >= 1, '放大后子标签还在')
+
+		// Clicking the empty space fits the whole tree again.
+		const svg = findAll(tree, (node) => node.type === 'svg'
+			&& typeof node.props?.className === 'string' && node.props.className.includes('evrGraph'))[0]
+		svg.props.onClick()
 		tree = await runtime.settle(render)
-		assert.equal(graphLabels().filter((label) => label.startsWith('#工作流')).length, 0)
+		assert.equal(camera().props.style.transform.includes('scale(1.9)'), false, '初始是适应全貌的视图')
 
 		// The overview splits into four sub-tabs; the injected blocks are read-only previews.
 		const subTabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
