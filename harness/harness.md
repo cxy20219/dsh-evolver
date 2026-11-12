@@ -19,7 +19,7 @@ DSH 的「演化器」插件：一个追加式卡片库 + 分层标签 + 双向�
 
 - **没有构建步骤**：`package.json` 只有 `"test": "node --test \"test/*.test.mjs\""`。
 - **新接口必须两处登记**：`src/remote.js` 的 `ENDPOINTS` 数组 **和** `createEvolverHandler` 的 switch。少一处就是 404 或 `unknown-endpoint`。
-- **注入块进前缀缓存**：任何每次请求都会变的内容（计数、时间戳）都会作废整段缓存，写一张卡的成本从 0 变成全价。
+- **注入块进前缀缓存**：任何每次请求都会变的内容（计数、时间戳）都会作废整段缓存，写一张卡的成本从 0 变成全价。会随数据变化的那一半（标签树）必须走 `systemPrompt.context`，只有不会变的（纪律、图例）留在 `systemPrompt.section`。
 - 数据目录默认 `~/.dsh/evolver`，`cards.jsonl` 是追加日志，同 id 后写覆盖前写。
 
 ## 常用入口

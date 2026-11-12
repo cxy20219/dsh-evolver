@@ -77,10 +77,44 @@ function treeLines(cards, descriptions) {
  * @param {Record<string, string>} [descriptions] - The effective description map.
  * @returns {string} The section text.
  */
-export function cardPrompt(cards, budget = DEFAULT_PROMPT_BUDGET, descriptions = TAG_DESCRIPTIONS) {
-	const header = `${CARD_DISCIPLINE}\n[标签类型] #践行=落地行动；#见闻=外部输入；#即兴=主动应变；#复盘=反思提炼；#觉察=内省盲区；#试错=低成本迭代\n[标签树]`
+/**
+ * The legend for the six top branches.
+ *
+ * Static, so it belongs with the discipline in the section rather than with
+ * the tree in the runtime context: only what changes on a write needs to live
+ * somewhere that does not invalidate the prompt cache.
+ */
+export const TAG_LEGEND = '[标签类型] #践行=落地行动；#见闻=外部输入；#即兴=主动应变；#复盘=反思提炼；#觉察=内省盲区；#试错=低成本迭代'
+
+/** Where the tree went, so the section can point at it. */
+export const CARD_TREE_POINTER = '标签树在运行时上下文快照里，以最新一条为准；新枝干下一次快照出现。'
+
+/**
+ * The stable half: discipline, legend, and the pointer to the tree.
+ *
+ * @returns {string} The section text, byte-identical on every request.
+ */
+export function cardSection() {
+	return `${CARD_DISCIPLINE}\n${TAG_LEGEND}\n${CARD_TREE_POINTER}`
+}
+
+/**
+ * The changing half: the tag tree itself.
+ *
+ * This is what gets registered as runtime context rather than as a prompt
+ * section. A branch appearing mid-session then appends a snapshot instead of
+ * rewriting the system prompt, so the conversation prefix stays cached.
+ *
+ * @param {object} cards - The card store.
+ * @param {number} [budget] - Byte budget for the tree.
+ * @param {Record<string, string>} [descriptions] - The effective descriptions.
+ * @returns {string} The tree text, `''` when there is nothing to say.
+ */
+export function cardTree(cards, budget = DEFAULT_PROMPT_BUDGET, descriptions = TAG_DESCRIPTIONS) {
+	if (cards === undefined || cards === null) return ''
 	const lines = treeLines(cards, descriptions)
-	if (lines.length === 0) return `${header}\n（空；新卡默认 #即兴）`
+	if (lines.length === 0) return '[标签树]\n（空；新卡默认 #即兴）'
+	const header = '[标签树]'
 	const kept = []
 	let used = Buffer.byteLength(header, 'utf8')
 	for (const line of lines) {
@@ -91,4 +125,20 @@ export function cardPrompt(cards, budget = DEFAULT_PROMPT_BUDGET, descriptions =
 	}
 	if (kept.length < lines.length) kept.push('…（标签树超出预算，请用 card_query 按标签/关键词检索）')
 	return `${header}\n${kept.join('\n')}`
+}
+
+/**
+ * Both halves joined, which is what the model effectively sees.
+ *
+ * The panel preview and the tool results use this; the prompt registration
+ * splits it again across a section and a runtime context.
+ *
+ * @param {object} cards - The card store.
+ * @param {number} [budget] - Byte budget for the tree.
+ * @param {Record<string, string>} [descriptions] - The effective descriptions.
+ * @returns {string} The full injected text.
+ */
+export function cardPrompt(cards, budget = DEFAULT_PROMPT_BUDGET, descriptions = TAG_DESCRIPTIONS) {
+	const tree = cardTree(cards, budget, descriptions)
+	return tree === '' ? cardSection() : `${cardSection()}\n${tree}`
 }

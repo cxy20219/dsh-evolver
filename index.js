@@ -35,7 +35,7 @@ import { createTools } from './src/tools.js'
 import { PROACTIVE_PROTOCOL } from './src/proactive.js'
 import { createCardAgent } from './src/cards/agent.js'
 import { seedStarterCards } from './src/cards/seed.js'
-import { cardPrompt, DEFAULT_PROMPT_BUDGET } from './src/cards/prompt.js'
+import { cardPrompt, cardSection, cardTree, DEFAULT_PROMPT_BUDGET } from './src/cards/prompt.js'
 import { CardStore } from './src/cards/store.js'
 import { TAG_DESCRIPTIONS } from './src/cards/tags.js'
 import { copyTree, countEntries, isDirectory, isInsidePath, pathsOverlap } from './src/workspace.js'
@@ -898,11 +898,23 @@ export async function apply(ctx, config) {
 
 	// The two injected blocks. Their text is served from a cache so the
 	// assembled prompt stays byte-stable between changes.
+	//
+	// Only the half that cannot change goes into the system prompt. The tag
+	// tree moves with the data, so it rides along as runtime context: a branch
+	// appearing mid-session then appends a snapshot instead of rewriting the
+	// system prompt, and the conversation prefix stays cached. The section
+	// keeps discipline, legend and a pointer, all of it static.
 	disposers.push(ctx.systemPrompt.section({
 		name: 'dsh-evolver:cards',
 		order: 900,
 		interpolate: false,
-		text: () => (cardStoreRef.current === undefined ? '' : cardPrompt(cardStoreRef.current, DEFAULT_PROMPT_BUDGET, tagDescriptionsRef.current)),
+		text: () => cardSection(),
+	}))
+	disposers.push(ctx.systemPrompt.context({
+		name: 'dsh-evolver:tags',
+		order: 900,
+		interpolate: false,
+		text: () => (cardStoreRef.current === undefined ? '' : cardTree(cardStoreRef.current, DEFAULT_PROMPT_BUDGET, tagDescriptionsRef.current)),
 	}))
 	// The data is already injected; this tells the model when to act on it
 	// without being asked. Kept small: it rides on every request.

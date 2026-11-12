@@ -19,6 +19,7 @@ function fakeContext() {
 	const routes = new Map()
 	const tools = []
 	const sections = []
+	const contexts = []
 	const effects = []
 	const ctx = {
 		logger: { info() {}, warn() {} },
@@ -31,6 +32,12 @@ function fakeContext() {
 		systemPrompt: {
 			section(section) {
 				sections.push(section)
+				return () => {}
+			},
+			// The tag tree rides here, not in a section: it changes with the
+			// data, and a section change rewrites the whole prompt prefix.
+			context(entry) {
+				contexts.push(entry)
 				return () => {}
 			},
 		},
@@ -50,7 +57,7 @@ function fakeContext() {
 			return () => {}
 		},
 	}
-	return { ctx, routes, tools, sections, effects }
+	return { ctx, routes, tools, sections, contexts, effects }
 }
 
 /**
@@ -108,7 +115,7 @@ async function disposeEffects(effects) {
 
 test('apply 注册工具、注入与接口，写操作后注入立刻更新', async () => {
 	await withHome(async (home) => {
-		const { ctx, routes, tools, sections, effects } = fakeContext()
+		const { ctx, routes, tools, sections, contexts, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
 			// Nine card tools, three that maintain a project's harness/, and one
@@ -119,8 +126,14 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 				['harness_catalog', 'harness_write', 'harness_validate'],
 			)
 			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:cards', 'dsh-evolver:proactive'])
+			assert.deepEqual(contexts.map((entry) => entry.name), ['dsh-evolver:tags'])
 			assert.equal(routes.size, ENDPOINTS.length)
 			assert.match(sections[0].text(), /\[卡片\]/)
+			// The tree itself is dynamic: it must not live in the section. The
+			// discipline mentions #践行/归档 as an example, so the header is
+			// what tells the two apart.
+			assert.equal(sections[0].text().includes('[标签树]'), false)
+			assert.match(contexts[0].text(), /\[标签树\]/)
 			assert.match(sections[1].text(), /\[主动性\]/)
 
 			const overview = await (await post(routes, 'overview', {})).json()

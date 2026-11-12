@@ -54,9 +54,12 @@
 
 | 部分 | 载体 | 预算 |
 | --- | --- | --- |
-| 标签树（纪律 + 枝干说明） | `systemPrompt.section` order 900 | 4 KB |
-| 主动性（何时召回、何时沉淀、收尾给下一步） | `systemPrompt.section` order 920 | 796 B |
+| 纪律、标签类型、指向标签树的指针（静态） | `systemPrompt.section` order 900 | 1 KB |
+| 标签树本体（随写卡变化） | `systemPrompt.context` order 900 | 4 KB |
+| 主动性（何时召回、何时沉淀、收尾给下一步） | `systemPrompt.section` order 920 | 1 KB |
 | 全局偏好 `preferences/AGENTS.md` | DSH 的 `dsh-agent-instructions` | 64 KB |
+
+标签树单独放在运行时上下文里，是因为它会随写卡变化：放在系统段时，新增一个枝干就要重写整段系统提示，整条对话的前缀缓存全部作废；放在上下文里则只是追加一条新快照，旧快照声明失效，前缀不受影响。
 
 超限不会悄悄变大：超了直接拒绝写入。任何卡片都不自动注入——需要时用 `card_query` 取。
 
