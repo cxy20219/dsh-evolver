@@ -581,6 +581,10 @@ window.__ModuleLoader__.load({
 			'.evrLinkEdgeMutual{stroke-opacity:.85;stroke-width:1.4}',
 			'.evrLinkArrow{fill:var(--dsw-alias-label-tertiary);fill-opacity:.6}',
 			'.evrLinkNode circle{stroke:var(--dsw-alias-bg-base);stroke-width:1}',
+			'.evrLinkNode{cursor:grab}',
+			'.evrLinkNodeDragging{cursor:grabbing}',
+			'.evrLinkNodeDragging circle{stroke:var(--dsw-alias-label-primary);stroke-width:1.5}',
+			'.evrLinkGraphDragging{cursor:grabbing}',
 			'.evrLinkNodeOn circle{stroke:var(--dsw-alias-label-primary);stroke-width:1.5}',
 			'.evrLinkEdgeWeak{stroke-dasharray:2 4;stroke-width:.75;stroke-opacity:.22}',
 			'.evrLinkBranch{font-size:10px;font-family:inherit;font-weight:500;letter-spacing:.06em;pointer-events:none;paint-order:stroke;stroke:var(--dsw-alias-bg-base);stroke-width:2px;stroke-linejoin:round}',
@@ -1538,30 +1542,16 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Layouts already computed, keyed by the graph payload they came from.
+		 * Simulations already built, keyed by the graph payload they came from.
 		 *
 		 * The panel replaces that payload only when the graph is reloaded, so a
-		 * cache hit means "same picture". It outlives the component, which
-		 * matters because leaving the sub-tab unmounts the graph and coming back
-		 * would otherwise pay for the simulation again.
+		 * cache hit means "same simulation". It outlives the component: leaving
+		 * the sub-tab unmounts the graph, and coming back to a settled picture
+		 * must not restart the animation.
 		 *
 		 * @type {WeakMap<object, object | null>}
 		 */
-		var linkLayoutCache = new WeakMap();
-
-		/**
-		 * Lay the card graph out once.
-		 *
-		 * @param {object | null | undefined} graph - The `graph` endpoint payload.
-		 * @returns {object | null} The laid-out graph, or null when nothing is drawn.
-		 */
-		function linkLayout(graph) {
-			if (graph === null || graph === undefined || typeof graph !== 'object') return null;
-			if (linkLayoutCache.has(graph)) return linkLayoutCache.get(graph);
-			var layout = computeLinkLayout(graph.nodes, graph.edges);
-			linkLayoutCache.set(graph, layout);
-			return layout;
-		}
+		var linkSimulationCache = new WeakMap();
 
 		/**
 		 * Estimate the rendered width of a label in graph units.
@@ -1675,38 +1665,38 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Compute one layout from scratch.
+		 * Build the live force simulation behind the card graph.
 		 *
-		 * A community layout, not a free cloud: the six branches are the
-		 * communities, each one owns an anchor on a circle around the middle, and
-		 * the cards start as a deterministic cloud around their own anchor. From
-		 * there a force simulation settles the picture:
+		 * The same four forces as the headless layout, but driven by a clock
+		 * instead of a fixed step count: the panel ticks it two or three times per
+		 * painted frame and re-renders from `snapshot()`, so the picture cools
+		 * down in front of the reader instead of appearing finished.
 		 *
-		 * - A soft short-range repulsion keeps dots apart without letting distant
-		 *   clusters push each other; the branch anchors are what hold the six
-		 *   regions in place.
-		 * - An explicit link pulls its two cards together harder than a derived
-		 *   tag/branch tie, so stated relations shape the figure and inferred
-		 *   ones only soften it.
-		 * - The anchor pull is degree weighted: leaves stay in their branch, a hub
-		 *   may drift towards another cluster, because hubs are the bridges.
-		 * - Radius follows degree centrality, so the cards that hold a branch
-		 *   together look heavier.
-		 * - Collision passes resolve what the soft repulsion leaves behind.
+		 * Cost model, because this runs on the render thread:
+		 * - One tick is O(n²) in the near-range repulsion (pairs past 60 units are
+		 *   skipped), O(E) in the springs and O(n²) in one collision pass. For the
+		 *   real 105-card library that is ~5.5k pair checks per tick; for the
+		 *   panel's 300-node ceiling it is ~45k.
+		 * - The panel paints at ~30fps with two ticks per painted frame, so the
+		 *   simulation settles in about four seconds. The measured tick cost is
+		 *   in the same order as one React diff of the graph (see the tool's
+		 *   `layoutMs`), which is why the simulation is not run at 60fps.
+		 * - `snapshot()` allocates one projected node/edge array per painted
+		 *   frame, not per tick; labels are only re-laid-out when the simulation
+		 *   is at rest (see LinkGraph), so a moving picture stays cheap.
 		 *
-		 * The simulation is deterministic (no clock, no random seeding): the same
-		 * payload always draws the same picture, and the WeakMap above caches it.
+		 * Deterministic: no clock and no random numbers — the alpha decay is the
+		 * only "time", and it is a pure function of the step count.
 		 *
 		 * Called with one argument it keeps the old contract: `cards` is a raw
 		 * card list, links are derived from `card.links`, and cards without any
-		 * link are left out. Called with `edges` it lays out every node it is
-		 * given, isolated cards included.
+		 * link are left out. Called with `edges` it includes every node given.
 		 *
 		 * @param {object[]} cards - Graph nodes, or raw cards in the one-argument form.
 		 * @param {object[]} [edges] - Graph edges, `{source, target, kind, mutual}`.
-		 * @returns {object | null} The laid-out graph, or null when nothing is drawn.
+		 * @returns {object | null} The simulation, or null when nothing is drawn.
 		 */
-		function computeLinkLayout(cards, edges) {
+		function createLinkSimulation(cards, edges) {
 			var list = Array.isArray(cards) ? cards : [];
 			var explicit = Array.isArray(edges);
 			var byId = {};
@@ -1861,7 +1851,7 @@ window.__ModuleLoader__.load({
 
 			// Seed each cluster as a cloud around its anchor. Big branches get a
 			// wider cloud; every cluster keeps roughly the same visual density.
-			var placed = [];
+			var nodes = [];
 			present.forEach(function (branch) {
 				var members = groups[branch] ?? [];
 				members.sort(function (left, right) {
@@ -1871,21 +1861,36 @@ window.__ModuleLoader__.load({
 				var anchor = anchors[branch];
 				members.forEach(function (card, index) {
 					var offset = cloudOffset(index, members.length, card.id);
-					placed.push({
-						card: card,
+					nodes.push({
+						id: card.id,
+						label: typeof card.label === 'string' ? card.label : '',
 						branch: branch,
-						anchor: anchor,
+						color: linkColorOf(card),
+						degree: degree[card.id] ?? 0,
+						weight: weightOf(card.id),
 						x: anchor.x + offset.x * spread,
 						y: anchor.y + offset.y * spread,
 						vx: 0,
 						vy: 0,
 						r: radiusOf(card.id),
 						mass: massOf(card.id),
+						anchor: anchor,
+						// While a node is dragged the pointer owns fx/fy; the
+						// integration step leaves it there and the springs move
+						// the neighbours instead.
+						fx: null,
+						fy: null,
 					});
 				});
 			});
+			// The seed cloud may reach past the frame for a big branch; clamp it
+			// once so the very first painted frame is already complete.
+			nodes.forEach(function (node) {
+				node.x = Math.min(width - node.r - 2, Math.max(node.r + 2, node.x));
+				node.y = Math.min(height - node.r - 2, Math.max(node.r + 2, node.y));
+			});
 			var index = {};
-			placed.forEach(function (node) { index[node.card.id] = node; });
+			nodes.forEach(function (node) { index[node.id] = node; });
 
 			// A stated link is short and stiff; an inferred tie is long and soft.
 			// The rest length shrinks with the average degree weight, so a hub's
@@ -1901,30 +1906,63 @@ window.__ModuleLoader__.load({
 				};
 			});
 
-			// Repulsion is soft near the centre of a crowded cluster, so overlaps
-			// are also resolved geometrically. The passes are cheap O(n²) and only
-			// run every fifth step; the last ones clean up what the forces leave.
-			var separate = function (passes, gap) {
-				for (var pass = 0; pass < passes; pass += 1) {
-					for (var i = 0; i < placed.length; i += 1) {
-						for (var j = i + 1; j < placed.length; j += 1) {
-							var a = placed[i];
-							var b = placed[j];
-							var need = a.r + b.r + gap;
-							var dx = b.x - a.x;
-							var dy = b.y - a.y;
-							var distance = Math.sqrt(dx * dx + dy * dy);
-							if (distance >= need) continue;
-							// Coincident nodes have no direction to part along;
-							// this nudge is deterministic, not a random jitter.
-							if (distance < 0.01) {
-								dx = 0.01;
-								dy = 0;
-								distance = 0.01;
-							}
-							var shift = (need - distance) / 2;
-							var ux = dx / distance;
-							var uy = dy / distance;
+			var neighbours = pairs.reduce(function (map, edge) {
+				(map[edge.source] ?? (map[edge.source] = [])).push(edge.target);
+				(map[edge.target] ?? (map[edge.target] = [])).push(edge.source);
+				return map;
+			}, {});
+
+			/**
+			 * Whether the pointer currently owns this node's position.
+			 *
+			 * @param {object} node - A simulation node.
+			 * @returns {boolean} True while it is being dragged.
+			 */
+			function isFixed(node) {
+				return typeof node.fx === 'number' && Number.isFinite(node.fx)
+					&& typeof node.fy === 'number' && Number.isFinite(node.fy);
+			}
+
+			// Overlaps are resolved geometrically on top of the soft repulsion. One
+			// pass per tick is enough while the simulation is hot; the headless
+			// layout adds the extra passes at the end.
+			/**
+			 * Push overlapping dots apart, leaving a gap.
+			 *
+			 * @param {number} gap - Extra space between two circles.
+			 * @returns {void}
+			 */
+			function collide(gap) {
+				for (var i = 0; i < nodes.length; i += 1) {
+					for (var j = i + 1; j < nodes.length; j += 1) {
+						var a = nodes[i];
+						var b = nodes[j];
+						var need = a.r + b.r + gap;
+						var dx = b.x - a.x;
+						var dy = b.y - a.y;
+						var distance = Math.sqrt(dx * dx + dy * dy);
+						if (distance >= need) continue;
+						// Coincident nodes have no direction to part along; this
+						// nudge is deterministic, not a random jitter.
+						if (distance < 0.01) {
+							dx = 0.01;
+							dy = 0;
+							distance = 0.01;
+						}
+						var shift = (need - distance) / 2;
+						var ux = dx / distance;
+						var uy = dy / distance;
+						var aFixed = isFixed(a);
+						var bFixed = isFixed(b);
+						if (aFixed && bFixed) continue;
+						// A pinned circle stays put; the free end takes the whole gap.
+						if (aFixed) {
+							b.x += ux * shift * 2;
+							b.y += uy * shift * 2;
+						} else if (bFixed) {
+							a.x -= ux * shift * 2;
+							a.y -= uy * shift * 2;
+						} else {
 							a.x -= ux * shift;
 							a.y -= uy * shift;
 							b.x += ux * shift;
@@ -1932,16 +1970,34 @@ window.__ModuleLoader__.load({
 						}
 					}
 				}
+			}
+
+			var self = {
+				width: width,
+				height: height,
+				nodes: nodes,
+				pairs: pairs,
+				neighbours: neighbours,
+				alpha: 1,
+				step: step,
+				reheat: reheat,
+				snapshot: snapshot,
 			};
 
-			for (var step = 0; step < 340; step += 1) {
-				// Cooling: every force is strongest at the start and dies away, so
-				// the layout settles instead of orbiting its equilibrium.
-				var alpha = Math.pow(0.99, step);
-				for (var i = 0; i < placed.length; i += 1) {
-					for (var j = i + 1; j < placed.length; j += 1) {
-						var a = placed[i];
-						var b = placed[j];
+			/**
+			 * Advance the simulation one tick.
+			 *
+			 * @param {number} [alpha] - Force strength to use instead of the
+			 *   simulation's own; the headless layout drives a fixed cooling curve
+			 *   this way.
+			 * @returns {number} The alpha used for this tick.
+			 */
+			function step(alpha) {
+				var heat = typeof alpha === 'number' ? alpha : self.alpha;
+				for (var i = 0; i < nodes.length; i += 1) {
+					for (var j = i + 1; j < nodes.length; j += 1) {
+						var a = nodes[i];
+						var b = nodes[j];
 						var dx = b.x - a.x;
 						var dy = b.y - a.y;
 						var d2 = dx * dx + dy * dy;
@@ -1950,7 +2006,7 @@ window.__ModuleLoader__.load({
 						// them into one cloud.
 						if (d2 > 3600) continue;
 						var distance = Math.max(1, Math.sqrt(d2));
-						var push = (alpha * 900 * a.mass * b.mass) / (d2 + 49);
+						var push = (heat * 900 * a.mass * b.mass) / (d2 + 49);
 						a.vx -= (dx / distance) * push;
 						a.vy -= (dy / distance) * push;
 						b.vx += (dx / distance) * push;
@@ -1963,107 +2019,80 @@ window.__ModuleLoader__.load({
 					var dx = target.x - source.x;
 					var dy = target.y - source.y;
 					var distance = Math.max(0.5, Math.sqrt(dx * dx + dy * dy));
-					var pull = (distance - spring.rest) * spring.stiffness * alpha;
+					var pull = (distance - spring.rest) * spring.stiffness * heat;
 					source.vx += (dx / distance) * pull;
 					source.vy += (dy / distance) * pull;
 					target.vx -= (dx / distance) * pull;
 					target.vy -= (dy / distance) * pull;
 				});
-				placed.forEach(function (node) {
-					// The branch anchor is what makes the picture six regions. A hub
-					// is pulled less, so it can sit between branches as the bridge.
-					var strength = 0.040 * (1 - 0.75 * weightOf(node.card.id)) * alpha;
+				for (var k = 0; k < nodes.length; k += 1) {
+					var node = nodes[k];
+					if (isFixed(node)) {
+						node.x = node.fx;
+						node.y = node.fy;
+						node.vx = 0;
+						node.vy = 0;
+						continue;
+					}
+					// The branch anchor is what makes the picture six regions. A
+					// hub is pulled less, so it can sit between branches as the
+					// bridge between communities.
+					var strength = 0.040 * (1 - 0.75 * node.weight) * heat;
 					node.vx += (node.anchor.x - node.x) * strength;
 					node.vy += (node.anchor.y - node.y) * strength;
 					node.x += node.vx * 0.45;
 					node.y += node.vy * 0.45;
 					node.vx *= 0.82;
 					node.vy *= 0.82;
-				});
-				if (step % 5 === 4) separate(2, 4);
+				}
+				collide(4);
+				// The live canvas has no final fit pass, so a card that drifts out
+				// of the frame is a lost card: keep every free dot inside, radius
+				// included, after both the forces and the collision pass.
+				for (var m = 0; m < nodes.length; m += 1) {
+					var kept = nodes[m];
+					if (isFixed(kept)) continue;
+					kept.x = Math.min(width - kept.r - 2, Math.max(kept.r + 2, kept.x));
+					kept.y = Math.min(height - kept.r - 2, Math.max(kept.r + 2, kept.y));
+				}
+				if (typeof alpha === 'number') return heat;
+				// d3's cooling curve: alpha eases towards zero (and a drag can
+				// pump it back up), so a settled picture costs no more ticks.
+				self.alpha += (0 - self.alpha) * 0.0228;
+				return self.alpha;
 			}
-			separate(4, 4);
 
-			// Fit the viewBox, radii included, so the picture stays proportional.
-			// The cap keeps a two-card graph from being blown up to poster size.
-			var minX = Infinity;
-			var minY = Infinity;
-			var maxX = -Infinity;
-			var maxY = -Infinity;
-			placed.forEach(function (node) {
-				minX = Math.min(minX, node.x - node.r);
-				minY = Math.min(minY, node.y - node.r);
-				maxX = Math.max(maxX, node.x + node.r);
-				maxY = Math.max(maxY, node.y + node.r);
-			});
-			var spanX = Math.max(1, maxX - minX);
-			var spanY = Math.max(1, maxY - minY);
-			var fit = Math.min(1.5, (width - 20) / spanX, (height - 20) / spanY);
-			var offsetX = (width - spanX * fit) / 2;
-			var offsetY = (height - spanY * fit) / 2;
-			placed.forEach(function (node) {
-				node.x = offsetX + (node.x - minX) * fit;
-				node.y = offsetY + (node.y - minY) * fit;
-				node.r = Math.max(1.3, node.r * fit);
-			});
-			// The radius floor eats the spacing the simulation settled on; a final
-			// pass in fitted coordinates puts the gaps back.
-			separate(2, Math.max(0.5, 4 * fit));
+			/**
+			 * Pump heat back into a settled simulation (a drag does this).
+			 *
+			 * @param {number} value - Minimum alpha after the call.
+			 * @returns {number} The new alpha.
+			 */
+			function reheat(value) {
+				self.alpha = Math.max(self.alpha, value);
+				return self.alpha;
+			}
 
-			// One faint branch name per region, at the centroid of its members: the
-			// anchor is what the cluster was seeded around, but after the forces it
-			// is the members that say where the region actually is.
-			var branchLabels = [];
-			present.forEach(function (branch) {
-				var members = placed.filter(function (node) { return node.branch === branch; });
-				// Three cards make a readable region; an untagged cluster has no
-				// name to write, so it stays unnamed rather than drawing a gap.
-				if (members.length < 3 || branch === '') return;
-				var x = 0;
-				var y = 0;
-				members.forEach(function (node) { x += node.x; y += node.y; });
-				var cx = x / members.length;
-				var cy = y / members.length;
-				// A name buried under the dots of its own cluster says nothing:
-				// try a few rings around the centroid and keep the roomiest spot.
-				var offsets = [[0, 0], [0, -13], [0, 13], [-16, 0], [16, 0], [-13, -13], [13, -13], [-13, 13], [13, 13], [0, -24], [0, 24], [-28, 0], [28, 0]];
-				var best = { x: Math.min(width - 14, Math.max(14, cx)), y: Math.min(height - 6, Math.max(12, cy)), penalty: Infinity };
-				offsets.forEach(function (offset) {
-					var px = Math.min(width - 14, Math.max(14, cx + offset[0]));
-					var py = Math.min(height - 6, Math.max(12, cy + offset[1]));
-					var penalty = 0;
-					placed.forEach(function (node) {
-						var gap = Math.hypot(node.x - px, node.y - py) - node.r;
-						if (gap < 8) penalty += 8 - gap;
-					});
-					if (penalty < best.penalty) best = { x: px, y: py, penalty: penalty };
-				});
-				branchLabels.push({
-					branch: branch,
-					count: members.length,
-					color: linkColorOf(members[0].card),
-					x: best.x,
-					y: best.y,
-				});
-			});
-
-			return {
-				width: width,
-				height: height,
-				branches: branchLabels,
-				nodes: placed.map(function (node) {
+			/**
+			 * Project the current state into what the component draws.
+			 *
+			 * @returns {object} `{nodes, edges, branches, neighbours}` with edge
+			 *   paths and region names already resolved for this frame.
+			 */
+			function snapshot() {
+				var projected = nodes.map(function (node) {
 					return {
-						id: node.card.id,
-						label: typeof node.card.label === 'string' ? node.card.label : '',
-						color: linkColorOf(node.card),
+						id: node.id,
+						label: node.label,
+						color: node.color,
 						x: node.x,
 						y: node.y,
 						r: node.r,
-						degree: degree[node.card.id] ?? 0,
+						degree: node.degree,
 						branch: node.branch,
 					};
-				}),
-				edges: pairs.map(function (edge) {
+				});
+				var edgePaths = pairs.map(function (edge) {
 					var source = index[edge.source];
 					var target = index[edge.target];
 					var weak = edge.kind !== 'link';
@@ -2092,12 +2121,132 @@ window.__ModuleLoader__.load({
 							+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
 							+ ' ' + endX.toFixed(1) + ' ' + endY.toFixed(1),
 					};
-				}),
-				neighbours: pairs.reduce(function (map, edge) {
-					(map[edge.source] ?? (map[edge.source] = [])).push(edge.target);
-					(map[edge.target] ?? (map[edge.target] = [])).push(edge.source);
-					return map;
-				}, {}),
+				});
+				// One faint branch name per region, at the centroid of its members:
+				// the anchor is what the cluster was seeded around, but after the
+				// forces it is the members that say where the region actually is.
+				var branchLabels = [];
+				present.forEach(function (branch) {
+					var members = nodes.filter(function (node) { return node.branch === branch; });
+					// Three cards make a readable region; an untagged cluster has no
+					// name to write, so it stays unnamed rather than drawing a gap.
+					if (members.length < 3 || branch === '') return;
+					var sumX = 0;
+					var sumY = 0;
+					members.forEach(function (node) { sumX += node.x; sumY += node.y; });
+					var centreX = sumX / members.length;
+					var centreY = sumY / members.length;
+					// A name buried under the dots of its own cluster says nothing:
+					// try a few rings around the centroid and keep the roomiest spot.
+					var offsets = [[0, 0], [0, -13], [0, 13], [-16, 0], [16, 0], [-13, -13], [13, -13], [-13, 13], [13, 13], [0, -24], [0, 24], [-28, 0], [28, 0]];
+					var best = { x: Math.min(width - 14, Math.max(14, centreX)), y: Math.min(height - 6, Math.max(12, centreY)), penalty: Infinity };
+					offsets.forEach(function (offset) {
+						var px = Math.min(width - 14, Math.max(14, centreX + offset[0]));
+						var py = Math.min(height - 6, Math.max(12, centreY + offset[1]));
+						var penalty = 0;
+						nodes.forEach(function (node) {
+							var gap = Math.hypot(node.x - px, node.y - py) - node.r;
+							if (gap < 8) penalty += 8 - gap;
+						});
+						if (penalty < best.penalty) best = { x: px, y: py, penalty: penalty };
+					});
+					branchLabels.push({
+						branch: branch,
+						count: members.length,
+						color: members[0].color,
+						x: best.x,
+						y: best.y,
+					});
+				});
+				return {
+					nodes: projected,
+					edges: edgePaths,
+					branches: branchLabels,
+					neighbours: neighbours,
+				};
+			}
+
+			return self;
+		}
+
+		/**
+		 * Settle the graph once, headless.
+		 *
+		 * The layout tool and the static render path need one deterministic
+		 * picture, not an animation: build the same simulation, run a fixed
+		 * 340-step cooling curve (0.99^step), then fit what came out into the
+		 * viewBox — radii included — and hand back the same shape a live
+		 * snapshot has.
+		 *
+		 * @param {object[]} cards - Graph nodes, or raw cards in the one-argument form.
+		 * @param {object[]} [edges] - Graph edges, `{source, target, kind, mutual}`.
+		 * @returns {object | null} The laid-out graph, or null when nothing is drawn.
+		 */
+		function computeLinkLayout(cards, edges) {
+			var sim = createLinkSimulation(cards, edges);
+			if (sim === null) return null;
+			for (var step = 0; step < 340; step += 1) sim.step(Math.pow(0.99, step));
+			var nodes = sim.nodes;
+			// Fit the viewBox, radii included, so the picture stays proportional.
+			// The cap keeps a two-card graph from being blown up to poster size.
+			var minX = Infinity;
+			var minY = Infinity;
+			var maxX = -Infinity;
+			var maxY = -Infinity;
+			nodes.forEach(function (node) {
+				minX = Math.min(minX, node.x - node.r);
+				minY = Math.min(minY, node.y - node.r);
+				maxX = Math.max(maxX, node.x + node.r);
+				maxY = Math.max(maxY, node.y + node.r);
+			});
+			var spanX = Math.max(1, maxX - minX);
+			var spanY = Math.max(1, maxY - minY);
+			var fit = Math.min(1.5, (sim.width - 20) / spanX, (sim.height - 20) / spanY);
+			var offsetX = (sim.width - spanX * fit) / 2;
+			var offsetY = (sim.height - spanY * fit) / 2;
+			nodes.forEach(function (node) {
+				node.x = offsetX + (node.x - minX) * fit;
+				node.y = offsetY + (node.y - minY) * fit;
+				node.r = Math.max(1.3, node.r * fit);
+			});
+			// The radius floor eats the spacing the simulation settled on; the last
+			// separation passes in fitted coordinates put the gaps back.
+			var separate = function (passes, gap) {
+				for (var pass = 0; pass < passes; pass += 1) {
+					for (var i = 0; i < nodes.length; i += 1) {
+						for (var j = i + 1; j < nodes.length; j += 1) {
+							var a = nodes[i];
+							var b = nodes[j];
+							var need = a.r + b.r + gap;
+							var dx = b.x - a.x;
+							var dy = b.y - a.y;
+							var distance = Math.sqrt(dx * dx + dy * dy);
+							if (distance >= need) continue;
+							if (distance < 0.01) {
+								dx = 0.01;
+								dy = 0;
+								distance = 0.01;
+							}
+							var shift = (need - distance) / 2;
+							var ux = dx / distance;
+							var uy = dy / distance;
+							a.x -= ux * shift;
+							a.y -= uy * shift;
+							b.x += ux * shift;
+							b.y += uy * shift;
+						}
+					}
+				}
+			};
+			separate(2, Math.max(0.5, 4 * fit));
+			var snapshot = sim.snapshot();
+			return {
+				width: sim.width,
+				height: sim.height,
+				branches: snapshot.branches,
+				nodes: snapshot.nodes,
+				edges: snapshot.edges,
+				neighbours: snapshot.neighbours,
 			};
 		}
 
@@ -2108,9 +2257,14 @@ window.__ModuleLoader__.load({
 		 * sized by how many links it has, colour by branch, a faint branch name
 		 * over each community, labels on the busiest cards, and hovering or
 		 * clicking a card names it and its neighbours and fades everything else.
-		 * Explicit links are solid with an arrowhead; the tag and branch ties the
-		 * host derives are dashed and very faint. The canvas pans and zooms like
-		 * Obsidian's does; there is no toolbar, the picture is the whole feature.
+		 * Explicit links are solid; the direction arrow only appears on the
+		 * hovered card's own links; the tag and branch ties the host derives are
+		 * dashed and very faint.
+		 *
+		 * The picture is alive: the simulation runs from its seed so the six
+		 * communities visibly form, a node can be dragged (the simulation
+		 * reheats and its neighbours follow), and the canvas pans and zooms
+		 * around it. There is no toolbar.
 		 *
 		 * @param {object} props - Component props: `t` and the graph payload.
 		 * @returns {object} The element tree.
@@ -2118,23 +2272,96 @@ window.__ModuleLoader__.load({
 		function LinkGraph(props) {
 			var t = props.t;
 			var graph = props.graph;
-			var layout = useMemo(function () { return linkLayout(graph); }, [graph]);
+			var sim = useMemo(function () {
+				if (graph === null || graph === undefined || typeof graph !== 'object') return null;
+				if (linkSimulationCache.has(graph)) return linkSimulationCache.get(graph);
+				var created = createLinkSimulation(graph.nodes, graph.edges);
+				// A host without requestAnimationFrame (the test shell) gets the
+				// settled picture synchronously: the same simulation and cooling
+				// curve, just stepped to rest before the first paint, so the
+				// rendered coordinates stay deterministic and assertable.
+				if (created !== null && typeof requestAnimationFrame !== 'function') {
+					for (var step = 0; step < 340; step += 1) created.step(Math.pow(0.99, step));
+					created.alpha = 0;
+				}
+				linkSimulationCache.set(graph, created);
+				return created;
+			}, [graph]);
 			var [camera, setCamera] = useState(null);
 			var [hovered, setHovered] = useState(null);
 			var [pinned, setPinned] = useState(null);
+			var [tick, setTick] = useState(0);
+			var [dragging, setDragging] = useState(null);
 			var svgRef = useRef(null);
 			var dragRef = useRef(null);
 			var movedRef = useRef(false);
+			var animRef = useRef({ handle: null, last: 0, alive: false, wake: null });
+			var view = camera === null ? { s: 1, x: 0, y: 0 } : camera;
+			var focus = hovered ?? pinned;
+
+			// One projection per painted frame. The simulation is the source of
+			// truth; React only ever sees this snapshot, so a drag or a tick is
+			// just "take another snapshot and diff it".
+			var snapshot = useMemo(function () {
+				return sim === null ? null : sim.snapshot();
+			}, [sim, tick]);
+
 			useEffect(function () {
 				setCamera(null);
 				setHovered(null);
 				setPinned(null);
-			}, [layout]);
-			var view = camera === null ? { s: 1, x: 0, y: 0 } : camera;
-			var focus = hovered ?? pinned;
+				setDragging(null);
+			}, [sim]);
+
+			// The animation loop: ~30 painted frames per second, two physics ticks
+			// per painted frame. Half the repaints of a 60fps loop for the same
+			// settle time; the simulation stops on its own once alpha < 0.005, and
+			// a drag calls wake() to start it again.
+			useEffect(function () {
+				if (sim === null || typeof requestAnimationFrame !== 'function') return undefined;
+				var state = animRef.current;
+				state.alive = true;
+				state.last = 0;
+				/**
+				 * Advance the simulation and repaint.
+				 *
+				 * @param {number} now - Timestamp handed over by requestAnimationFrame.
+				 * @returns {void}
+				 */
+				function frame(now) {
+					state.handle = null;
+					if (!state.alive) return;
+					if (now - state.last < 32) {
+						state.handle = requestAnimationFrame(frame);
+						return;
+					}
+					state.last = now;
+					sim.step();
+					sim.step();
+					setTick(function (value) { return value + 1; });
+					if (sim.alpha >= 0.005) state.handle = requestAnimationFrame(frame);
+				}
+				/**
+				 * Restart the loop after a reheat woke a settled simulation.
+				 *
+				 * @returns {void}
+				 */
+				state.wake = function () {
+					if (!state.alive || state.handle !== null) return;
+					state.last = 0;
+					state.handle = requestAnimationFrame(frame);
+				};
+				if (sim.alpha >= 0.005) state.handle = requestAnimationFrame(frame);
+				return function () {
+					state.alive = false;
+					state.wake = null;
+					if (state.handle !== null) cancelAnimationFrame(state.handle);
+					state.handle = null;
+				};
+			}, [sim]);
 
 			useEffect(function () {
-				if (layout === null) return undefined;
+				if (sim === null) return undefined;
 				var node = svgRef.current;
 				if (node === null || node === undefined || typeof node.addEventListener !== 'function') return undefined;
 				/**
@@ -2147,8 +2374,8 @@ window.__ModuleLoader__.load({
 					event.preventDefault();
 					var box = node.getBoundingClientRect();
 					if (box.width === 0 || box.height === 0) return;
-					var px = ((event.clientX - box.left) / box.width) * layout.width;
-					var py = ((event.clientY - box.top) / box.height) * layout.height;
+					var px = ((event.clientX - box.left) / box.width) * sim.width;
+					var py = ((event.clientY - box.top) / box.height) * sim.height;
 					setCamera(function (previous) {
 						var base = previous === null ? { s: 1, x: 0, y: 0 } : previous;
 						var next = Math.min(Math.max(base.s * Math.exp(-event.deltaY * 0.0016), 0.7), 6);
@@ -2158,55 +2385,158 @@ window.__ModuleLoader__.load({
 				}
 				node.addEventListener('wheel', onWheel, { passive: false });
 				return function () { node.removeEventListener('wheel', onWheel); };
-			}, [layout]);
+			}, [sim]);
 
 			// Labels for the busiest cards, on by default and stable across hovers:
 			// the placement pass walks the whole degree order and fills the budget,
 			// so a dense region spends its names where they actually fit.
+			var labelNodes = useMemo(function () {
+				if (sim === null) return [];
+				var limit = Math.min(12, Math.max(6, Math.round(sim.nodes.length / 8)));
+				return sim.nodes.slice().sort(function (left, right) {
+					return right.degree - left.degree || (left.id < right.id ? -1 : 1);
+				}).slice(0, limit);
+			}, [sim]);
+
 			var baseLabels = useMemo(function () {
-				if (layout === null) return null;
-				var ordered = layout.nodes.slice().sort(function (left, right) {
+				if (sim === null || snapshot === null || sim.alpha >= 0.005) return null;
+				var ordered = snapshot.nodes.slice().sort(function (left, right) {
 					return right.degree - left.degree || (left.id < right.id ? -1 : 1);
 				});
-				var limit = Math.min(12, Math.max(6, Math.round(layout.nodes.length / 8)));
+				var limit = Math.min(12, Math.max(6, Math.round(snapshot.nodes.length / 8)));
 				var boxes = [];
 				return {
-					map: placeLinkLabels(ordered, layout.nodes, layout.width, layout.height, limit, boxes),
+					map: placeLinkLabels(ordered, snapshot.nodes, sim.width, sim.height, limit, boxes),
 					boxes: boxes,
 				};
-			}, [layout]);
+			}, [sim, snapshot]);
 
-			// Hovering or pinning one card adds its name and its neighbours' names
-			// on top of the stable set, rather than reflowing every label.
 			var labels = useMemo(function () {
-				if (layout === null || baseLabels === null) return {};
+				if (sim === null || snapshot === null) return {};
+				if (sim.alpha >= 0.005) {
+					// While the layout is still moving, a full collision search per
+					// painted frame would cost more than the motion it explains:
+					// labels follow their dot and flip to the other side near the
+					// edge. The settled pass below replaces this with the real
+					// non-overlapping placement once alpha dies.
+					var quick = {};
+					var wanted = [];
+					var add = function (node) {
+						if (node === undefined || node === null || quick[node.id] === true) return;
+						quick[node.id] = true;
+						wanted.push(node);
+					};
+					if (focus !== null) {
+						snapshot.nodes.forEach(function (node) {
+							if (node.id === focus || (sim.neighbours[focus] ?? []).indexOf(node.id) > -1) add(node);
+						});
+					}
+					labelNodes.forEach(add);
+					var quickLabels = {};
+					wanted.forEach(function (node) {
+						var text = node.label.length > 12 ? node.label.slice(0, 12) + '…' : node.label;
+						if (text === '') return;
+						var boxWidth = linkLabelWidth(text) + 4;
+						var left = node.x + node.r + 4;
+						var anchor = 'start';
+						if (left + boxWidth > sim.width - 1) {
+							left = node.x - node.r - 4 - boxWidth;
+							anchor = 'end';
+						}
+						quickLabels[node.id] = {
+							x: anchor === 'start' ? left : left + boxWidth,
+							y: node.y + 3,
+							anchor: anchor,
+							text: text,
+						};
+					});
+					return quickLabels;
+				}
+				if (baseLabels === null) return {};
 				if (focus === null) return baseLabels.map;
 				var boxes = baseLabels.boxes.slice();
 				var map = { ...baseLabels.map };
 				var ordered = [];
-				layout.nodes.forEach(function (node) {
+				snapshot.nodes.forEach(function (node) {
 					// A card that already has a stable label keeps it: only the
 					// cards without one are placed on top of the default set.
 					if (map[node.id] !== undefined) return;
 					if (node.id === focus) ordered.unshift(node);
-					else if ((layout.neighbours[focus] ?? []).indexOf(node.id) > -1) ordered.push(node);
+					else if ((sim.neighbours[focus] ?? []).indexOf(node.id) > -1) ordered.push(node);
 				});
-				var extra = placeLinkLabels(ordered, layout.nodes, layout.width, layout.height, ordered.length, boxes);
+				var extra = placeLinkLabels(ordered, snapshot.nodes, sim.width, sim.height, ordered.length, boxes);
 				Object.keys(extra).forEach(function (id) { map[id] = extra[id]; });
 				return map;
-			}, [layout, baseLabels, focus]);
+			}, [sim, snapshot, baseLabels, labelNodes, focus]);
 
-			// The element tree depends on the layout, the labels and the focus, not
-			// on the camera: a drag only moves the <g> transform. Rebuilding every
-			// node on each pointermove is what makes a large graph drag badly.
+			/**
+			 * Find the live simulation node behind a snapshot id.
+			 *
+			 * @param {string} id - The card id.
+			 * @returns {object | null} The simulation node.
+			 */
+			function liveNodeOf(id) {
+				if (sim === null) return null;
+				for (var i = 0; i < sim.nodes.length; i += 1) {
+					if (sim.nodes[i].id === id) return sim.nodes[i];
+				}
+				return null;
+			}
+
+			/**
+			 * Where a pointer event lands in graph coordinates (camera included).
+			 *
+			 * @param {object} event - The pointer event.
+			 * @returns {{x: number, y: number} | null} Graph coordinates.
+			 */
+			function graphPointOf(event) {
+				if (sim === null) return null;
+				var box = null;
+				var svg = svgRef.current;
+				if (svg !== null && svg !== undefined && typeof svg.getBoundingClientRect === 'function') {
+					box = svg.getBoundingClientRect();
+				} else if (event.currentTarget !== null && event.currentTarget !== undefined
+					&& typeof event.currentTarget.getBoundingClientRect === 'function') {
+					box = event.currentTarget.getBoundingClientRect();
+				}
+				if (box === null || box.width === 0 || box.height === 0) return null;
+				var px = ((event.clientX - box.left) / box.width) * sim.width;
+				var py = ((event.clientY - box.top) / box.height) * sim.height;
+				return { x: (px - view.x) / view.s, y: (py - view.y) / view.s };
+			}
+
+			/** Wake a settled animation loop after a reheat. */
+			function wakeLoop() {
+				var state = animRef.current;
+				if (typeof state.wake === 'function') state.wake();
+			}
+
+			/** Release a dragged node back to the springs and let it settle. */
+			function endNodeDrag() {
+				var drag = dragRef.current;
+				if (drag === null || drag === undefined || drag.mode !== 'node') return;
+				dragRef.current = null;
+				var node = liveNodeOf(drag.id);
+				if (node !== null) {
+					node.fx = null;
+					node.fy = null;
+				}
+				setDragging(null);
+				if (sim !== null) sim.reheat(0.25);
+				wakeLoop();
+				setTick(function (value) { return value + 1; });
+			}
+
+			// The element tree depends on the snapshot, the labels and the focus,
+			// not on the camera: a pan only moves the <g> transform.
 			var parts = useMemo(function () {
-				if (layout === null) return { edges: [], nodes: [] };
+				if (sim === null || snapshot === null) return { edges: [], nodes: [] };
 				var related = {};
 				if (focus !== null) {
 					related[focus] = true;
-					(layout.neighbours[focus] ?? []).forEach(function (id) { related[id] = true; });
+					(sim.neighbours[focus] ?? []).forEach(function (id) { related[id] = true; });
 				}
-				var edgeEls = layout.edges.map(function (edge, index) {
+				var edgeEls = snapshot.edges.map(function (edge, index) {
 					var weak = edge.kind !== 'link';
 					var lit = focus === null
 						|| (related[edge.source] === true && related[edge.target] === true);
@@ -2215,34 +2545,70 @@ window.__ModuleLoader__.load({
 						d: edge.d,
 						className: 'evrLinkEdge'
 							+ (weak ? ' evrLinkEdgeWeak' : (edge.mutual === true ? ' evrLinkEdgeMutual' : '')),
+						// Direction is only worth drawing while the reader is looking
+						// at one card; a wall of arrowheads says nothing.
 						markerEnd: weak || focus === null ? undefined : 'url(#evrLinkArrow)',
 						opacity: lit ? 1 : 0.15,
 					});
 				});
-				var nodeEls = layout.nodes.map(function (node) {
-					var lit = focus === null || related[node.id] === true;
-					var neighbour = focus !== null && node.id !== focus && related[node.id] === true;
-					var label = labels[node.id];
-					var name = node.label === '' ? node.id : node.label;
+				var nodeEls = snapshot.nodes.map(function (node) {
+					var nodeId = node.id;
+					var lit = focus === null || related[nodeId] === true;
+					var neighbour = focus !== null && nodeId !== focus && related[nodeId] === true;
+					var label = labels[nodeId];
+					var name = node.label === '' ? nodeId : node.label;
 					return h('g', {
-						key: node.id,
-						className: 'evrLinkNode' + (focus === node.id ? ' evrLinkNodeOn' : ''),
+						key: nodeId,
+						className: 'evrLinkNode'
+							+ (focus === nodeId ? ' evrLinkNodeOn' : '')
+							+ (dragging === nodeId ? ' evrLinkNodeDragging' : ''),
 						role: 'button',
 						tabIndex: 0,
 						'aria-label': name + ' · ' + node.degree,
 						opacity: lit ? 1 : 0.16,
-						onMouseEnter: function () { setHovered(node.id); },
+						onPointerDown: function (event) {
+							// Dragging a card must not start a background pan, so this
+							// event stops here. The pointer capture is best effort: a
+							// host without it just loses the pointer outside the svg.
+							if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+							if (event && typeof event.preventDefault === 'function') event.preventDefault();
+							var live = liveNodeOf(nodeId);
+							if (live === null) return;
+							var svg = svgRef.current;
+							if (svg !== null && svg !== undefined && typeof svg.setPointerCapture === 'function'
+								&& event.pointerId !== undefined) {
+								try { svg.setPointerCapture(event.pointerId); } catch (error) { /* best effort */ }
+							}
+							movedRef.current = false;
+							var point = graphPointOf(event);
+							dragRef.current = {
+								mode: 'node',
+								id: nodeId,
+								offsetX: point === null ? 0 : point.x - live.x,
+								offsetY: point === null ? 0 : point.y - live.y,
+								startX: event.clientX,
+								startY: event.clientY,
+							};
+							live.fx = live.x;
+							live.fy = live.y;
+							setDragging(nodeId);
+							if (sim !== null) sim.reheat(0.4);
+							wakeLoop();
+						},
+						onMouseEnter: function () { setHovered(nodeId); },
 						onMouseLeave: function () { setHovered(null); },
-						onFocus: function () { setHovered(node.id); },
+						onFocus: function () { setHovered(nodeId); },
 						onBlur: function () { setHovered(null); },
 						onClick: function (event) {
 							if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-							setPinned(pinned === node.id ? null : node.id);
+							// A drag that moved the card is not a click on it.
+							if (movedRef.current) return;
+							setPinned(pinned === nodeId ? null : nodeId);
 						},
 						onKeyDown: function (event) {
 							if (event && (event.key === 'Enter' || event.key === ' ')) {
 								if (typeof event.preventDefault === 'function') event.preventDefault();
-								setPinned(pinned === node.id ? null : node.id);
+								setPinned(pinned === nodeId ? null : nodeId);
 							}
 						},
 					},
@@ -2258,38 +2624,74 @@ window.__ModuleLoader__.load({
 						h('title', null, name + ' · ' + node.degree + ' ' + t('overview.linkGraph.links')));
 				});
 				return { edges: edgeEls, nodes: nodeEls };
-			}, [layout, labels, focus, t]);
+			}, [sim, snapshot, labels, focus, dragging, t]);
 
-			if (layout === null) return h('div', { className: 'evrHint' }, t('overview.linkGraph.empty'));
+			if (sim === null) return h('div', { className: 'evrHint' }, t('overview.linkGraph.empty'));
 
 			return h('div', { className: 'evrGraphWrap' },
 				h('svg', {
 					ref: svgRef,
-					className: 'evrLinkGraph',
+					className: 'evrLinkGraph' + (dragging === null ? '' : ' evrLinkGraphDragging'),
 					xmlns: 'http://www.w3.org/2000/svg',
-					viewBox: '0 0 ' + layout.width + ' ' + layout.height,
+					viewBox: '0 0 ' + sim.width + ' ' + sim.height,
 					role: 'img',
 					'aria-label': t('overview.linkGraph.label'),
 					onPointerDown: function (event) {
 						movedRef.current = false;
-						dragRef.current = { x: event.clientX, y: event.clientY, camera: view, box: event.currentTarget.getBoundingClientRect() };
+						dragRef.current = {
+							mode: 'pan',
+							x: event.clientX,
+							y: event.clientY,
+							camera: view,
+							box: event.currentTarget.getBoundingClientRect(),
+						};
 					},
 					onPointerMove: function (event) {
 						var drag = dragRef.current;
 						if (drag === null || drag === undefined) return;
+						if (sim === null) return;
+						if (drag.mode === 'node') {
+							var point = graphPointOf(event);
+							if (point === null) return;
+							var node = liveNodeOf(drag.id);
+							if (node === null) return;
+							// The pointer owns the node while dragging; clamp inside the
+							// frame so it cannot be lost off-canvas.
+							node.fx = Math.min(sim.width - node.r - 2, Math.max(node.r + 2, point.x - drag.offsetX));
+							node.fy = Math.min(sim.height - node.r - 2, Math.max(node.r + 2, point.y - drag.offsetY));
+							node.x = node.fx;
+							node.y = node.fy;
+							if (Math.abs(event.clientX - drag.startX) + Math.abs(event.clientY - drag.startY) > 3) {
+								movedRef.current = true;
+							}
+							sim.reheat(0.3);
+							wakeLoop();
+							setTick(function (value) { return value + 1; });
+							return;
+						}
 						var dx = event.clientX - drag.x;
 						var dy = event.clientY - drag.y;
 						if (Math.abs(dx) + Math.abs(dy) > 3) movedRef.current = true;
 						if (drag.box.width === 0 || drag.box.height === 0) return;
 						setCamera({
 							s: drag.camera.s,
-							x: drag.camera.x + dx * (layout.width / drag.box.width),
-							y: drag.camera.y + dy * (layout.height / drag.box.height),
+							x: drag.camera.x + dx * (sim.width / drag.box.width),
+							y: drag.camera.y + dy * (sim.height / drag.box.height),
 						});
 					},
 					onPointerUp: function (event) {
-						var dragged = movedRef.current;
+						var drag = dragRef.current;
+						if (drag !== null && drag !== undefined && drag.mode === 'node') {
+							var svg = svgRef.current;
+							if (svg !== null && svg !== undefined && typeof svg.releasePointerCapture === 'function'
+								&& event.pointerId !== undefined) {
+								try { svg.releasePointerCapture(event.pointerId); } catch (error) { /* best effort */ }
+							}
+							endNodeDrag();
+							return;
+						}
 						dragRef.current = null;
+						var dragged = movedRef.current;
 						if (dragged) return;
 						// A click on the empty canvas fits the whole picture again.
 						if (event.target === event.currentTarget) {
@@ -2297,12 +2699,19 @@ window.__ModuleLoader__.load({
 							setPinned(null);
 						}
 					},
-					onPointerLeave: function () { dragRef.current = null; },
+					onPointerLeave: function () {
+						var drag = dragRef.current;
+						if (drag !== null && drag !== undefined && drag.mode === 'node') {
+							endNodeDrag();
+							return;
+						}
+						dragRef.current = null;
+					},
 				},
 					// The arrowhead is a marker so it follows the curve's own
-					// direction: a link is a statement about who cites whom, and a
-					// plain line cannot say that. `userSpaceOnUse` keeps the head
-					// the same size whatever the stroke width is.
+					// direction: a link is a statement about who cites whom, and
+					// a plain line cannot say that. `userSpaceOnUse` keeps the
+					// head the same size whatever the stroke width is.
 					h('defs', null,
 						h('marker', {
 							id: 'evrLinkArrow',
@@ -2323,7 +2732,7 @@ window.__ModuleLoader__.load({
 					},
 						// The region names sit under the edges and dots: they orient
 						// the eye without competing with a card label.
-						h('g', null, layout.branches.map(function (region) {
+						h('g', null, snapshot.branches.map(function (region) {
 							return h('text', {
 								key: 'branch-' + region.branch,
 								x: region.x,

@@ -2,11 +2,14 @@
 /**
  * Link-graph layout probe.
  *
- * Pulls computeLinkLayout straight out of client.js (no copy to drift) and prints
- * the numbers that decide whether the picture reads as communities: overlaps,
- * span, radii by degree and branchCohesion — how much closer a card sits to its
- * own branch centroid than to the other branches'. The layout groups cards by
- * branch, so cohesion is the number that catches a regression back to one cloud.
+ * Pulls createLinkSimulation and computeLinkLayout straight out of client.js (no
+ * copy to drift) and prints the numbers that decide whether the picture reads as
+ * communities: overlaps, span, radii by degree and branchCohesion — how much
+ * closer a card sits to its own branch centroid than to the other branches'. The
+ * layout groups cards by branch, so cohesion is the number that catches a
+ * regression back to one cloud. computeLinkLayout is the headless settle of the
+ * same simulation the panel animates, so these numbers are the panel's resting
+ * picture.
  *
  * The default run lays out the real card library the old way: one argument, only
  * linked cards. `--graph` takes a saved `graph` endpoint payload instead, so the
@@ -85,12 +88,13 @@ function extractFunction(source, signature) {
 const flags = parseArgs(process.argv.slice(2))
 const root = path.resolve(import.meta.dirname, '../..')
 const source = fs.readFileSync(path.join(root, 'client.js'), 'utf8')
-const body = extractFunction(source, 'function computeLinkLayout(cards, edges) {')
+const simulationBody = extractFunction(source, 'function createLinkSimulation(cards, edges) {')
+const layoutBody = extractFunction(source, 'function computeLinkLayout(cards, edges) {')
 const linkColorOf = (card) => {
 	const branch = typeof card.branch === 'string' ? card.branch : String((card.tags ?? [])[0] ?? '').split('/')[0]
 	return BRANCH_COLORS[branch] ?? '#8a8f98'
 }
-const computeLinkLayout = new Function('linkColorOf', `${body}; return computeLinkLayout`)(linkColorOf)
+const computeLinkLayout = new Function('linkColorOf', `${simulationBody}\n${layoutBody}; return computeLinkLayout`)(linkColorOf)
 
 let payload = null
 let cards = []

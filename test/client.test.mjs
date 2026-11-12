@@ -12,6 +12,39 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 /**
+ * Cut one function out of client.js by matching its braces.
+ *
+ * @param {string} source - The file text.
+ * @param {string} signature - Start of the function declaration.
+ * @returns {string} The function source.
+ */
+function extractFunction(source, signature) {
+	const start = source.indexOf(signature)
+	if (start < 0) throw new Error(`not found: ${signature}`)
+	let depth = 0
+	for (let i = source.indexOf('{', start); i < source.length; i += 1) {
+		if (source[i] === '{') depth += 1
+		if (source[i] === '}') {
+			depth -= 1
+			if (depth === 0) return source.slice(start, i + 1)
+		}
+	}
+	throw new Error(`unbalanced braces after: ${signature}`)
+}
+
+/**
+ * Load createLinkSimulation straight out of client.js, the same way the layout
+ * tool does: the engine must stay extractable and dependency-free.
+ *
+ * @returns {Function} The simulation factory.
+ */
+function linkSimulationFactory() {
+	const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+	const body = extractFunction(source, 'function createLinkSimulation(cards, edges) {')
+	return new Function('linkColorOf', `${body}; return createLinkSimulation`)(() => '#8a8f98')
+}
+
+/**
  * A minimal React: createElement, state, effects and stable callbacks.
  *
  * @returns {object} The runtime, with render/settle helpers.
@@ -1251,13 +1284,206 @@ test('关系图只有图谱本身：悬停高亮 1 跳邻居、缩放与拖拽�
 
 test('枝干布局是确定性的：computeLinkLayout 不读时钟也不随机', () => {
 	const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
-	const start = source.indexOf('function computeLinkLayout(cards, edges) {')
+	const start = source.indexOf('function createLinkSimulation(cards, edges) {')
 	const end = source.indexOf('function LinkGraph(props) {')
-	assert.ok(start > -1 && end > start, '找不到布局函数')
+	assert.ok(start > -1 && end > start, '找不到力模拟引擎')
 	const body = source.slice(start, end)
 	assert.equal(/\bMath\.random\b/.test(body), false, '布局不能使用随机数')
 	assert.equal(/\bDate\.now\b/.test(body), false, '布局不能读时钟')
 	assert.equal(/\bnew Date\b/.test(body), false, '布局不能读时钟')
+})
+
+test('力模拟引擎：种子有限、alpha 单调冷却到静止、同输入两次结算一致', () => {
+	const createLinkSimulation = linkSimulationFactory()
+	const payload = apiPayload('graph', {})
+	const sim = createLinkSimulation(payload.nodes, payload.edges)
+	assert.ok(sim !== null, '模拟没有建起来')
+	assert.equal(sim.width, 360)
+	assert.equal(sim.height, 340)
+	assert.equal(sim.nodes.length, 10)
+	assert.equal(sim.alpha, 1)
+	assert.ok(sim.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y) && node.r > 0),
+		'种子坐标必须有限')
+	const seeded = sim.nodes.map((node) => [node.x, node.y])
+	let previous = sim.alpha
+	for (let i = 0; i < 30; i += 1) {
+		const alpha = sim.step()
+		assert.ok(alpha < previous, 'alpha 必须单调下降')
+		previous = alpha
+	}
+	assert.ok(sim.nodes.some((node, index) => node.x !== seeded[index][0] || node.y !== seeded[index][1]),
+		'节点要动起来')
+	let guard = 0
+	while (sim.alpha >= 0.005 && guard < 500) {
+		sim.step()
+		guard += 1
+	}
+	assert.ok(sim.alpha < 0.005, '模拟必须冷却到静止')
+	assert.ok(guard < 400, `冷却太慢：${guard} 步`)
+	// Reheat is what a drag uses: it pumps a settled simulation back up and can
+	// never cool it further.
+	sim.reheat(0.5)
+	assert.equal(sim.alpha, 0.5)
+	// Deterministic settle: two runs of the same fixed cadence land on the same
+	// coordinates. This is what makes the static render path assertable.
+	const first = createLinkSimulation(payload.nodes, payload.edges)
+	const second = createLinkSimulation(payload.nodes, payload.edges)
+	for (let i = 0; i < 340; i += 1) {
+		first.step(Math.pow(0.99, i))
+		second.step(Math.pow(0.99, i))
+	}
+	const coordinates = (value) => value.nodes.map((node) => [node.id, node.x.toFixed(6), node.y.toFixed(6)]).sort()
+	assert.deepEqual(coordinates(first), coordinates(second))
+})
+
+test('力模拟引擎：拖住的节点不动，松手后弹簧接管', () => {
+	const createLinkSimulation = linkSimulationFactory()
+	const payload = apiPayload('graph', {})
+	const sim = createLinkSimulation(payload.nodes, payload.edges)
+	const node = sim.nodes[0]
+	node.fx = 300
+	node.fy = 240
+	for (let i = 0; i < 30; i += 1) sim.step(0.8)
+	assert.equal(node.x, 300, '拖拽中的节点不能被力推动')
+	assert.equal(node.y, 240)
+	// Release: the pointer is gone, the springs own the dot again.
+	node.fx = null
+	node.fy = null
+	for (let i = 0; i < 30; i += 1) sim.step(0.8)
+	assert.ok(Math.hypot(node.x - 300, node.y - 240) > 0.01, '松手后节点要回到力的作用下')
+})
+
+test('节点可拖拽：按下不冒泡成平移、移动改坐标、松手结束拖拽', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		const svgOf = () => findAll(tree, (node) => node.props?.className !== undefined
+			&& typeof node.props.className === 'string' && node.props.className.split(' ').includes('evrLinkGraph'))[0]
+		const groupOf = (label) => findAll(svgOf(), (node) => node.type === 'g'
+			&& typeof node.props?.['aria-label'] === 'string' && node.props['aria-label'].startsWith(label))[0]
+		const circleOf = (label) => findAll(groupOf(label), (node) => node.type === 'circle')[0]
+		const rect = () => ({ left: 0, top: 0, width: 360, height: 340 })
+		const cameraTransform = () => {
+			const group = findAll(svgOf(), (node) => node.type === 'g'
+				&& typeof node.props?.style?.transform === 'string' && node.props.style.transform.includes('scale('))[0]
+			return group.props.style.transform
+		}
+		assert.equal(typeof groupOf('卡一').props.onPointerDown, 'function', '节点缺少拖拽入口')
+		const cameraBefore = cameraTransform()
+		let stopped = false
+		groupOf('卡一').props.onPointerDown({
+			clientX: circleOf('卡一').props.cx,
+			clientY: circleOf('卡一').props.cy,
+			pointerId: 7,
+			stopPropagation() { stopped = true },
+			preventDefault() {},
+		})
+		assert.equal(stopped, true, '节点拖拽不能冒泡成背景平移')
+		svgOf().props.onPointerMove({ clientX: 180, clientY: 170, pointerId: 7, currentTarget: { getBoundingClientRect: rect } })
+		tree = await runtime.settle(render)
+		const moved = circleOf('卡一')
+		assert.ok(Math.abs(moved.props.cx - 180) < 2, `节点没跟住指针：${moved.props.cx}`)
+		assert.ok(Math.abs(moved.props.cy - 170) < 2, `节点没跟住指针：${moved.props.cy}`)
+		assert.equal(cameraTransform(), cameraBefore, '拖节点时背景不应平移')
+		// Releasing ends the drag; the background drag works again afterwards.
+		svgOf().props.onPointerUp({ pointerId: 7, target: {}, currentTarget: {} })
+		tree = await runtime.settle(render)
+		svgOf().props.onPointerDown({ clientX: 100, clientY: 100, currentTarget: { getBoundingClientRect: rect } })
+		svgOf().props.onPointerMove({ clientX: 140, clientY: 100, currentTarget: { getBoundingClientRect: rect } })
+		tree = await runtime.settle(render)
+		assert.notEqual(cameraTransform(), cameraBefore, '背景拖拽仍然平移')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('浏览器动画路径：首帧是种子，rAF 推进后停住，拖拽能重新唤醒', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const previousRaf = globalThis.requestAnimationFrame
+	const previousCancel = globalThis.cancelAnimationFrame
+	const frames = []
+	// The real browser has requestAnimationFrame; node does not. Queue the
+	// callbacks and drive them by hand so the animated path is covered here too.
+	globalThis.requestAnimationFrame = (callback) => {
+		frames.push(callback)
+		return frames.length
+	}
+	globalThis.cancelAnimationFrame = () => {}
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		const svgOf = () => findAll(tree, (node) => node.props?.className !== undefined
+			&& typeof node.props.className === 'string' && node.props.className.split(' ').includes('evrLinkGraph'))[0]
+		const groupOf = (label) => findAll(svgOf(), (node) => node.type === 'g'
+			&& typeof node.props?.['aria-label'] === 'string' && node.props['aria-label'].startsWith(label))[0]
+		const dots = () => findAll(svgOf(), (node) => node.type === 'g' && typeof node.props?.['aria-label'] === 'string')
+			.map((group) => {
+				const circle = findAll(group, (node) => node.type === 'circle')[0]
+				return { label: group.props['aria-label'].split(' · ')[0], x: circle.props.cx, y: circle.props.cy }
+			})
+		const seeded = dots()
+		assert.equal(seeded.length, 10)
+		assert.ok(frames.length >= 1, '有 rAF 时动画循环要自己排程')
+		let now = 0
+		let framesRun = 0
+		let guard = 0
+		while (frames.length > 0 && guard < 400) {
+			const batch = frames.splice(0)
+			now += 40
+			for (const callback of batch) callback(now)
+			tree = await runtime.settle(render)
+			framesRun += batch.length
+			guard += 1
+		}
+		assert.ok(framesRun > 10, `动画只跑了 ${framesRun} 帧`)
+		assert.equal(frames.length, 0, '冷却到静止后循环应当自己停下')
+		const settled = dots()
+		assert.ok(settled.some((dot, index) => Math.abs(dot.x - seeded[index].x) > 1 || Math.abs(dot.y - seeded[index].y) > 1),
+			'节点要从种子位置开始运动')
+		// A drag pumps heat back in, so the settled loop has to restart.
+		groupOf('卡一').props.onPointerDown({
+			clientX: 100,
+			clientY: 100,
+			pointerId: 3,
+			stopPropagation() {},
+			preventDefault() {},
+		})
+		tree = await runtime.settle(render)
+		assert.ok(frames.length >= 1, '拖拽没有唤醒动画循环')
+		svgOf().props.onPointerUp({ pointerId: 3, target: {}, currentTarget: {} })
+		tree = await runtime.settle(render)
+	} finally {
+		if (previousRaf === undefined) delete globalThis.requestAnimationFrame
+		else globalThis.requestAnimationFrame = previousRaf
+		if (previousCancel === undefined) delete globalThis.cancelAnimationFrame
+		else globalThis.cancelAnimationFrame = previousCancel
+		globalThis.fetch = previousFetch
+	}
 })
 
 test('mini React 在 Hook 序列变化时报错（守卫自检）', () => {

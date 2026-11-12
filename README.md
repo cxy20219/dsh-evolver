@@ -210,7 +210,7 @@ dsh plugin --profile web why dsh-evolver     # 确认行状态
 ## 测试
 
 ```bash
-npm test        # 273 个用例
+npm test        # 277 个用例
 ```
 
 `test/contract.test.mjs` 用源码静态抽取守住「client 调用的接口 = ENDPOINTS = switch 分支」，

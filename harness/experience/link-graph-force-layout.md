@@ -1,6 +1,6 @@
 ---
-title: 链接关系图的布局与视觉层级：六大枝干社区
-summary: 关系图从核心-外围改为枝干社区布局：锚点+云团播种、四种力、弱关系虚线、区域名、按需箭头与防重叠标签；记录去掉外围控件的原因与确定性/规模实测
+title: 链接关系图的布局、实时模拟与拖拽：六大枝干社区
+summary: 关系图是枝干社区布局 + 可拖拽的实时力模拟：锚点云团播种、四种力、rAF 冷却与拖拽 reheat、弱边/区域名/按需箭头/防重叠标签；含无头确定性、性能实测与去外围控件的决策
 ---
 # 链接关系图的布局与视觉层级：六大枝干社区
 
@@ -8,11 +8,11 @@ summary: 关系图从核心-外围改为枝干社区布局：锚点+云团播种
 
 改概览页「链接关系图」（`client.js` 的 `computeLinkLayout` / `LinkGraph`）或宿主 `graph` 载荷时。
 
-## 当前形态：纯图谱
+## 当前形态：纯图谱 + 网络手感
 
 面板上只有标题 + SVG，没有任何工具栏、图例、筛选、计数行或活动状态。用户明确要求「不需要搜索什么的，只需要单纯的图谱，优化的是图谱本身」，因此搜索/图例/弱关系开关/计数行/活动环/导出/重置按钮全部移除，宿主也不再读访问账（节点不再有 `readCount/lastReadAt`）。
 
-读图靠四件事：枝干颜色分簇、簇上的枝干区域名、度数 top-N 的默认标签、hover/pin 的 1 跳高亮；再加缩放/平移。
+读图靠四件事：枝干颜色分簇、簇上的枝干区域名、度数 top-N 的默认标签、hover/pin 的 1 跳高亮；再加缩放/平移。用户随后明确要「网络那种拖拽和力模拟效果」，所以图不是一次性画好的静态图，而是**可拖拽的实时力模拟**（见下一节）。
 
 ## 布局：枝干就是社区
 
@@ -34,6 +34,22 @@ summary: 关系图从核心-外围改为枝干社区布局：锚点+云团播种
 - **标签**：默认按度数取 top-N（`min(12, max(6, round(n/8)))`）；四方位 × 6 档距离搜索，避开节点圆、不互相重叠、不越界；截断 12 字，全名在 `title` 里。hover/pin 只叠加 focus + 1 跳邻居标签，不重排完整布局。
 - **交互**：hover/pin 高亮节点 + 1 跳邻居，其余 opacity 0.16；滚轮缩放（指向光标）、拖拽平移、点空白重置视角；键盘 Enter/空格 pin；布局用 WeakMap 按载荷身份缓存。
 
+## 实时模拟与拖拽（网络手感）
+
+- **引擎**：`createLinkSimulation(cards, edges)` 是唯一状态源，返回 `{width:360, height:340, nodes, pairs, neighbours, alpha, step(), reheat(), snapshot()}`。`snapshot()` 把当前状态投影成组件要画的 nodes/edges(d 路径)/branches，React 只渲染快照。
+- **首屏**：节点从枝干锚点旁的确定性云团出发（种子与无头布局相同），rAF 每帧跑 2 个物理 tick、约 30fps；alpha 按 d3 式 `alpha += (0 - alpha) * 0.0228` 冷却，约 230 tick（≈115 个绘制帧，**3.8 秒**）后 `alpha < 0.005` 自动停循环——静止后零开销，不空转。
+- **拖拽**：节点 `pointerdown` 时 `stopPropagation`（不触发背景平移）、尽量 `setPointerCapture`，记录指针偏移并把 `node.fx/fy` 钉在指针处，`reheat(0.4)` 唤醒循环；`pointermove` 把屏幕坐标按相机逆变换换算成图坐标更新 `fx/fy`、`reheat(0.3)`；`pointerup`/`pointerleave` 清掉 `fx/fy` 并 `reheat(0.25)`，弹簧把节点和邻居带回平衡。位移 <3px 视为点击，保持原来的 pin/focus。
+- **固定节点**：`fx/fy` 非空时该节点不被斥力/弹簧推动（碰撞时由对方让位），但仍会推邻居——这是「拖一个字、周围跟着散开」的手感来源。
+- **降级**：宿主没有 `requestAnimationFrame`（测试 shell）时，建 sim 后同步跑 340 步固定冷却再渲染，坐标确定可断言；浏览器才有动画。
+- **缓存**：sim 按 graph payload 存 WeakMap，离开概览再回来不会重播动画，也不会重算；换库/刷新拿到新 payload 才重新模拟。
+
+### 性能取舍
+
+- 每帧：引擎 2 tick+snapshot 对 105 节点约 **0.33 ms**、300 节点约 **1.06 ms**；整套元素树重建在测试 shell 里 105 节点 **0.75 ms**（p95 1.1）、300 节点 **1.55 ms**（p95 2.4）——远低于 30fps 的 33ms 预算，真实 React DOM diff 未在真实 DSH 里采样，属估算。
+- 运动期间标签走「跟随节点 + 边缘翻边」的便宜放置；`alpha < 0.005` 后才跑完整 `placeLinkLabels`（不互叠、不压节点），避免每帧碰撞搜索的抖动与开销。
+- 若极慢机器仍卡：可把每帧 2 tick 降到 1 tick，或把快照频率降到每两帧一次（代码里注释标了位置）。
+- 模拟跑在渲染线程（非 canvas/worker）；105–300 节点规模没问题，再大需要换渲染路径。
+
 ## 为什么去掉外围能力（决策记录）
 
 第二轮实现过搜索、枝干图例、弱关系开关、计数行、活动环、导出 PNG、重置视角；用户反馈只要图谱本身。于是：
@@ -46,8 +62,9 @@ summary: 关系图从核心-外围改为枝干社区布局：锚点+云团播种
 
 ## 确定性与规模
 
-- 不使用 `Math.random` / `Date.now` / `new Date`（`test/client.test.mjs` 有源码守卫）；同一载荷两次布局完全一致，WeakMap 缓存让重渲染不重算。
-- 实测（2026-11-12，本机真实库）：面板载荷 105 卡 → 105 节点 / 277 边（80 link + 197 weak），`branchCohesion 3.12`、`overlaps 0`、`minGap 5.57`、`span 294×314`、`28.2 ms`；单参旧口径 62 节点 / 81 边 → `cohesion 2.77`、`22.7 ms`。合成 300 节点约 70–90 ms。
+- 不使用 `Math.random` / `Date.now` / `new Date`（`test/client.test.mjs` 有源码守卫）；种子与无头结算完全确定，测试里同输入两次跑 340 步结果一致。
+- 浏览器动画的帧时刻不进入状态（alpha 只随 tick 数衰减），所以模拟终点与无头版一致；差别只在你看到过程。sim 按 payload 缓存在 WeakMap，重渲染不重算、重进页不重播。
+- 实测（2026-11-12，本机真实库）：面板载荷 105 卡 → 105 节点 / 277 边（80 link + 197 weak），无头 `branchCohesion 3.15`、`overlaps 0`、`minGap 5.8`、`span 293×314`、`layoutMs 13.7–25`；单参旧口径 62 节点 / 81 边 → `cohesion 2.74`、`10–14 ms`。合成 300 节点约 70–90 ms。
 - 判据：`overlaps: 0`、`minGap > 0`、`radiiByDegree` 随度数单调不减、多枝干时 `branchCohesion > 1.2` 且枢纽分支的半径更大。
 
 ## 验证
@@ -58,7 +75,9 @@ node harness/tool/link-layout-metrics.mjs                                    # �
 node harness/tool/link-layout-metrics.mjs --graph /tmp/graph.json --svg /tmp/graph.svg
 ```
 
-探针从 `client.js` 里直接抽 `computeLinkLayout`（不复制代码，不会漂移）；`--graph` 模式喂完整 `graph` 载荷，预览里能看到弱边虚线与枝干区域名。判据同上；`overlaps` 或 `branchCohesion` 破了就是布局回退，别只看「看起来差不多」。
+探针从 `client.js` 里直接抽 `createLinkSimulation` + `computeLinkLayout`（不复制代码，不会漂移）；`--graph` 模式喂完整 `graph` 载荷，预览里能看到弱边虚线与枝干区域名。判据同上；`overlaps` 或 `branchCohesion` 破了就是布局回退，别只看「看起来差不多」。
+
+`test/client.test.mjs`（24 条用例）另外钉住：引擎 alpha 单调冷却到静止且两次结算一致、`fx/fy` 固定节点不动/松手后弹簧接管、节点拖拽不冒泡成平移且坐标跟随、mock rAF 下首帧是种子→推进后停住→拖拽重新唤醒、默认标签/区域名/无工具栏/缩放平移不回归。
 
 ## 已知边界
 
@@ -67,3 +86,6 @@ node harness/tool/link-layout-metrics.mjs --graph /tmp/graph.json --svg /tmp/gra
 - 区域名选位只避开节点，不避开卡片标签，密集簇名仍可能被压。
 - 箭头默认隐藏意味着静止时看不到方向，方向要 hover 才出现，是有意的取舍。
 - 标签只覆盖 top-N，长尾卡靠 hover 的 `title`。
+- 首次进入有约 3.8 秒的冷却动画；离开再回来用缓存的 sim，直接是静止图。
+- 拖拽松手后节点回弹到弹簧平衡位置（不是钉住）；想支持「双击钉住」需要另加状态，当前没做。
+- 模拟跑在渲染线程；动画帧率未在真实 DSH 浏览器里采样过（测试 shell 只能验证逻辑与重建成本）。
