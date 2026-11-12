@@ -8,7 +8,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { readdir, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -147,16 +147,4 @@ async function documentedBy(root, state, path) {
 	}
 	if (!mentioned) return undefined
 	return { command: sawCommand, marker: sawMarker }
-}
-
-/**
- * List every file under one folder, relative to the project.
- *
- * @param {string} root - The project root.
- * @param {string} folder - The absolute folder.
- * @returns {Promise<string[]>} The relative paths.
- */
-export async function listFiles(root, folder) {
-	const entries = await readdir(folder, { recursive: true }).catch(() => [])
-	return entries.map((entry) => join(folder, String(entry)).slice(root.length + 1).split('\\').join('/')).sort()
 }
