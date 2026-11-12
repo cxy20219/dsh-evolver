@@ -35,7 +35,7 @@ DSH 的「演化器」插件：一个追加式卡片库 + 分层标签 + 双向�
 ## 常用入口
 
 ```bash
-npm test                          # 274 个用例
+npm test                          # 273 个用例
 node --check src/xxx.js           # 单文件语法
 node harness/tool/link-layout-metrics.mjs --data-dir ~/.dsh/evolver   # 关系图布局实测
 ```
@@ -45,4 +45,4 @@ node harness/tool/link-layout-metrics.mjs --data-dir ~/.dsh/evolver   # 关系�
 - `client.js` 不是模块，是 `window.__ModuleLoader__.load({id, factory})` 的工厂函数。
 - 卡片工具和 harness 工具是两个落点：**换项目也成立的写卡片，只在这个仓库成立的写 harness**。
 - 浏览器半边与宿主没有 import 关系：接口清单与响应字段靠 `test/contract.test.mjs` 对齐，改 `client.js` 的接口调用会让它红。
-- 关系图数据在宿主 `src/cards/graph.js`（派生弱关系、排序、访问活动，`POST /api/evolver/graph`）；`client.js` 的 `computeLinkLayout(cards, edges)` 只负责布局与渲染，单参调用保留给 `harness/tool/link-layout-metrics.mjs` 做布局回归。
+- 关系图数据在宿主 `src/cards/graph.js`（派生弱关系、按显式度数排序，`POST /api/evolver/graph`）；`client.js` 的 `computeLinkLayout(cards, edges)` 只负责枝干社区布局与渲染，单参调用保留给 `harness/tool/link-layout-metrics.mjs` 做布局回归。面板只画图谱本身，不加搜索/图例/活动等外围控件（用户决策）。

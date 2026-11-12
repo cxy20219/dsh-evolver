@@ -60,12 +60,11 @@ function assertShape(graph) {
 	for (const node of graph.nodes) {
 		assert.deepEqual(
 			Object.keys(node).sort(),
-			['branch', 'degree', 'description', 'id', 'label', 'lastReadAt', 'readCount', 'tags', 'updated'],
+			['branch', 'degree', 'description', 'id', 'label', 'tags', 'updated'],
 		)
 		assert.equal(typeof node.branch, 'string')
 		assert.equal(Number.isInteger(node.degree), true)
-		assert.equal(Number.isFinite(node.readCount), true)
-		assert.equal(typeof node.lastReadAt, 'string')
+		assert.equal(typeof node.updated, 'string')
 	}
 	for (const edge of graph.edges) {
 		assert.deepEqual(Object.keys(edge).sort(), ['kind', 'mutual', 'source', 'target', 'weight'])
@@ -264,27 +263,26 @@ test('limit 夹取 50–500，按 rank 截断并报告 hiddenCards', () => {
 	assert.equal(buildCardGraph(cards, { limit: 50 }).totals.limit, 50)
 })
 
-test('access 注入 readCount/lastReadAt，并在 updated 之后参与排序', () => {
-	const cards = [card('r1'), card('r2'), card('r3')]
-	const graph = buildCardGraph(cards, {
-		access: {
-			r1: { count: 4, lastAt: '2026-11-01T00:00:00.000Z' },
-			r2: { count: 9, lastAt: '2026-11-10T00:00:00.000Z' },
-			r3: { count: 'nope', lastAt: 42 },
-		},
-	})
-
-	assert.equal(nodeOf(graph, 'r1').readCount, 4)
-	assert.equal(nodeOf(graph, 'r1').lastReadAt, '2026-11-01T00:00:00.000Z')
-	assert.equal(nodeOf(graph, 'r2').readCount, 9)
-	assert.equal(nodeOf(graph, 'r3').readCount, 0, '坏计数按未读处理')
-	assert.equal(nodeOf(graph, 'r3').lastReadAt, '', '坏时间按空串处理')
-	// 全部零度、updated 相同时，读得多的先入图。
-	assert.deepEqual(graph.nodes.map((node) => node.id), ['r2', 'r1', 'r3'])
-
-	const plain = buildCardGraph(cards)
-	assert.equal(nodeOf(plain, 'r1').readCount, 0)
-	assert.equal(nodeOf(plain, 'r1').lastReadAt, '')
+test('排序：显式度数优先，同度数 updated 新的在前，再按 id', () => {
+	const cards = [
+		card('q1', { updated: '2026-01-01T00:00:00.000Z' }),
+		card('q2', { updated: '2026-03-01T00:00:00.000Z' }),
+		card('q3', { updated: '2026-02-01T00:00:00.000Z' }),
+		card('q4'),
+		card('q5'),
+		// 一条显式链接把 q6 抬到前面，哪怕它的 updated 最旧。
+		card('q6', { links: ['q1'], updated: '2020-01-01T00:00:00.000Z' }),
+	]
+	const graph = buildCardGraph(cards)
+	assertShape(graph)
+	assert.deepEqual(
+		graph.nodes.map((node) => node.id),
+		['q1', 'q6', 'q2', 'q3', 'q4', 'q5'],
+		'度数 → updated 倒序 → id；q4/q5 updated 相同按 id',
+	)
+	// 节点上不再有活动字段：面板只画图，不显示读次数/最近读取。
+	assert.equal(Object.hasOwn(graph.nodes[0], 'readCount'), false)
+	assert.equal(Object.hasOwn(graph.nodes[0], 'lastReadAt'), false)
 })
 
 test('确定性：同一输入两次一致，打乱输入顺序结果不变', () => {
@@ -297,7 +295,7 @@ test('确定性：同一输入两次一致，打乱输入顺序结果不变', ()
 		card('d6'),
 		...Array.from({ length: 9 }, (_, index) => card(`e${index + 1}`, { tags: ['见闻/大组'] })),
 	]
-	const options = { limit: 50, access: { d1: { count: 2, lastAt: '2026-03-02T00:00:00.000Z' } } }
+	const options = { limit: 50 }
 	const first = buildCardGraph(cards, options)
 	const second = buildCardGraph(cards, options)
 	assert.deepEqual(second, first)
@@ -333,8 +331,6 @@ test('脏数据与缺省参数不抛错', () => {
 		branch: '',
 		degree: 1,
 		updated: '',
-		readCount: 0,
-		lastReadAt: '',
 	})
 	assert.deepEqual(dirty.nodes.find((node) => node.id === 'ok2').tags, ['即兴'])
 	// 重复 id 只算一张卡。

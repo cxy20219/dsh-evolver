@@ -497,8 +497,6 @@ test('关系图接口：返回节点、边与总数，limit 越界被夹取', as
 			assert.equal(node.branch, '践行')
 			assert.equal(node.degree, 1)
 			assert.equal(Array.isArray(node.tags), true)
-			assert.equal(typeof node.readCount, 'number')
-			assert.equal(typeof node.lastReadAt, 'string')
 			assert.equal(typeof node.updated, 'string')
 
 			// 单向链接只出一条无向 link 边，mutual 为假。
@@ -508,18 +506,8 @@ test('关系图接口：返回节点、边与总数，limit 越界被夹取', as
 			assert.equal(link.weight, 1)
 			assert.equal(link.mutual, false)
 
-			// 访问账在数据目录里，接口要真的读它：漏掉这一步，面板上永远是「没读过」。
-			await writeFile(join(home, 'evolver', 'knowledge', 'access.json'), JSON.stringify({
-				version: 1,
-				ids: { [second.id]: { count: 7, lastAt: '2026-01-02T03:04:05.000Z' } },
-			}), 'utf8')
-			const withAccess = await (await post(routes, 'graph', {})).json()
-			const read = withAccess.nodes.find((item) => item.id === second.id)
-			assert.equal(read.readCount, 7)
-			assert.equal(read.lastReadAt, '2026-01-02T03:04:05.000Z')
-
 			// 归档是状态不是分类：归档后立即从图中消失，总数也不含它。
-			const beforeArchive = withAccess.totals.cards
+			const beforeArchive = graph.totals.cards
 			await post(routes, 'card-archive', { id: second.id })
 			const afterArchive = await (await post(routes, 'graph', {})).json()
 			assert.equal(afterArchive.nodes.some((item) => item.id === second.id), false, '归档卡不进图')

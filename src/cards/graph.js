@@ -166,38 +166,20 @@ function branchOf(card) {
 }
 
 /**
- * Read the access ledger's entry for one card, defensively.
- *
- * @param {object} access - The ledger (`id` to `{count, lastAt}`).
- * @param {string} id - The card id.
- * @returns {{readCount: number, lastReadAt: string}} The activity fields.
- */
-function activityOf(access, id) {
-	const entry = Object.hasOwn(access, id) ? access[id] : undefined
-	const record = entry !== null && typeof entry === 'object' ? entry : undefined
-	const count = record === undefined ? NaN : Number(record.count)
-	return {
-		readCount: Number.isFinite(count) && count > 0 ? count : 0,
-		lastReadAt: typeof record?.lastAt === 'string' ? record.lastAt : '',
-	}
-}
-
-/**
- * Rank one card for selection, with everything the node needs besides the graph.
+ * Rank one card for selection, with the graph fields the node needs.
  *
  * @param {object} card - The normalised card view.
  * @param {number} degree - The card's degree in the whole library's link graph.
- * @param {object} access - The access ledger.
- * @returns {{card: object, degree: number, readCount: number, lastReadAt: string}} The ranked entry.
+ * @returns {{card: object, degree: number}} The ranked entry.
  */
-function rankEntry(card, degree, access) {
-	return { card, degree, ...activityOf(access, card.id) }
+function rankEntry(card, degree) {
+	return { card, degree }
 }
 
 /**
  * Build one node of the panel graph.
  *
- * @param {{card: object, degree: number, readCount: number, lastReadAt: string}} entry - The ranked entry.
+ * @param {{card: object, degree: number}} entry - The ranked entry.
  * @returns {object} The node.
  */
 function nodeOf(entry) {
@@ -210,17 +192,15 @@ function nodeOf(entry) {
 		branch: branchOf(card),
 		degree: entry.degree,
 		updated: card.updated,
-		readCount: entry.readCount,
-		lastReadAt: entry.lastReadAt,
 	}
 }
 
 /**
  * Rank two entries for selection.
  *
- * A stated relation outweighs a stale card, a fresh card outweighs a read one,
- * and the id is the final tie-break so the same library always selects the same
- * nodes. The clock is never read: `updated` is data, not "now".
+ * A stated relation outweighs a stale card, and the id is the final tie-break
+ * so the same library always selects the same nodes. The clock is never read:
+ * `updated` is data, not "now".
  *
  * @param {object} left - One entry.
  * @param {object} right - The other.
@@ -229,7 +209,6 @@ function nodeOf(entry) {
 function compareRank(left, right) {
 	return right.degree - left.degree
 		|| compareText(right.card.updated, left.card.updated)
-		|| right.readCount - left.readCount
 		|| compareText(left.card.id, right.card.id)
 }
 
@@ -368,21 +347,18 @@ function deriveEdges(entries) {
  * Build the panel's card graph.
  *
  * @param {unknown} cards - The store's card views (`store.all()`); archived cards are filtered out.
- * @param {{access?: Record<string, {count: number, lastAt: string}>, limit?: number}} [options] - Access ledger and node limit.
+ * @param {{limit?: number}} [options] - Node limit.
  * @returns {{nodes: object[], edges: object[], totals: object}} The graph payload.
  */
 export function buildCardGraph(cards, options = {}) {
 	const limit = normalizeLimit(options?.limit)
-	const access = options?.access !== null && typeof options?.access === 'object' && !Array.isArray(options?.access)
-		? options.access
-		: {}
 	const views = normalizeCards(cards)
 	// The degree ranks nodes and is shown, so it is the whole library's degree:
 	// selecting first would make a hub look quiet when its neighbours are the
 	// cards that fell off the end.
 	const degree = degrees(buildGraph(views))
 	const entries = views
-		.map((card) => rankEntry(card, degree.get(card.id) ?? 0, access))
+		.map((card) => rankEntry(card, degree.get(card.id) ?? 0))
 		.sort(compareRank)
 		.slice(0, limit)
 	const nodes = entries.map(nodeOf)

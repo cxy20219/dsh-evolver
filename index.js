@@ -34,7 +34,6 @@ import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { createTools } from './src/tools.js'
 import { PROACTIVE_PROTOCOL } from './src/proactive.js'
-import { accessStats } from './src/cards/access.js'
 import { createCardAgent } from './src/cards/agent.js'
 import { buildCardGraph } from './src/cards/graph.js'
 import { refreshCardIndex } from './src/cards/injection-index.js'
@@ -474,17 +473,12 @@ export async function apply(ctx, config) {
 		/**
 		 * The panel's card graph.
 		 *
-		 * The access ledger is best effort: a missing or corrupt one only means
-		 * every card shows as never read, never a failed request — the graph is
-		 * a read view, and the rest of it does not depend on the ledger.
-		 *
 		 * @param {{limit?: number}} [payload] - How many nodes to keep.
 		 * @returns {Promise<object>} Nodes, edges and totals.
 		 */
-		async graph(payload = {}) {
+		graph(payload = {}) {
 			const store = cardStoreRef.current
-			const access = await accessStats(evolver.root).catch(() => ({ ids: {} }))
-			return buildCardGraph(store.all(), { access: access.ids, limit: Number(payload?.limit) })
+			return buildCardGraph(store.all(), { limit: Number(payload?.limit) })
 		},
 		write(payload = {}) {
 			return committed((store) => store.put(payload.card ?? {}))
