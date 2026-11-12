@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -235,6 +235,29 @@ test('关键词排第一的卡不会被重叠阈值滤掉', async () => {
 		assert.ok(results.length > 0, '关键词命中不能被重叠阈值清空')
 		assert.equal(results[0].id, 'a', 'BM25 排第一的卡就是答案')
 		await db.close()
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+
+test('日志尾行被截断后，重启写入的第一条记录不会连坐丢失', async () => {
+	const { dir, db } = await fixture()
+	try {
+		await db.put({ id: 'm1', text: '崩溃前写了一半的日志', kind: 'fact', updatedAt: STAMP })
+		await db.close()
+		const file = join(dir, 'memory', 'memories.jsonl')
+		const raw = await readFile(file, 'utf8')
+		// 模拟断电：最后一行没有换行符，内容被截断。
+		await writeFile(file, raw.slice(0, Math.max(0, raw.length - 15)), 'utf8')
+		const reopened = new MemoryDatabase({ dataDir: dir })
+		await reopened.init()
+		await reopened.put({ id: 'm2', text: '崩溃后写入的第一条记录', kind: 'fact', updatedAt: STAMP })
+		await reopened.close()
+		const again = new MemoryDatabase({ dataDir: dir })
+		await again.init()
+		assert.equal(again.get('m2')?.text, '崩溃后写入的第一条记录', '新记录不能被上一行残片吞掉')
+		await again.close()
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}

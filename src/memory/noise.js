@@ -3,7 +3,7 @@
  */
 
 /** The noise categories and their patterns. */
-export const NOISE_CATEGORIES = [
+const NOISE_CATEGORIES = [
 	{
 		name: 'agent-denial',
 		patterns: [

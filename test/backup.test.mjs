@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 
 import { BackupService, isBackupKey, keyStamp } from '../src/backup/service.js'
 import { OssClient, canonicalResource, parseKeys, stringToSign } from '../src/backup/oss.js'
-import { createTar, readTar } from '../src/backup/tar.js'
+import { createTar, readTar } from './support/tar-fixture.mjs'
 import { SettingsStore } from '../src/settings.js'
 import { fakeOss } from './support/fake-oss.mjs'
 
@@ -358,5 +358,23 @@ test('保留策略只删自己的快照，前缀下的其它对象不动', async
 		assert.deepEqual([...fixture.objects.keys()].sort(), [result.key, 'evolver/notes.txt'].sort())
 	} finally {
 		await rm(fixture.dir, { recursive: true, force: true })
+	}
+})
+
+test('OSS 错误响应体过大时只读前几 KB，不把整页吃进内存', async () => {
+	const original = globalThis.fetch
+	try {
+		globalThis.fetch = async () => new Response('x'.repeat(2 * 1024 * 1024), { status: 500 })
+		const client = new OssClient({ endpoint: 'http://127.0.0.1:1', bucket: 'bucket', accessKeyId: 'id', accessKeySecret: 'secret' })
+		await assert.rejects(
+			() => client.send({ method: 'GET' }),
+			(error) => {
+				assert.match(error.message, /OSS 请求失败/)
+				assert.ok(error.message.length < 20_000, '错误消息里不该带 2MB 响应体')
+				return true
+			},
+		)
+	} finally {
+		globalThis.fetch = original
 	}
 })

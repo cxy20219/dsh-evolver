@@ -7,11 +7,17 @@
  * parent — notes grow across branches.
  */
 
-/** The deepest tag supported. */
-export const MAX_TAG_DEPTH = 4
+/**
+ * The deepest tag supported: branch / topic / subtopic.
+ *
+ * A deeper path is cut to this many segments instead of being rejected, so an
+ * imported library stays writable; the review job refuses over-deep paths
+ * before they ever reach here.
+ */
+const MAX_TAG_DEPTH = 3
 
 /** The longest one segment may be. */
-export const MAX_SEGMENT_CHARS = 32
+const MAX_SEGMENT_CHARS = 32
 
 /** How many tags one card may carry. */
 export const MAX_TAGS = 8
@@ -75,7 +81,7 @@ export function normalizeTags(values, limit = MAX_TAGS) {
  * @param {string} tag - A normalised tag.
  * @returns {string[]} The ancestors, shortest first.
  */
-export function tagPrefixes(tag) {
+function tagPrefixes(tag) {
 	const parts = String(tag ?? '').split('/').filter(Boolean)
 	const prefixes = []
 	for (let index = 1; index <= parts.length; index += 1) prefixes.push(parts.slice(0, index).join('/'))
@@ -151,6 +157,27 @@ export function buildTagTree(cards) {
 	return roots
 }
 
+/** How long one branch description may be. */
+export const MAX_TAG_DESCRIPTION_CHARS = 60
+
+/**
+ * Make one description safe to put on a line of the injected map.
+ *
+ * The file can arrive from somewhere else — an imported archive, a hand edit —
+ * so the read path applies the same rule as the write path instead of trusting
+ * what is on disk. A newline here would add a line of its own to the system
+ * prompt, which is how a tag description becomes an instruction.
+ *
+ * @param {unknown} value - The raw description.
+ * @param {number} [max] - The character budget.
+ * @returns {string} A single line, or '' when nothing usable is left.
+ */
+export function sanitizeTagDescription(value, max = MAX_TAG_DESCRIPTION_CHARS) {
+	const clean = String(value ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim()
+	if (clean === '') return ''
+	return clean.length > max ? clean.slice(0, max) : clean
+}
+
 /** The only allowed top-level branches. */
 export const TOP_TAGS = ['践行', '见闻', '即兴', '复盘', '觉察', '试错']
 
@@ -224,6 +251,40 @@ export function normalizeCardTags(values, { defaultTop = '即兴', limit = MAX_T
 }
 
 /**
+ * Normalise a tag list inherited from an older library.
+ *
+ * A library imported from an evolver before the six-branch model can carry
+ * top-level paths that no longer exist (`验证/浏览器`). Those cards stay
+ * readable, but the strict whitelist made them unwritable and, worse, made one
+ * such card abort a whole nightly run. Inherited lists are therefore settled
+ * deterministically: an unknown top-level branch is re-rooted under `即兴`
+ * (the inbox) and the rest of the path is kept. Explicit new tag lists still
+ * go through `normalizeCardTags` and are rejected outright — this helper is
+ * only for "rewrite the body, keep my tags" paths.
+ *
+ * @param {unknown} values - The inherited tags.
+ * @param {{defaultTop?: string, limit?: number, onDegrade?: (from: string, to: string) => void}} [options] - Degrade policy.
+ * @returns {string[]} Normalised tags with every root inside the six branches.
+ */
+export function coerceCardTags(values, { defaultTop = '即兴', limit = MAX_TAGS, onDegrade } = {}) {
+	const tags = []
+	const seen = new Set()
+	for (const raw of normalizeTags(values, MAX_TAGS + 1)) {
+		let tag = raw
+		if (!TOP_TAGS.includes(rootOf(tag))) {
+			const rest = tag.split('/').slice(1).join('/')
+			tag = rest === '' ? defaultTop : `${defaultTop}/${rest}`
+			if (typeof onDegrade === 'function') onDegrade(raw, tag)
+		}
+		if (seen.has(tag)) continue
+		seen.add(tag)
+		tags.push(tag)
+		if (tags.length >= limit) break
+	}
+	return tags.length === 0 ? [defaultTop] : tags
+}
+
+/**
  * Whether a card is archived through a `<branch>/归档` leaf.
  *
  * @param {string[]} tags - The tags.
@@ -250,7 +311,7 @@ export function isSettled(tags = []) {
  * @returns {string[]} Tags with `<branch>/归档`.
  */
 export function archiveTags(values) {
-	const tags = normalizeCardTags(values)
+	const tags = coerceCardTags(values, { limit: MAX_TAGS + 1 })
 	if (isArchived(tags)) return tags
 	const root = rootOf(tags[0])
 	// The archive leaf is a state, not a branch, so it may sit outside the
@@ -269,7 +330,7 @@ export function archiveTags(values) {
  * @returns {string[]} The settled tags.
  */
 export function settleTags(values, targets = []) {
-	const existing = normalizeCardTags(values).filter((tag) => !isArchived([tag]) && rootOf(tag) !== '即兴')
+	const existing = coerceCardTags(values, { limit: MAX_TAGS + 1 }).filter((tag) => !isArchived([tag]) && rootOf(tag) !== '即兴')
 	const rawTargets = normalizeTags(targets)
 	const added = rawTargets.length === 0 ? [] : normalizeCardTags(rawTargets).filter((tag) => rootOf(tag) !== '即兴')
 	// The chosen targets come first: appending them meant a card already at

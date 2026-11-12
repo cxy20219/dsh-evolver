@@ -29,7 +29,7 @@ const PREFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
  *
  * @returns {object} A fresh object.
  */
-export function defaultBackup() {
+function defaultBackup() {
 	return {
 		enabled: false,
 		endpoint: '',
@@ -48,7 +48,7 @@ export function defaultBackup() {
  *
  * @returns {object} A fresh object.
  */
-export function defaultStatus() {
+function defaultStatus() {
 	return {
 		lastAttemptAt: '',
 		lastBackupAt: '',
@@ -68,6 +68,7 @@ export function defaultStatus() {
  *
  * @returns {object} A fresh object.
  */
+/** @internal exported for tests */
 export function defaultIngest() {
 	return { enabled: true, idleMinutes: 15 }
 }
@@ -79,7 +80,7 @@ export function defaultIngest() {
  * @param {object} [fallback] - What to use for missing fields.
  * @returns {object} The normalised value.
  */
-export function normalizeIngest(value, fallback = defaultIngest()) {
+function normalizeIngest(value, fallback = defaultIngest()) {
 	const source = value !== null && typeof value === 'object' ? value : {}
 	const minutes = Math.round(Number(source.idleMinutes))
 	return {
@@ -99,6 +100,7 @@ const CONSOLIDATE_MAX = 100
  *
  * @returns {object} A fresh object.
  */
+/** @internal exported for tests */
 export function defaultConsolidate() {
 	return { enabled: false, dailyCards: 15, hour: 3 }
 }
@@ -110,6 +112,7 @@ export function defaultConsolidate() {
  * @param {object} [fallback] - What to use for missing fields.
  * @returns {object} The normalised value.
  */
+/** @internal exported for tests */
 export function normalizeConsolidate(value, fallback = defaultConsolidate()) {
 	const source = value !== null && typeof value === 'object' ? value : {}
 	const cards = Math.round(Number(source.dailyCards))
@@ -122,7 +125,7 @@ export function normalizeConsolidate(value, fallback = defaultConsolidate()) {
 }
 
 /** The default card body budget, in Unicode code points. */
-export function defaultCardMaxChars() {
+function defaultCardMaxChars() {
 	return 1000
 }
 /**
@@ -131,7 +134,7 @@ export function defaultCardMaxChars() {
  * @param {unknown} value - The raw value.
  * @returns {number} A number between 200 and 4000.
  */
-export function normalizeCardMaxChars(value) {
+function normalizeCardMaxChars(value) {
 	const size = Math.round(Number(value))
 	if (!Number.isFinite(size)) return defaultCardMaxChars()
 	return Math.min(4000, Math.max(200, size))
@@ -142,6 +145,7 @@ export function normalizeCardMaxChars(value) {
  *
  * @returns {object} A fresh object.
  */
+/** @internal exported for tests */
 export function defaultSettings() {
 	return {
 		dataDir: '',
@@ -216,11 +220,39 @@ function readInteger(value, fallback, min, max) {
 }
 
 /**
+ * Validate one backup endpoint.
+ *
+ * Two shapes are legal: a bare OSS host (`oss-cn-hangzhou.aliyuncs.com`,
+ * virtual-hosted style) and a full http(s) URL (a path-style gateway). A URL
+ * carrying credentials is refused: `fetch` rejects those anyway, and it is the
+ * shape that makes a typo send the signature and the key id somewhere else.
+ *
+ * @param {unknown} value - The raw value.
+ * @returns {string} The normalised endpoint, or `''` when unusable.
+ */
+function normalizeEndpoint(value) {
+	const raw = readString(value, '', 200).replace(/\/+$/, '')
+	if (raw === '') return ''
+	if (raw.includes('://')) {
+		try {
+			const url = new URL(raw)
+			if (url.username !== '' || url.password !== '') return ''
+			if (url.protocol !== 'http:' && url.protocol !== 'https:') return ''
+			return raw
+		} catch {
+			return ''
+		}
+	}
+	return /^[A-Za-z0-9][A-Za-z0-9.-]*(?::\d{1,5})?$/.test(raw) ? raw : ''
+}
+
+/**
  * Normalise one backup configuration.
  *
  * @param {unknown} value - The raw configuration.
  * @returns {object} The normalised configuration.
  */
+/** @internal exported for tests */
 export function normalizeBackup(value) {
 	const source = value !== null && typeof value === 'object' ? value : {}
 	const fallback = defaultBackup()
@@ -228,7 +260,7 @@ export function normalizeBackup(value) {
 	const bucket = readString(source.bucket, fallback.bucket, 128)
 	return {
 		enabled: readBoolean(source.enabled, fallback.enabled),
-		endpoint: readString(source.endpoint, fallback.endpoint, 200).replace(/\/+$/, ''),
+		endpoint: normalizeEndpoint(source.endpoint),
 		// A bucket name becomes a host label or a path segment; separators and
 		// whitespace would silently produce a different URL than intended.
 		bucket: /^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$/.test(bucket) ? bucket : '',
@@ -246,7 +278,7 @@ export function normalizeBackup(value) {
  * @param {unknown} value - The raw status.
  * @returns {object} The normalised status.
  */
-export function normalizeStatus(value) {
+function normalizeStatus(value) {
 	const source = value !== null && typeof value === 'object' ? value : {}
 	const fallback = defaultStatus()
 	return {
@@ -271,8 +303,12 @@ export class SettingsStore {
 		this.path = path
 		this.logger = logger
 		this.data = defaultSettings()
+		/** Why the settings file could not be used, for the panel and the log. */
+		this.warning = ''
 		/** Counts temp files so two saves in the same millisecond cannot collide. */
 		this.writeSequence = 0
+		/** Writes are serialised: two saves must rename in the order they queued. */
+		this.queue = Promise.resolve()
 	}
 
 	/**
@@ -284,7 +320,16 @@ export class SettingsStore {
 		let raw
 		try {
 			raw = await readFile(this.path, 'utf8')
-		} catch {
+		} catch (error) {
+			// A missing file is the normal first run. An unreadable one is not:
+			// it silently sent the plugin to the default data folder, where a
+			// custom-path library looks lost, so it has to be reported.
+			const code = error !== null && typeof error === 'object' ? error.code : undefined
+			if (code !== 'ENOENT') {
+				const detail = error instanceof Error ? error.message : String(error)
+				this.warning = `设置文件无法读取（${this.path}）：${detail}；已使用默认设置，数据目录回到默认位置。`
+				this.logger?.warn?.(`dsh-evolver: ${this.warning}`)
+			}
 			return this.data
 		}
 		try {
@@ -301,7 +346,8 @@ export class SettingsStore {
 			// Keep the broken file around: it explains what happened after a
 			// hand edit went wrong, and it never contains anything to preserve
 			// beyond what the user typed.
-			this.logger?.warn?.(`dsh-evolver: 设置文件无法解析，改用默认设置：${error instanceof Error ? error.message : String(error)}`)
+			this.warning = `设置文件无法解析（${this.path}）：${error instanceof Error ? error.message : String(error)}；已保留为 .broken，改用默认设置，数据目录回到默认位置。`
+			this.logger?.warn?.(`dsh-evolver: ${this.warning}`)
 			await rename(this.path, `${this.path}.broken`).catch(() => {})
 			this.data = defaultSettings()
 		}
@@ -376,14 +422,23 @@ export class SettingsStore {
 	async save() {
 		await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
 		this.writeSequence += 1
-		const temp = `${this.path}.${process.pid}.${Date.now()}.${this.writeSequence}.tmp`
-		try {
-			await writeFile(temp, `${JSON.stringify(this.data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
-			await rename(temp, this.path)
-		} catch (error) {
-			await rm(temp, { force: true }).catch(() => {})
-			throw error
+		const sequence = this.writeSequence
+		// The snapshot is taken now (the caller just mutated this.data); only
+		// the disk write is queued. A backup status update and a panel save can
+		// then never rename over each other out of order and lose a field.
+		const text = `${JSON.stringify(this.data, null, 2)}\n`
+		const write = async () => {
+			const temp = `${this.path}.${process.pid}.${Date.now()}.${sequence}.tmp`
+			try {
+				await writeFile(temp, text, { encoding: 'utf8', mode: 0o600 })
+				await rename(temp, this.path)
+			} catch (error) {
+				await rm(temp, { force: true }).catch(() => {})
+				throw error
+			}
 		}
+		this.queue = this.queue.then(write, write)
+		return this.queue
 	}
 
 	/**

@@ -70,3 +70,54 @@ export function cardCreatedAt(value) {
 	}
 	return new Date(time).toISOString()
 }
+
+/** The shortest suffix a display id may use. */
+const MIN_SHORT_ID = 5
+
+/** The longest suffix; beyond this the full id is safer. */
+const MAX_SHORT_ID = 8
+
+/**
+ * The shortest suffix of each id that is still unique in the library.
+ *
+ * The full id is 31 characters — 32 hex-ish chars in the prompt for eight
+ * cards is a lot of context for pure addressing. The tail of a ULID is the
+ * random half, so a suffix is where uniqueness lives; the timestamp prefix is
+ * shared by every card written the same millisecond. 5 characters already
+ * separate a hundred cards, and the dictionary is checked against the library,
+ * so a suffix is only used when it is unambiguous right now. If no suffix is
+ * unique within MAX_SHORT_ID, the full id is returned: a collision that makes
+ * `card_read` fail would be worse than the bytes.
+ *
+ * @param {string[]} ids - The ids to shorten (duplicates are fine).
+ * @returns {Map<string, string>} Full id to display suffix (or the full id).
+ */
+export function shortIds(ids) {
+	const bodies = [...new Set((ids ?? []).filter((id) => isCardId(id)).map((id) => id.slice(5)))]
+	// One pass builds a suffix → count table for every length a short id may
+	// use; each id then just reads its own suffix count. The old version
+	// filtered the whole library once per id per length (O(N²) with a large
+	// constant), which dominated the prompt fallback on a grown library.
+	const counts = new Map()
+	for (let length = MIN_SHORT_ID; length <= MAX_SHORT_ID; length += 1) {
+		const table = new Map()
+		for (const body of bodies) {
+			const suffix = body.slice(-length)
+			table.set(suffix, (table.get(suffix) ?? 0) + 1)
+		}
+		counts.set(length, table)
+	}
+	const result = new Map()
+	for (const body of bodies) {
+		let chosen = `card-${body}`
+		for (let length = MIN_SHORT_ID; length <= MAX_SHORT_ID; length += 1) {
+			const suffix = body.slice(-length)
+			if (counts.get(length).get(suffix) === 1) {
+				chosen = suffix
+				break
+			}
+		}
+		result.set(`card-${body}`, chosen)
+	}
+	return result
+}

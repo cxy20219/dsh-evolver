@@ -5,10 +5,13 @@ import { lifecycleBoost } from './lifecycle.js'
  * The retrieval pipeline.
  *
  * The order is the point: a query is answered by the best *textual* match,
- * then the lifecycle decides how much that match is worth, and diversity
- * decides which of the surviving matches are worth showing.
+ * then recency decides how much that match is worth, and diversity decides
+ * which of the surviving matches are worth showing.
  *
- *   query → BM25 → [rerank] → lifecycle boost → length normalisation
+ * There is no rerank hook: the only candidate scorer in this repository is
+ * BM25 plus lifecycle, and a parameter nobody passes was dead surface.
+ *
+ *   query → BM25 → recency boost → length normalisation
  *         → hard minimum → MMR diversity
  *
  * Match, not meaning: an embedding model was measured against this on the
@@ -128,11 +131,10 @@ export function textOverlap(left, right) {
  * @param {string} options.query - The query text.
  * @param {number} [options.limit] - Maximum results.
  * @param {number} [options.minScore] - The hard minimum.
- * @param {(ids: string[]) => Promise<Map<string, number>>} [options.rerank] - An optional reranker.
  * @param {Date} [options.now] - Clock.
  * @returns {Promise<Array<{id: string, score: number, memory: object}>>} The results.
  */
-export async function hybridRetrieve({ db, query, limit = 8, minScore = HARD_MIN_SCORE, rerank, now = new Date() }) {
+export async function hybridRetrieve({ db, query, limit = 8, minScore = HARD_MIN_SCORE, now = new Date() }) {
 	const keyword = db.bm25(query, 50)
 	const keywordScores = new Map(keyword.map(item => [item.id, item.score]))
 
@@ -163,18 +165,6 @@ export async function hybridRetrieve({ db, query, limit = 8, minScore = HARD_MIN
 		const bestKeyword = keyword.length === 0 ? 0 : keyword[0].score
 		const confident = (item) => bestKeyword > 0 && item.keywordScore >= bestKeyword * KEYWORD_CONFIDENT_SHARE
 		scored = scored.filter(item => item.overlap >= KEYWORD_MIN_OVERLAP || confident(item))
-	}
-
-	if (rerank !== undefined && scored.length > 0) {
-		try {
-			const reranked = await rerank(scored.map(item => item.id))
-			for (const item of scored) {
-				const value = reranked.get(item.id)
-				if (value !== undefined) item.score = item.score * 0.4 + value * 0.6
-			}
-		} catch {
-			// A failed rerank leaves the fused order alone.
-		}
 	}
 
 	scored = scored.map(item => {

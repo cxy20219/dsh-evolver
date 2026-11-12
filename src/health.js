@@ -31,10 +31,10 @@ export function dayKeyOf(stamp) {
 /**
  * Create the daily health card job.
  *
- * @param {{store: Function, logger?: object, now?: Function, cache?: Function}} deps - The services the job uses.
- * @returns {{available: Function, check: Function, runNow: Function, status: Function, start: Function}} The job.
+ * @param {{store: Function, logger?: object, now?: Function, cache?: Function, isBusy?: () => boolean}} deps - The services the job uses.
+ * @returns {{check: Function, runNow: Function, start: Function}} The job.
  */
-export function createHealthJob({ store, logger, now = () => Date.now(), cache }) {
+export function createHealthJob({ store, logger, now = () => Date.now(), cache, isBusy }) {
 	let timer
 	let inFlight = null
 
@@ -164,29 +164,16 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache }
 	 * @returns {Promise<object | null>} The result, or null when nothing was due.
 	 */
 	async function check() {
+		// Moving, exporting or importing the data folder closes and reopens the
+		// store; a card written into the old one during that window is lost from
+		// the library the user is looking at. The job is retryable, so it skips.
+		if (typeof isBusy === 'function' && isBusy() === true) return null
 		if (store() === undefined) return null
 		const current = now()
 		if (new Date(current).getHours() < REPORT_HOUR) return null
 		const ledger = await readLedger()
 		if (ledger.rows.some((row) => row.date === dayKeyOf(current))) return null
 		return runNow()
-	}
-
-	/**
-	 * What the panel shows.
-	 *
-	 * @returns {Promise<object>} The state.
-	 */
-	async function status() {
-		const ledger = await readLedger().catch(() => ({ cardId: '', rows: [], lastRunAt: '' }))
-		const latest = ledger.rows[ledger.rows.length - 1]
-		return {
-			cardId: ledger.cardId,
-			lastRunAt: ledger.lastRunAt,
-			rows: ledger.rows.length,
-			latest: latest ?? null,
-			hour: REPORT_HOUR,
-		}
 	}
 
 	/**
@@ -206,7 +193,7 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache }
 		}
 	}
 
-	return { available: () => store() !== undefined, check, runNow, status, start }
+	return { check, runNow, start }
 }
 
 export { REPORT_TITLE, MAX_ROWS }

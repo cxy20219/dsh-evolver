@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path'
 import { redactSecrets } from './secrets.js'
 
 /** Marks the scheduled ingest session so it is never digested itself. */
-export const SESSION_MARKER = '[evolver-ingest]'
+const SESSION_MARKER = '[evolver-ingest]'
 
 /** Rough bounds that keep one digest around six thousand tokens. */
 const MAX_MESSAGE_CHARS = 800
@@ -46,6 +46,15 @@ export class SessionLedger {
 	 */
 	async load() {
 		if (this.data !== undefined) return this.data
+		return this.reload()
+	}
+
+	/**
+	 * Read the ledger from disk, bypassing the cache.
+	 *
+	 * @returns {Promise<object>} The ledger state.
+	 */
+	async reload() {
 		const raw = await readFile(this.path, 'utf8').catch(() => null)
 		let parsed
 		try {
@@ -92,7 +101,12 @@ export class SessionLedger {
 	 */
 	async commit(entries, at) {
 		if (entries.length === 0) return
-		const data = await this.load()
+		// Merge into what is on disk *now*, not into the snapshot this instance
+		// read at the start of the digest: the manual reader and the idle ingest
+		// (or a second host process) each hold their own cursor view, and
+		// writing the stale one back made one of them silently forget the
+		// other's sessions — which were then extracted a second time.
+		const data = await this.reload()
 		for (const entry of entries) {
 			data.sessions[entry.id] = { lastSeq: entry.seq, processedAt: at }
 		}
@@ -186,11 +200,10 @@ export function eligible(record) {
  * @param {SessionLedger} options.ledger - The per-session cursor.
  * @param {number} [options.sinceDays] - Only sessions active in the last N days; 0 means all.
  * @param {number} [options.limit] - Maximum sessions to return.
- * @param {boolean} [options.commit] - Mark the returned sessions processed.
  * @param {number} [options.now] - Clock.
  * @returns {Promise<object>} The digest.
  */
-export async function digestSessions({ query, ledger, sinceDays = 0, limit = 5, commit = false, now = Date.now() }) {
+export async function digestSessions({ query, ledger, sinceDays = 0, limit = 5, now = Date.now() }) {
 	if (query === undefined || typeof query.listSessions !== 'function') {
 		throw new Error('这个宿主没有提供会话读取能力（sessionQuery）。')
 	}
@@ -213,7 +226,6 @@ export async function digestSessions({ query, ledger, sinceDays = 0, limit = 5, 
 	}
 
 	const sessions = []
-	const commits = []
 	const empty = []
 	let totalChars = 0
 	let pending = 0
@@ -271,11 +283,6 @@ export async function digestSessions({ query, ledger, sinceDays = 0, limit = 5, 
 			messages,
 		})
 		totalChars += text.length
-		if (commit) commits.push({ id, seq: through })
-	}
-	if (commit) {
-		const all = [...commits, ...empty]
-		if (all.length > 0) await ledger.commit(all, new Date(now).toISOString())
 	}
 	return {
 		success: true,
@@ -284,7 +291,6 @@ export async function digestSessions({ query, ledger, sinceDays = 0, limit = 5, 
 		pending,
 		scanned: candidates.length,
 		truncated: totalChars >= MAX_TOTAL_CHARS,
-		...(commit ? { committed: [...commits, ...empty].map((entry) => entry.id) } : {}),
 	}
 }
 
@@ -323,4 +329,87 @@ export async function probeSessions({ query, ledger, sinceDays = 7, now = Date.n
 		if (scanned >= MAX_SCAN) break
 	}
 	return { pending, scanned }
+}
+
+/**
+ * A bounded, redacted excerpt of one session, for checking a memory against
+ * what was actually said.
+ *
+ * The window is centred on the verbatim quote the card carries: the point is
+ * not to replay the conversation but to put the sentence the note came from
+ * in front of the reviewer, with a little context on either side. A card whose
+ * quote cannot be located falls back to the head of the session, which is at
+ * least bounded and honest.
+ *
+ * @param {object} options - Query and bounds.
+ * @param {object} options.query - The Host `sessionQuery` service.
+ * @param {string} options.id - The session id.
+ * @param {string} [options.quote] - The verbatim quote to centre on.
+ * @param {number} [options.maxChars] - The excerpt budget.
+ * @returns {Promise<string | null>} The excerpt, or null when unavailable.
+ */
+export async function readSessionExcerpt({ query, id, quote = '', maxChars = 600 } = {}) {
+	if (query === undefined || typeof query.readSession !== 'function') return null
+	const sessionId = String(id ?? '').trim()
+	if (sessionId === '') return null
+	const snapshot = await query.readSession(sessionId).catch(() => undefined)
+	if (snapshot === undefined || snapshot === null || !Array.isArray(snapshot.events)) return null
+	const limit = Math.max(120, Math.min(2_000, Math.round(Number(maxChars) || 600)))
+	const needle = String(quote ?? '').replace(/\s+/g, ' ').trim()
+	/**
+	 * The visible line of one event, or '' when it is not message text.
+	 *
+	 * @param {object} event - A session event.
+	 * @returns {string} The redacted, clipped `role: text` line.
+	 */
+	const lineOf = (event) => {
+		if (!isMessageEvent(event)) return ''
+		if (event.type === 'user/message') {
+			const source = event.data?.source
+			// Only what the person typed: runtime context, skill catalogues and
+			// reminders are not something a memory can be checked against.
+			if (source !== undefined && source.kind !== 'user') return ''
+		}
+		const value = eventText(event)
+		if (value === '') return ''
+		if (event.type === 'user/message' && value.includes(SESSION_MARKER)) return ''
+		const role = event.type === 'user/message' ? 'user' : 'assistant'
+		const clean = redactSecrets(value)
+		const clipped = clean.length > MAX_MESSAGE_CHARS ? `${clean.slice(0, MAX_MESSAGE_CHARS)}…` : clean
+		return `${role}: ${clipped}`
+	}
+	// Pass 1 finds the event the quote starts in, with a bounded rolling window
+	// (no growing transcript): a match can straddle two messages, so the tail
+	// of the previous flattened text is carried over. Rebuilding the excerpt
+	// only around the hit means a 16 MB session costs a scan, not a copy.
+	let head = ''
+	let carry = ''
+	let hit = -1
+	for (const [index, event] of snapshot.events.entries()) {
+		const line = lineOf(event)
+		if (line === '') continue
+		if (head.length < limit) head += `${head === '' ? '' : '\n'}${line}`
+		if (needle === '') break
+		const piece = line.replace(/\s+/g, ' ')
+		const hay = carry === '' ? piece : `${carry} ${piece}`
+		if (hay.includes(needle)) {
+			hit = index
+			break
+		}
+		carry = hay.slice(-(needle.length + 1))
+	}
+	if (needle === '' || hit < 0) return head === '' ? null : head.slice(0, limit)
+	// Pass 2 rebuilds the flattened window from a little before the hit; the
+	// quote can start in the previous message, so start far enough back.
+	const windowParts = []
+	for (let index = Math.max(0, hit - Math.ceil(limit / Math.max(1, MAX_MESSAGE_CHARS)) - 2); index < snapshot.events.length; index += 1) {
+		const line = lineOf(snapshot.events[index])
+		if (line !== '') windowParts.push(line)
+		if (windowParts.join('\n').length > limit + MAX_MESSAGE_CHARS) break
+	}
+	const flat = windowParts.join('\n').replace(/\s+/g, ' ')
+	const at = flat.indexOf(needle)
+	if (at < 0) return head === '' ? null : head.slice(0, limit)
+	const start = Math.max(0, at - Math.floor(limit / 3))
+	return flat.slice(start, start + limit)
 }

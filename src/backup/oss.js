@@ -37,6 +37,50 @@ const MAX_UPLOAD_TIMEOUT_MS = 30 * 60_000
 /** How many list pages a retention pass will follow. */
 const MAX_PAGES = 20
 
+/** How much of an error response body is kept to build a message from. */
+const MAX_ERROR_BODY_BYTES = 8 * 1024
+
+/** How much of a listing response body is kept. 1000 keys per page fit easily. */
+const MAX_LIST_BODY_BYTES = 4 * 1024 * 1024
+
+/** How much of the connection-check body is kept. */
+const MAX_CHECK_BODY_BYTES = 64 * 1024
+
+/**
+ * Read a response body, but never more than `maxBytes`.
+ *
+ * `response.text()` buffers whatever the server sends; a malformed or hostile
+ * endpoint could answer an 8 KB request with a gigabyte page. Truncating is
+ * enough for every use here (an error message, one page of keys).
+ *
+ * @param {Response} response - The response.
+ * @param {number} maxBytes - The byte budget.
+ * @returns {Promise<string>} The decoded (possibly truncated) body.
+ */
+async function readBodyCapped(response, maxBytes) {
+	if (response.body === null) return ''
+	const reader = response.body.getReader()
+	const decoder = new TextDecoder()
+	const parts = []
+	let received = 0
+	try {
+		for (;;) {
+			const { done, value } = await reader.read()
+			if (done) break
+			received += value.byteLength
+			if (received > maxBytes) {
+				await reader.cancel().catch(() => {})
+				break
+			}
+			parts.push(decoder.decode(value, { stream: true }))
+		}
+	} catch {
+		await reader.cancel().catch(() => {})
+	}
+	parts.push(decoder.decode())
+	return parts.join('')
+}
+
 /** The subresources OSS signs as part of the canonical resource. */
 const SIGNED_SUBRESOURCES = new Set([
 	'acl', 'uploads', 'location', 'cors', 'logging', 'website', 'referer',
@@ -254,7 +298,7 @@ export class OssClient {
 			throw new Error(`OSS 请求失败：${error instanceof Error ? error.message : String(error)}`)
 		}
 		if (response.ok) return response
-		const text = await response.text().catch(() => '')
+		const text = await readBodyCapped(response, MAX_ERROR_BODY_BYTES)
 		throw new Error(`OSS 请求失败：${errorMessage(text, response.status)}`)
 	}
 
@@ -285,7 +329,7 @@ export class OssClient {
 			throw new Error(`OSS 请求失败：${error instanceof Error ? error.message : String(error)}`)
 		}
 		if (response.ok) return size
-		const text = await response.text().catch(() => '')
+		const text = await readBodyCapped(response, MAX_ERROR_BODY_BYTES)
 		throw new Error(`OSS 请求失败：${errorMessage(text, response.status)}`)
 	}
 
@@ -315,7 +359,7 @@ export class OssClient {
 			const query = { prefix, 'max-keys': '1000' }
 			if (marker !== '') query.marker = marker
 			const response = await this.send({ method: 'GET', query })
-			const xml = await response.text()
+			const xml = await readBodyCapped(response, MAX_LIST_BODY_BYTES)
 			const pageKeys = parseKeys(xml)
 			keys.push(...pageKeys)
 			if (!isTruncated(xml) || pageKeys.length === 0) break
@@ -342,6 +386,6 @@ export class OssClient {
 	 */
 	async check() {
 		const response = await this.send({ method: 'GET', query: { 'max-keys': '1' } })
-		return parseKeys(await response.text())
+		return parseKeys(await readBodyCapped(response, MAX_CHECK_BODY_BYTES))
 	}
 }

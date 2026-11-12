@@ -67,7 +67,7 @@ export function healthMetrics(cards, backlinks = {}) {
  * @param {{date: string} & ReturnType<typeof healthMetrics>} row - One day.
  * @returns {string} The line.
  */
-export function formatRow(row) {
+function formatRow(row) {
 	const share = (value) => (row.cards === 0 ? '0%' : `${Math.round((value / row.cards) * 100)}%`)
 	return [
 		row.date.slice(5),

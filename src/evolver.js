@@ -15,6 +15,40 @@ import { lstat, mkdir, open, readFile, readlink, rename, rm, symlink, writeFile 
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
+/**
+ * Whether a path exists, without following the last link.
+ *
+ * @param {string} path - The path.
+ * @returns {Promise<boolean>} True when lstat finds anything there.
+ */
+async function pathExists(path) {
+	try {
+		await lstat(path)
+		return true
+	} catch {
+		return false
+	}
+}
+
+/**
+ * A free name for the copy kept when a global instructions file is taken over.
+ *
+ * The name carries the takeover time so two takeovers can never overwrite
+ * each other's copy: the first takeover's backup used to block the second one
+ * and the second file was then deleted outright.
+ *
+ * @param {string} base - The target the copy is next to, without suffix.
+ * @returns {Promise<string>} A path that does not exist yet.
+ */
+async function freeBackupPath(base) {
+	const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+	let candidate = `${base}.imported-${stamp}`
+	for (let index = 2; (await pathExists(candidate)) && index < 100; index += 1) {
+		candidate = `${base}.imported-${stamp}-${index}`
+	}
+	return candidate
+}
+
 /** The global preferences, seeded when the folder is new. */
 const STARTER_PREFS = `# 个人偏好
 
@@ -125,7 +159,23 @@ export class Evolver {
 	async linkGlobalIfNeeded() {
 		try {
 			const state = await this.globalLinkState()
-			if (state.kind === 'missing') await this.linkGlobal()
+			if (state.kind === 'missing') {
+				await this.linkGlobal()
+				return
+			}
+			// A link whose target went away (an external disk that was not
+			// mounted, a data folder that was moved by hand) leaves DSH reading
+			// a file that does not exist. The loader then silently drops the
+			// global instructions, so the link has to point at the current
+			// preferences again.
+			if (state.kind === 'link' && state.ours !== true) {
+				const target = resolve(dirname(this.globalPath), String(state.target ?? ''))
+				if (await pathExists(target)) return
+				await rm(this.globalPath, { force: true })
+				await mkdir(dirname(this.globalPath), { recursive: true })
+				await symlink(this.preferencesPath, this.globalPath)
+				this.logger?.info?.('dsh-evolver: repaired a dangling global preferences link')
+			}
 		} catch (error) {
 			this.logger?.warn?.(`dsh-evolver: global preferences link failed: ${error instanceof Error ? error.message : String(error)}`)
 		}
@@ -244,7 +294,8 @@ export class Evolver {
 		if (state.kind === 'file' || state.kind === 'link') {
 			const original = await readFile(this.globalPath, 'utf8').catch(() => undefined)
 			if (original !== undefined) {
-				await this.writeIfMissing(join(this.root, 'preferences', 'AGENTS.md.imported'), original)
+				const backup = await freeBackupPath(join(this.root, 'preferences', 'AGENTS.md'))
+				await this.writeIfMissing(backup, original)
 			}
 		}
 		await rm(this.globalPath, { force: true })
@@ -311,7 +362,6 @@ export class Evolver {
 				globalPath: preferences.globalPath,
 				link: preferences.link,
 			},
-			suggestions: [],
 		}
 	}
 }

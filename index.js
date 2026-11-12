@@ -5,7 +5,9 @@
  *
  *   1. **the data** — one folder (`~/.dsh/evolver` by default) with the card
  *      log and resources and the global preferences;
- *   2. **the injection** — the 2 KB tag tree and the proactive protocol;
+ *   2. **the injection** — two blocks split by volatility: one static system
+ *      section (card discipline plus the proactive protocol) and one runtime
+ *      snapshot (the card index);
  *   3. **the tools** — card-native query/read/write/index/promote/archive/
  *      remove, plus `evolve_review` and `session_digest`;
  *   4. **the settings** — where the data folder lives, its card budget, and
@@ -16,10 +18,9 @@
  * the Connection service the Host already provides.
  */
 
-import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { isAbsolute, join, resolve } from 'node:path'
 
-import { MAX_IMPORT_BYTES, extractArchiveFile, writeArchiveFile } from './src/backup/archive.js'
 import { BackupService } from './src/backup/service.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
 import { createConsolidationController } from './src/consolidate.js'
@@ -28,17 +29,19 @@ import { assistantEvents, cacheForDay, summarizeUsage } from './src/cache.js'
 import { createHarnessTools } from './src/harness/tools.js'
 import { projectRootOf } from './src/harness/store.js'
 import { createIngestController } from './src/ingest.js'
-import { SessionLedger, digestSessions } from './src/sessions.js'
+import { SessionLedger, digestSessions, readSessionExcerpt } from './src/sessions.js'
 import { createEvolverHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { createTools } from './src/tools.js'
 import { PROACTIVE_PROTOCOL } from './src/proactive.js'
 import { createCardAgent } from './src/cards/agent.js'
+import { refreshCardIndex } from './src/cards/injection-index.js'
 import { seedStarterCards } from './src/cards/seed.js'
-import { cardPrompt, cardSection, cardTree, DEFAULT_PROMPT_BUDGET } from './src/cards/prompt.js'
+import { cardIndexText, cardPrompt, cardSection, DEFAULT_PROMPT_BUDGET } from './src/cards/prompt.js'
+import { MAX_RESOURCE_BYTES } from './src/cards/resources.js'
 import { CardStore } from './src/cards/store.js'
-import { TAG_DESCRIPTIONS } from './src/cards/tags.js'
-import { copyTree, countEntries, isDirectory, isInsidePath, pathsOverlap } from './src/workspace.js'
+import { isDirectory } from './src/workspace.js'
+import { createWorkspaceJobs } from './src/workspace-jobs.js'
 
 /** The plugin's row name. */
 export const name = 'dsh-evolver'
@@ -46,8 +49,15 @@ export const name = 'dsh-evolver'
 /** The API prefix the browser calls. */
 export const API_PREFIX = '/api/evolver'
 
-/** How large a request body the panel API accepts. */
-const MAX_REQUEST_BYTES = 8 * 1024 * 1024
+/**
+ * The largest request body the panel API goes on to parse.
+ *
+ * This is a *declared* limit, not a memory bound: the Host's API bridge reads
+ * a `requestBody: 'buffered'` route into memory before this handler runs (its
+ * own cap is 300 MB). 16 MB leaves room for a base64 attachment while keeping
+ * the panel's JSON small; see `MAX_RESOURCE_BYTES` for the decoded limit.
+ */
+const MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 /**
  * The plugin's own version, read from the package it ships in.
@@ -106,52 +116,22 @@ async function resolveRoot({ configured, stored, defaultRoot }) {
 }
 
 /**
- * Validate one absolute path a workspace action was given.
+ * The static half of the injection: the card discipline and the proactive
+ * protocol, as one system-prompt section.
  *
- * @param {unknown} value - The path from the request.
- * @returns {string} The resolved path.
+ * Both halves are constants, so a second section would only add a block
+ * boundary and an `order` slot without ever changing on its own. `"\n\n"` is
+ * the separator the prompt assembler puts between sections, so the merged
+ * text is byte-identical to what two sections produced.
+ *
+ * One cost: this section now owns order 900, where the proactive protocol
+ * used to be at 920. A future section whose order falls between the two
+ * would sort after the protocol instead of before it.
+ *
+ * @returns {string} One system-prompt section.
  */
-function requestPath(value) {
-	const text = String(value ?? '').trim()
-	if (text === '') throw new Error('请填写路径。')
-	if (text.includes('\u0000') || /[\r\n]/.test(text)) throw new Error('路径不合法。')
-	if (!isAbsolute(text)) throw new Error(`必须是绝对路径：${text}`)
-	const resolved = resolve(text)
-	// `dirname('/') === '/'`: a root folder would turn a copy into a system
-	// write, however the user got there.
-	if (resolved === dirname(resolved)) throw new Error('不能把文件系统根目录当作目标。')
-	return resolved
-}
-
-/**
- * Resolve a path to the directory it physically names.
- *
- * Two spellings of the same folder (a symlinked parent, for example) must be
- * recognised as the same folder before anything is copied; a missing target
- * falls back to its parent's real path plus the requested name.
- *
- * @param {string} path - The absolute path.
- * @returns {Promise<string>} The canonical path.
- */
-async function canonicalPath(path) {
-	try {
-		return await realpath(path)
-	} catch {
-		const parent = await realpath(dirname(path)).catch(() => undefined)
-		return parent === undefined ? path : join(parent, basename(path))
-	}
-}
-
-/**
- * Refuse a copy whose destination overlaps its source.
- *
- * @param {string} current - The data folder.
- * @param {string} target - The requested destination.
- * @param {string} label - What the destination is for.
- * @returns {void}
- */
-function assertSeparate(current, target, label) {
-	if (pathsOverlap(current, target)) throw new Error(`${label}不能与数据目录相同或互相包含。`)
+function staticSection() {
+	return `${cardSection()}\n\n${PROACTIVE_PROTOCOL}`
 }
 
 /**
@@ -178,7 +158,10 @@ export async function apply(ctx, config) {
 		stored: settings.get().dataDir,
 		defaultRoot,
 	})
-	if (resolved.warning !== '') ctx.logger.warn(`dsh-evolver: ${resolved.warning}`)
+	// A settings file that could not be read also sends the data folder back
+	// to the default; both reasons ride the one warning channel the panel shows.
+	const startupWarning = resolved.warning !== '' ? resolved.warning : settings.warning
+	if (startupWarning !== '') ctx.logger.warn(`dsh-evolver: ${startupWarning}`)
 
 	const evolver = new Evolver({
 		root: resolved.root,
@@ -192,9 +175,6 @@ export async function apply(ctx, config) {
 	// tools and the API talk to small proxies rather than to one instance.
 	const cardStoreRef = { current: undefined }
 	const cardAgentRef = { current: undefined }
-	// The injected text is rendered synchronously on every request, so the
-	// effective tag descriptions are cached here and refreshed on every write.
-	const tagDescriptionsRef = { current: { ...TAG_DESCRIPTIONS } }
 
 	/**
 	 * Build (and initialise) the card store of one data folder.
@@ -215,14 +195,20 @@ export async function apply(ctx, config) {
 		} catch (error) {
 			ctx.logger.warn(`dsh-evolver: seeding cards failed: ${error instanceof Error ? error.message : String(error)}`)
 		}
+		// The injected card index reads a daily snapshot. A fresh install, a
+		// moved data folder and an imported archive have none, and the fallback
+		// ranks the whole library: doing that once here keeps it off the request
+		// path until the daily run rewrites the snapshot.
+		try {
+			await refreshCardIndex(store)
+		} catch (error) {
+			ctx.logger.warn(`dsh-evolver: building the card index snapshot failed: ${error instanceof Error ? error.message : String(error)}`)
+		}
 		return store
 	}
 
 	/**
 	 * Make one card store the one the tools use.
-	 *
-	 * The store is replaced whenever the data folder changes, so the cached
-	 * tag descriptions are reloaded from the new folder right here.
 	 *
 	 * @param {object} store - The opened store.
 	 * @returns {void}
@@ -230,11 +216,6 @@ export async function apply(ctx, config) {
 	function useCards(store) {
 		cardStoreRef.current = store
 		cardAgentRef.current = createCardAgent(store)
-		void store.tagDescriptions()
-			.then((descriptions) => { tagDescriptionsRef.current = descriptions })
-			.catch((error) => {
-				ctx.logger.warn(`dsh-evolver: reading tag descriptions failed: ${error instanceof Error ? error.message : String(error)}`)
-			})
 	}
 
 	/**
@@ -251,6 +232,22 @@ export async function apply(ctx, config) {
 
 	await openCards(resolved.root)
 
+	// Assigned further down; the workspace jobs only read it from `state()`.
+	let backup
+	const rootState = { source: resolved.source, warning: startupWarning }
+	// Moving, exporting and importing all close and reopen the card store. The
+	// gate lives in the jobs module so the timer jobs can ask the same question.
+	const workspace = createWorkspaceJobs({
+		evolver,
+		settings,
+		rootState,
+		defaultRoot,
+		logger: ctx.logger,
+		currentStore: () => cardStoreRef.current,
+		openCards,
+		backupRunning: () => backup?.running === true,
+	})
+
 	// Tools and the ingest job talk to this proxy; a data-folder switch
 	// replaces the agent behind it without changing tool identities.
 	/**
@@ -263,9 +260,8 @@ export async function apply(ctx, config) {
 	 * @returns {Promise<object>} The result.
 	 */
 	function guardedWrite(work) {
-		if (dataOperation !== undefined) {
-			return Promise.reject(new Error(`${dataOperation}正在进行，请稍后再试。`))
-		}
+		const blocked = workspace.blockedMessage()
+		if (blocked !== undefined) return Promise.reject(new Error(blocked))
 		return work()
 	}
 
@@ -282,25 +278,6 @@ export async function apply(ctx, config) {
 	}
 
 	/**
-	 * The browser-facing card API.
-	 *
-	 * Reads enrich link ids with labels; writes go through the same CardStore
-	 * as the tools, so the panel and the agent cannot disagree.
-	 */
-	/**
-	 * The local calendar key of a date.
-	 *
-	 * @param {Date} date - The date.
-	 * @returns {string} `YYYY-MM-DD` in local time.
-	 */
-	function dayKey(date) {
-		const year = date.getFullYear()
-		const month = String(date.getMonth() + 1).padStart(2, '0')
-		const day = String(date.getDate()).padStart(2, '0')
-		return `${year}-${month}-${day}`
-	}
-
-	/**
 	 * Build overview statistics: totals and a 365-day heatmap.
 	 *
 	 * @param {object[]} cards - The card views.
@@ -312,22 +289,20 @@ export async function apply(ctx, config) {
 		const days = new Map()
 		let first = Infinity
 		let words = 0
+		let bodyBytes = 0
 		let archived = 0
 		const tags = new Set()
 		for (const card of cards) {
 			// One pass and one character count per card: the day histogram, the
 			// total, the tag set and the earliest card all come from the same
-			// scan. Counting the body twice used to double the cost of the
-			// most expensive part of the overview.
-			let chars = 0
-			for (const character of String(card.body ?? '')) {
-				if (!/\s/u.test(character)) chars += 1
-			}
+			// scan. One regex pass over the body (a per-character test was ~4x
+			// the cost) and this is the most expensive part of the overview.
+			const chars = [...String(card.body ?? '').replace(/\s/gu, '')].length
 			const date = new Date(card.created)
 			if (Number.isFinite(date.getTime())) {
 				date.setHours(0, 0, 0, 0)
 				if (date.getTime() < first) first = date.getTime()
-				const key = dayKey(date)
+				const key = dayKeyOf(date)
 				const entry = days.get(key) ?? { count: 0, words: 0 }
 				entry.count += 1
 				entry.words += chars
@@ -339,13 +314,14 @@ export async function apply(ctx, config) {
 				continue
 			}
 			words += chars
+			bodyBytes += Buffer.byteLength(String(card.body ?? ''), 'utf8')
 			for (const tag of card.tags) tags.add(tag)
 		}
 		const activity = []
 		for (let offset = 364; offset >= 0; offset -= 1) {
 			const date = new Date(today)
 			date.setDate(date.getDate() - offset)
-			const key = dayKey(date)
+			const key = dayKeyOf(date)
 			activity.push({ date: key, count: days.get(key)?.count ?? 0 })
 		}
 		const summarize = (entries) => {
@@ -361,10 +337,14 @@ export async function apply(ctx, config) {
 		}
 		const span = first === Infinity ? 0 : Math.max(1, Math.floor((today.getTime() - first) / 86_400_000) + 1)
 		return {
-			cards: cards.length,
+			// Archived cards stay on the heatmap (they were written that day)
+			// but are not part of the live library: the words and tag counts
+			// already leave them out, so the total has to as well.
+			cards: cards.length - archived,
 			tags: tags.size,
 			days: span,
 			words,
+			bodyBytes,
 			activity,
 			year: summarize(activity),
 		}
@@ -385,9 +365,8 @@ export async function apply(ctx, config) {
 		// A folder move closes the store and reopens it somewhere else; a write
 		// that slipped through that window landed in the folder being left
 		// behind and still answered success.
-		if (dataOperation !== undefined) {
-			throw new Error(`${dataOperation}正在进行，请稍后再试。`)
-		}
+		const blocked = workspace.blockedMessage()
+		if (blocked !== undefined) throw new Error(blocked)
 		const store = cardStoreRef.current
 		const result = await work(store)
 		await store.flush()
@@ -403,36 +382,44 @@ export async function apply(ctx, config) {
 			const store = cardStoreRef.current
 			const base = await evolver.overview()
 			const status = store.status()
-			const descriptions = await store.tagDescriptions()
-			const text = cardPrompt(store, undefined, descriptions)
 			const all = store.all()
 			const stats = overviewStats(all)
+			// Rendered once and shared by the ratio and the preview: the same
+			// block used to be ranked twice per overview call.
+			const index = cardIndexText(store, DEFAULT_PROMPT_BUDGET)
 			return {
 				...base,
-				stats: { cards: stats.cards, tags: stats.tags, days: stats.days, words: stats.words },
+				stats: {
+					cards: stats.cards,
+					tags: stats.tags,
+					days: stats.days,
+					words: stats.words,
+					// The index is what every request pays for; the notes are what
+					// it is supposed to point at. The ratio is the Borges warning.
+					indexRatio: stats.bodyBytes === 0 ? 0 : Buffer.byteLength(index, 'utf8') / stats.bodyBytes,
+				},
 				year: stats.year,
 				activity: stats.activity,
 				tree: store.tagTree(),
-				projection: {
-					entries: status.cards,
-					bytes: Buffer.byteLength(text, 'utf8'),
-					budget: DEFAULT_PROMPT_BUDGET,
-					dropped: 0,
-				},
 				cards: {
 					...status,
 					total: status.cards,
 					cardMaxChars: settings.get().cardMaxChars,
 				},
-				suggestions: [],
+				// What rides on every request, block by block: the panel's 信息
+				// page shows exactly this so the injected text can be read
+				// without opening a request.
+				injection: {
+					section: staticSection(),
+					index,
+				},
 			}
 		},
 		async injection() {
 			const store = cardStoreRef.current
 			const base = await evolver.injectionPreview()
 			const status = store.status()
-			const descriptions = await store.tagDescriptions()
-			const text = cardPrompt(store, undefined, descriptions)
+			const text = cardPrompt(store, DEFAULT_PROMPT_BUDGET)
 			return {
 				...base,
 				cards: {
@@ -494,16 +481,20 @@ export async function apply(ctx, config) {
 		async remove(payload = {}) {
 			return { removed: await committed((store) => store.remove(String(payload.id ?? ''))) }
 		},
-		async attach(payload = {}) {
-			const store = cardStoreRef.current
+		attach(payload = {}) {
 			const id = String(payload.id ?? '')
 			const name = String(payload.name ?? '')
 			const encoded = String(payload.data ?? '')
 			if (encoded === '') throw new Error('附件内容为空。')
 			const data = Buffer.from(encoded, 'base64')
 			if (data.length === 0) throw new Error('附件内容为空。')
-			if (data.length > 10 * 1024 * 1024) throw new Error('附件超过 10 MB 上限。')
-			return store.attach(id, name, data)
+			if (data.length > MAX_RESOURCE_BYTES) {
+				throw new Error(`附件超过 ${MAX_RESOURCE_BYTES / 1024 / 1024} MB 上限。`)
+			}
+			// A panel edit pays one write: the card log must be on disk before
+			// the panel is told "已保存", or a crash between the resource file
+			// and the log leaves a card that cannot be edited again.
+			return committed((store) => store.attach(id, name, data))
 		},
 		/**
 		 * The tag descriptions and the branches still missing one.
@@ -543,9 +534,6 @@ export async function apply(ctx, config) {
 		async saveTagDescriptions(descriptions) {
 			const store = cardStoreRef.current
 			const saved = await store.saveTagDescriptions(descriptions)
-			// The injected block renders synchronously, so it picks the new
-			// descriptions up from the cache on the next request.
-			tagDescriptionsRef.current = saved
 			return { path: store.tagDescriptionsPath(), descriptions: saved }
 		},
 	}
@@ -562,7 +550,6 @@ export async function apply(ctx, config) {
 				ledger: ledger(),
 				sinceDays: args.sinceDays,
 				limit: args.limit,
-				commit: args.commit === true,
 			})
 		},
 		/**
@@ -597,6 +584,9 @@ export async function apply(ctx, config) {
 		llm: ctx.get('llm'),
 		modelSelection: ctx.get('agentDefaultModel'),
 		logger: ctx.logger,
+		// A data-folder move closes the store; a job that writes during that
+		// window lands in the folder being left behind.
+		isBusy: () => workspace.busy(),
 	})
 
 	const consolidate = createConsolidationController({
@@ -605,6 +595,10 @@ export async function apply(ctx, config) {
 		llm: ctx.get('llm'),
 		modelSelection: ctx.get('agentDefaultModel'),
 		logger: ctx.logger,
+		// A card that carries its source session can be checked against the
+		// words around the quote instead of being polished on trust.
+		excerpt: (id, quote) => readSessionExcerpt({ query: ctx.get('sessionQuery'), id, quote }),
+		isBusy: () => workspace.busy(),
 	})
 
 	const health = createHealthJob({
@@ -613,222 +607,15 @@ export async function apply(ctx, config) {
 		// The daily row also records how the prompt cache behaved, which only
 		// the session service can answer.
 		cache: (day) => cacheForDay({ query: ctx.get('sessionQuery'), day, dayKeyOf }),
+		isBusy: () => workspace.busy(),
 	})
 
-	const backup = new BackupService({
+	backup = new BackupService({
 		settings,
 		root: () => evolver.root,
 		logger: ctx.logger,
 		flush: () => cardStoreRef.current?.flush(),
 	})
-	const rootState = { source: resolved.source, warning: resolved.warning }
-
-	const workspace = {
-		/**
-		 * The current folder, for the settings page.
-		 *
-		 * @returns {object} The state.
-		 */
-		state() {
-			return {
-				root: evolver.root,
-				source: rootState.source,
-				warning: rootState.warning,
-				defaultRoot,
-				settingsPath: settings.path,
-				backupRunning: backup.running,
-			}
-		},
-
-		/**
-		 * Copy the data folder to a new place and continue there.
-		 *
-		 * @param {unknown} dir - The new folder.
-		 * @param {{force?: boolean}} [options] - Overwrite behaviour.
-		 * @returns {Promise<object>} What happened.
-		 */
-		async migrate(dir, { force = false } = {}) {
-			// The requested spelling is what the user sees and what the settings
-			// store; the canonical path is only used for the safety checks, so
-			// two spellings of the same folder cannot slip past them.
-			const requested = requestPath(dir)
-			const target = await canonicalPath(requested)
-			const current = await canonicalPath(evolver.root)
-			if (target === current) {
-				throw new Error('这就是当前数据目录，不需要迁移；请选择另一个目录。')
-			}
-			assertSeparate(current, target, '新数据目录')
-			if (await isDirectory(requested)) {
-				const entries = await countEntries(requested)
-				if (entries > 0 && !force) throw new Error(`目标目录不是空的（${entries} 项）；确认覆盖后重试。`)
-			} else if (!(await isDirectory(dirname(requested)))) {
-				throw new Error(`目标目录的上级不存在：${dirname(requested)}`)
-			}
-			// Flush first: the copy has to see the newest card writes.
-			await cardStoreRef.current?.close().catch(() => {})
-			let copied
-			try {
-				copied = await copyTree(evolver.root, requested, { force })
-			} catch (error) {
-				// The old folder is untouched; reopen it so the plugin keeps
-				// answering with the data it had before the attempt.
-				await openCards(evolver.root).catch(() => {})
-				throw error
-			}
-			// Persist the new location *before* switching: if the switch fails,
-			// the next start still lands on the folder that already holds the
-			// copy, instead of silently drifting back to the old one.
-			await settings.update({ dataDir: requested })
-			await evolver.switchRoot(requested)
-			await openCards(requested)
-			rootState.source = 'settings'
-			rootState.warning = ''
-			ctx.logger.info(`dsh-evolver: data folder moved to ${requested}`)
-			return { root: requested, ...copied }
-		},
-
-		/**
-		 * Copy the data folder out, leaving the current one in use.
-		 *
-		 * @param {unknown} dir - The destination.
-		 * @param {{force?: boolean}} [options] - Overwrite behaviour.
-		 * @returns {Promise<object>} What happened.
-		 */
-		async exportTo({ dir = '', name = '', force = false } = {}) {
-			// A folder and a name, never a whole path: the panel only ever sends
-			// these two, and accepting a free path would let one request write
-			// the archive bytes over any file the process can reach.
-			let target
-			{
-				const folder = requestPath(dir)
-				if (!(await isDirectory(folder))) throw new Error(`导出目录不存在：${folder}`)
-				let fileName = String(name ?? '').trim()
-				if (fileName === '' || fileName.length > 128 || /[\\/\u0000\r\n]/.test(fileName) || /^\.+$/.test(fileName)) {
-					throw new Error(`文件名不合法：${fileName === '' ? '（空）' : fileName}`)
-				}
-				// Always end with an archive suffix, otherwise the import
-				// browser would not find the file it just wrote.
-				if (!/\.(tar\.gz|tgz|tar)$/i.test(fileName)) fileName += '.tar.gz'
-				target = join(folder, fileName)
-			}
-			const current = await canonicalPath(evolver.root)
-			if (isInsidePath(current, await canonicalPath(target))) {
-				throw new Error('导出文件不能放在数据目录里面。')
-			}
-			const existing = await lstat(target).catch(() => undefined)
-			if (existing !== undefined) {
-				if (!existing.isFile()) throw new Error(`导出目标必须是文件：${target}`)
-				if (!force) throw new Error(`文件已存在：${target}；确认覆盖后重试。`)
-			} else if (!(await isDirectory(dirname(target)))) {
-				throw new Error(`导出目录的上级不存在：${dirname(target)}`)
-			}
-			// Flush first so the archive contains the newest card writes. The
-			// store is reopened afterwards: an export must not leave the plugin
-			// without its read path.
-			await cardStoreRef.current?.close().catch(() => {})
-			try {
-				const packed = await writeArchiveFile(evolver.root, target)
-				return { file: target, bytes: packed.bytes, files: packed.files }
-			} finally {
-				await openCards(evolver.root).catch(() => {})
-			}
-		},
-
-		/**
-		 * List the archives in one folder.
-		 *
-		 * The client has a folder picker but no file picker, so the flow is
-		 * "pick a folder, choose one of its archives"; this is that second
-		 * step. Only our three archive suffixes are returned.
-		 *
-		 * @param {unknown} dir - The folder.
-		 * @returns {Promise<object>} The folder and its archives, newest first.
-		 */
-		async listArchives(dir) {
-			const folder = requestPath(dir)
-			if (!(await isDirectory(folder))) throw new Error(`目录不存在：${folder}`)
-			const names = await readdir(folder).catch(() => [])
-			const files = []
-			for (const name of names) {
-				if (!/\.(tar\.gz|tgz|tar)$/i.test(name)) continue
-				const path = join(folder, name)
-				const info = await lstat(path).catch(() => undefined)
-				if (info === undefined || !info.isFile()) continue
-				files.push({ name, path, size: info.size, updatedAt: info.mtime.toISOString() })
-			}
-			files.sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)) || left.name.localeCompare(right.name))
-			return { dir: folder, files: files.slice(0, 200) }
-		},
-
-		async importFrom(file, { force = false } = {}) {
-			const source = requestPath(file)
-			const info = await lstat(source).catch(() => undefined)
-			if (info === undefined || !info.isFile()) throw new Error(`导入文件不存在：${source}`)
-			if (info.size > MAX_IMPORT_BYTES) {
-				throw new Error(`压缩包超过 ${MAX_IMPORT_BYTES / 1024 / 1024 / 1024} GB，拒绝导入。`)
-			}
-			const current = await canonicalPath(evolver.root)
-			if (isInsidePath(current, await canonicalPath(source))) {
-				throw new Error('导入文件不能是数据目录里的文件。')
-			}
-			await cardStoreRef.current?.close().catch(() => {})
-			let restored
-			try {
-				restored = await extractArchiveFile(source, evolver.root, { force })
-			} catch (error) {
-				// A half-finished import must not leave the in-memory store out
-				// of sync with the files that did land.
-				await openCards(evolver.root).catch(() => {})
-				const message = error instanceof Error ? error.message : String(error)
-				throw new Error(message.includes('压缩包') ? message : `不能读取压缩包：${message}`)
-			}
-			try {
-				await evolver.switchRoot(evolver.root)
-			} catch (error) {
-				await openCards(evolver.root).catch(() => {})
-				throw error
-			}
-			await openCards(evolver.root)
-			return restored
-		},
-	}
-
-	/**
-	 * The data operation currently holding the folder, if any.
-	 *
-	 * @type {string | undefined}
-	 */
-	let dataOperation
-
-	/**
-	 * Run one data-folder operation while no other one is in flight.
-	 *
-	 * @param {string} label - What the operation is, for the refusal message.
-	 * @param {() => Promise<unknown>} action - The operation.
-	 * @returns {Promise<unknown>} Its result.
-	 */
-	async function exclusive(label, action) {
-		if (dataOperation !== undefined) {
-			throw new Error(`${dataOperation}正在进行，请稍后再试。`)
-		}
-		dataOperation = label
-		try {
-			return await action()
-		} finally {
-			dataOperation = undefined
-		}
-	}
-
-	// Moving, exporting and importing all copy the folder and reopen the
-	// memory store. Two at once could leave the store pointing at a folder the
-	// evolver no longer uses, so they share one gate.
-	const exclusiveOperations = { migrate: '迁移', exportTo: '导出', importFrom: '导入' }
-	for (const [method, label] of Object.entries(exclusiveOperations)) {
-		const original = workspace[method]
-		workspace[method] = function (...args) {
-			return exclusive(label, () => original.apply(workspace, args))
-		}
-	}
 
 	/** Everything that has to be undone, in registration order. */
 	const disposers = []
@@ -841,8 +628,12 @@ export async function apply(ctx, config) {
 				// A failing disposer must not stop the others.
 			}
 		}
-		// Writing out the debounced saves is part of shutting down.
-		return cardStoreRef.current?.close().catch(() => {})
+		// Writing out the debounced saves is part of shutting down; so is the
+		// access ledger, whose last few reads still live in memory.
+		const flushAccess = cardAgentRef.current?.flushAccess?.() ?? Promise.resolve()
+		return flushAccess
+			.then(() => cardStoreRef.current?.close().catch(() => {}))
+			.catch(() => {})
 	}, 'dsh-evolver: resources')
 
 	// Any session activity postpones the idle run; the scheduled ingest run
@@ -873,7 +664,10 @@ export async function apply(ctx, config) {
 	 * @param {{project?: string, agent?: {id?: string}}} exec - The call context.
 	 * @returns {Promise<string | undefined>} The project root.
 	 */
+	// One entry per agent id; a long-lived host would otherwise keep every id
+	// it has ever seen. Small enough to make the lookup still worth it.
 	const projectCache = new Map()
+	const PROJECT_CACHE_MAX = 64
 	async function resolveProject(exec) {
 		const explicit = String(exec?.project ?? '').trim()
 		if (explicit !== '') return projectRootOf(explicit)
@@ -885,6 +679,7 @@ export async function apply(ctx, config) {
 		const records = await query.filterSessions([{ kind: 'id', values: [id] }]).catch(() => [])
 		const cwd = records?.[0]?.header?.cwd
 		const resolved = typeof cwd === 'string' ? await projectRootOf(cwd) : undefined
+		if (projectCache.size >= PROJECT_CACHE_MAX) projectCache.delete(projectCache.keys().next().value)
 		projectCache.set(id, resolved)
 		return resolved
 	}
@@ -903,26 +698,19 @@ export async function apply(ctx, config) {
 	// tree moves with the data, so it rides along as runtime context: a branch
 	// appearing mid-session then appends a snapshot instead of rewriting the
 	// system prompt, and the conversation prefix stays cached. The section
-	// keeps discipline, legend and a pointer, all of it static.
+	// keeps the discipline, the pointer to the tree and the proactive protocol,
+	// all of it static — one section, because two would only cost a boundary.
 	disposers.push(ctx.systemPrompt.section({
 		name: 'dsh-evolver:cards',
 		order: 900,
 		interpolate: false,
-		text: () => cardSection(),
+		text: () => staticSection(),
 	}))
 	disposers.push(ctx.systemPrompt.context({
-		name: 'dsh-evolver:tags',
+		name: 'dsh-evolver:cards',
 		order: 900,
 		interpolate: false,
-		text: () => (cardStoreRef.current === undefined ? '' : cardTree(cardStoreRef.current, DEFAULT_PROMPT_BUDGET, tagDescriptionsRef.current)),
-	}))
-	// The data is already injected; this tells the model when to act on it
-	// without being asked. Kept small: it rides on every request.
-	disposers.push(ctx.systemPrompt.section({
-		name: 'dsh-evolver:proactive',
-		order: 920,
-		interpolate: false,
-		text: () => PROACTIVE_PROTOCOL,
+		text: () => (cardStoreRef.current === undefined ? '' : cardIndexText(cardStoreRef.current, DEFAULT_PROMPT_BUDGET)),
 	}))
 
 	const view = () => settings.publicView(workspace.state())
@@ -941,6 +729,11 @@ export async function apply(ctx, config) {
 		disposers.push(connection.fetch.register({
 			path: `${API_PREFIX}/${endpoint}`,
 			methods: ['POST'],
+			// Buffered on purpose: the panel sends small JSON. The Host's bridge
+			// caps every buffered body at 300 MB *before* this handler runs, so
+			// the check below is a declared API limit, not a memory bound — the
+			// exact Fetch routes are owner-only (a browser session must have
+			// authenticated first), so the amplified-memory case is self-inflicted.
 			requestBody: 'buffered',
 			fetch: async (request) => {
 				const declared = Number(request.headers.get('content-length') ?? '')

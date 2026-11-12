@@ -157,6 +157,7 @@ export class MemoryDatabase {
 	 */
 	async init() {
 		await mkdir(this.folder, { recursive: true, mode: 0o700 })
+		await this.repairTornTail()
 		this.logLength = 0
 		this.pendingAppends = []
 		this.logRewrite = false
@@ -165,6 +166,28 @@ export class MemoryDatabase {
 		this.version += 1
 		// Whatever was on disk is the current state; nothing to write back.
 		this.dirty.clear()
+	}
+
+	/**
+	 * Terminate a last line that a crash left without its newline.
+	 *
+	 * The log is split on newlines, so a torn tail (power loss mid-append) is
+	 * skipped as one broken record — fine. But the *next* append would be glued
+	 * to that partial line and lost with it. Writing the missing newline first
+	 * keeps the damage to the one record that was already broken.
+	 *
+	 * @returns {Promise<void>} Resolves when the log ends on a line boundary.
+	 */
+	async repairTornTail() {
+		const path = join(this.folder, this.logName)
+		let raw
+		try {
+			raw = await readFile(path, 'utf8')
+		} catch {
+			return
+		}
+		if (raw === '' || raw.endsWith('\n')) return
+		await appendFile(path, '\n', { encoding: 'utf8', mode: 0o600 })
 	}
 
 	/**
@@ -246,7 +269,7 @@ export class MemoryDatabase {
 	 * @returns {string} The searchable text.
 	 */
 	searchableText(memory) {
-		return [memory.label ?? memory.l0Abstract, memory.body ?? memory.text, memory.summary ?? memory.l1Overview, (memory.tags ?? []).join(' ')]
+		return [memory.label ?? memory.l0Abstract, memory.description ?? '', memory.body ?? memory.text, memory.summary ?? memory.l1Overview, (memory.tags ?? []).join(' ')]
 			.filter(value => typeof value === 'string' && value !== '')
 			.join('\n')
 	}
@@ -272,6 +295,11 @@ export class MemoryDatabase {
 	}
 
 	//#region memories
+
+	/** Every memory in insertion order, without the view mapping or sorting. */
+	values() {
+		return [...this.memories.values()]
+	}
 
 	/** Every memory, newest first. */
 	all() {
@@ -542,26 +570,6 @@ export class MemoryDatabase {
 			} finally {
 				await handle.close()
 			}
-			await rename(temp, target)
-		} catch (error) {
-			await rm(temp, { force: true }).catch(() => {})
-			throw error
-		}
-	}
-
-	/**
-	 * Write a file atomically.
-	 *
-	 * @param {string} name - File name.
-	 * @param {string} content - File content.
-	 * @returns {Promise<void>} Resolves once the file is committed.
-	 */
-	async writeFileAtomic(name, content) {
-		const target = join(this.folder, name)
-		this.writeSequence += 1
-		const temp = `${target}.${process.pid}.${this.writeSequence}.tmp`
-		try {
-			await writeFile(temp, content, { encoding: 'utf8', mode: 0o600 })
 			await rename(temp, target)
 		} catch (error) {
 			await rm(temp, { force: true }).catch(() => {})

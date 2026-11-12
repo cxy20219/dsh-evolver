@@ -70,7 +70,15 @@ function text(payload, field, fallback = '') {
 /**
  * Build the endpoint handler for the evolver.
  *
- * @param {{evolver: object, settings: object, backup: object, workspace: object, view: Function, ingest: object, cards: object}} deps - The services the endpoints use.
+ * @param {object} deps - The services the endpoints use.
+ * @param {object} deps.evolver - The document layer (preferences).
+ * @param {object} deps.settings - The settings store.
+ * @param {object} deps.backup - The cloud backup service.
+ * @param {object} deps.workspace - Data-folder operations (state plus the four jobs).
+ * @param {Function} deps.view - The panel's settings view.
+ * @param {object} deps.ingest - Session-ingest controller.
+ * @param {object} deps.consolidate - Daily consolidation controller.
+ * @param {object} deps.cards - The card API the panel calls.
  * @returns {(endpoint: string, payload: unknown) => Promise<object>} The handler.
  */
 export function createEvolverHandler({ evolver, settings, backup, workspace, view, ingest, consolidate, cards }) {

@@ -10,7 +10,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { LAYERS, OVERVIEW, RESOURCE_LAYER, TOOL_LAYER, catalog, documentOf, isBareIndex, renderIndex, withFrontmatter } from './store.js'
+import { LAYERS, RESOURCE_LAYER, TOOL_LAYER, catalog, documentOf, isBareIndex, renderIndex, withFrontmatter } from './store.js'
 import { validate } from './validate.js'
 
 /** The name a resource file may have: one segment, no traversal. */
@@ -21,6 +21,7 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,80}$/
  *
  * @param {unknown} value - The proposed slug or title.
  * @returns {string} The slug, or an empty string when nothing safe is left.
+ * @internal exported for tests
  */
 export function slugOf(value) {
 	const source = String(value ?? '')
@@ -139,5 +140,3 @@ async function resolveTarget({ root, layer, slug, path }) {
 	const file = extension === '' ? name : `${name}${extension}`
 	return join(root, 'harness', String(layer), file)
 }
-
-export { OVERVIEW }

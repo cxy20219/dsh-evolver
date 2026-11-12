@@ -1,9 +1,10 @@
 /**
- * The proactivity protocol injected right after the tag tree.
+ * The proactivity protocol, appended to the static system section.
  *
- * The tag map says what exists; this block says when to act on it
- * without being asked. It is deliberately short: it is injected on every
- * request, so every line has to change behavior.
+ * The card index says what exists; this block says when to act on it without
+ * being asked. It rides in the same section as the card discipline — both are
+ * constants — and it is deliberately short: it is injected on every request,
+ * so every line has to change behavior.
  */
 export const PROACTIVE_PROTOCOL = [
 	'[主动性] 用演化器提前一步，不等指令：',

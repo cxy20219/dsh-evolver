@@ -4,9 +4,35 @@ import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { SessionLedger, digestSessions, probeSessions } from '../src/sessions.js'
+import { SessionLedger, digestSessions, probeSessions, readSessionExcerpt } from '../src/sessions.js'
 
 const NOW = Date.parse('2026-11-10T12:00:00Z')
+
+test('会话摘录围绕引文取窗口：只含人说的话，密钥被抹掉', async () => {
+	const events = [
+		user(1, '前面先聊了一些无关的事，比如说天气不错，适合出门走走，顺便把服务器装一下。'),
+		{ type: 'assistant/message', seq: 2, time: NOW - 30_000, data: { message: { content: [{ type: 'text', text: '好的，我来处理。' }] } } },
+		user(3, '部署用 SSH，不要用 HTTPS，密钥是 sk-abcdefghijklmnopqrstuvwx。'),
+		user(4, '这条跑题了，不应该出现在摘录里。', NOW - 10_000),
+	]
+	const query = {
+		async readSession() {
+			return { events }
+		},
+	}
+	const excerpt = await readSessionExcerpt({ query, id: 's1', quote: '部署用 SSH，不要用 HTTPS', maxChars: 120 })
+	assert.match(excerpt, /部署用 SSH/)
+	assert.equal(excerpt.includes('sk-abcdefghijklmnopqrstuvwx'), false, '密钥必须被抹掉')
+	assert.ok(excerpt.length <= 120)
+
+	// 引文找不到时退回首段，仍然是截断的。
+	const head = await readSessionExcerpt({ query, id: 's1', quote: '不存在的句子', maxChars: 200 })
+	assert.ok(head.length <= 200)
+	// 宿主没有读取能力或会话不存在时返回 null，不抛。
+	assert.equal(await readSessionExcerpt({ query: undefined, id: 's1' }), null)
+	assert.equal(await readSessionExcerpt({ query: { async readSession() { return undefined } }, id: 's1' }), null)
+})
+
 
 /**
  * Build a user event.
@@ -106,13 +132,19 @@ test('摘录只保留用户与助手文本，并抹掉密钥', async () => {
 	}
 })
 
-test('commit 后只读新增事件，整理任务自己不会被摘录', async () => {
+test('摘录是只读的：游标只由调用方显式 commit 推进', async () => {
 	const { query, events } = corpus()
 	const dir = await mkdtemp(join(tmpdir(), 'evr-ledger-'))
 	try {
 		const ledger = new SessionLedger({ dataDir: dir })
-		const first = await digestSessions({ query, ledger, commit: true, now: NOW })
-		assert.deepEqual(first.committed, ['s1', 's2'])
+		const first = await digestSessions({ query, ledger, now: NOW })
+		// 未提交：摘录不推进游标，重复读还是同一批会话（手动读取不会吞掉会话）。
+		assert.deepEqual(await digestSessions({ query, ledger, now: NOW }).then((r) => r.sessions.map((s) => s.id)), ['s1'])
+		assert.deepEqual(first.empty.map((entry) => entry.id), ['s2'])
+		await ledger.commit([
+			...first.sessions.map((session) => ({ id: session.id, seq: session.through })),
+			...first.empty,
+		], new Date(NOW).toISOString())
 		const after = await digestSessions({ query, ledger, now: NOW })
 		assert.equal(after.sessions.length, 0)
 
@@ -126,14 +158,20 @@ test('commit 后只读新增事件，整理任务自己不会被摘录', async (
 	}
 })
 
-test('probe 只数有新增事件的会话', async () => {
+test('probe 只数有新增事件的会话；未提交时仍算 pending', async () => {
 	const { query } = corpus()
 	const dir = await mkdtemp(join(tmpdir(), 'evr-ledger-'))
 	try {
 		const ledger = new SessionLedger({ dataDir: dir })
 		const probe = await probeSessions({ query, ledger, now: NOW })
 		assert.equal(probe.pending, 2)
-		await digestSessions({ query, ledger, commit: true, now: NOW })
+		const digest = await digestSessions({ query, ledger, now: NOW })
+		// 只读摘录不推进游标：probe 仍然看到这两个会话，不会静默丢。
+		assert.equal((await probeSessions({ query, ledger, now: NOW })).pending, 2)
+		await ledger.commit([
+			...digest.sessions.map((session) => ({ id: session.id, seq: session.through })),
+			...digest.empty,
+		], new Date(NOW).toISOString())
 		const after = await probeSessions({ query, ledger, now: NOW })
 		assert.equal(after.pending, 0)
 	} finally {
@@ -180,11 +218,62 @@ test('运行时上下文等合成 user 消息不会进入摘录，空会话会�
 		const digest = await digestSessions({ query, ledger, now: NOW })
 		assert.equal(digest.sessions.length, 0)
 		assert.deepEqual(digest.empty.map((entry) => entry.id), ['s1'])
-		await digestSessions({ query, ledger, commit: true, now: NOW })
+		assert.equal(await ledger.through('s1'), -1, '只读不推进游标')
+		await ledger.commit(digest.empty, new Date(NOW).toISOString())
 		assert.equal(await ledger.through('s1'), 2)
 		const again = await digestSessions({ query, ledger, now: NOW })
 		assert.equal(again.sessions.length + again.empty.length, 0)
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}
+})
+
+
+test('两个写者并发提交会话游标不会互相覆盖', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-ledger-'))
+	try {
+		const path = join(dir, 'sight', 'sessions.json')
+		const first = new SessionLedger({ path })
+		const second = new SessionLedger({ path })
+		await first.load()
+		await second.load()
+		await first.commit([{ id: 's1', seq: 10 }], '2026-11-10T10:00:00.000Z')
+		await second.commit([{ id: 's2', seq: 20 }], '2026-11-10T11:00:00.000Z')
+		const reader = new SessionLedger({ path })
+		assert.equal(await reader.through('s1'), 10, '先写者的游标不能被后写者抹掉')
+		assert.equal(await reader.through('s2'), 20)
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+
+test('大会话摘录在引文窗口处提前停止，不物化整段会话', async () => {
+	const events = [
+		user(1, '部署用 SSH，不要用 HTTPS。'),
+		assistant(2, '明白。'),
+	]
+	// 引文之后再有 2 万条消息与一个远在末尾的标记；摘录不应读到它们。
+	for (let seq = 3; seq < 20_003; seq += 1) {
+		events.push(seq % 2 === 1 ? user(seq, `后续废话 ${seq} `.repeat(20)) : assistant(seq, `后续回复 ${seq} `.repeat(20)))
+	}
+	const query = {
+		async readSession() {
+			return { events }
+		},
+	}
+	const excerpt = await readSessionExcerpt({ query, id: 's1', quote: '部署用 SSH，不要用 HTTPS', maxChars: 600 })
+	assert.match(excerpt, /部署用 SSH/)
+	assert.ok(excerpt.length <= 600, '返回值不超过预算')
+	assert.equal(excerpt.includes('后续废话 20000'), false, '窗口之后的正文不会被读进来')
+})
+
+
+test('早停不影响找不到引文时的退回首段', async () => {
+	const events = []
+	for (let seq = 1; seq < 2_000; seq += 1) events.push(user(seq, `第 ${seq} 条普通消息`))
+	const query = { async readSession() { return { events } } }
+	const head = await readSessionExcerpt({ query, id: 's1', quote: '根本不存在的引文', maxChars: 200 })
+	assert.ok(head.length <= 200)
+	assert.match(head, /第 1 条普通消息/)
 })

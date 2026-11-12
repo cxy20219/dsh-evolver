@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises'
 import { readFile as readText } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 
 import { API_PREFIX, apply } from '../index.js'
 import { ENDPOINTS } from '../src/remote.js'
-import { createTar, readTar } from '../src/backup/tar.js'
+import { createTar, readTar } from './support/tar-fixture.mjs'
 import { fakeOss } from './support/fake-oss.mjs'
 
 /**
@@ -113,7 +113,7 @@ async function disposeEffects(effects) {
 	}
 }
 
-test('apply 注册工具、注入与接口，写操作后注入立刻更新', async () => {
+test('apply 注册工具、注入与接口，注入读每日快照', async () => {
 	await withHome(async (home) => {
 		const { ctx, routes, tools, sections, contexts, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
@@ -125,19 +125,31 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 				tools.map((tool) => tool.name).filter((name) => name.startsWith('harness_')),
 				['harness_catalog', 'harness_write', 'harness_validate'],
 			)
-			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:cards', 'dsh-evolver:proactive'])
-			assert.deepEqual(contexts.map((entry) => entry.name), ['dsh-evolver:tags'])
+			// One static section: discipline and the proactive protocol share it.
+			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:cards'])
+			assert.deepEqual(contexts.map((entry) => entry.name), ['dsh-evolver:cards'])
 			assert.equal(routes.size, ENDPOINTS.length)
 			assert.match(sections[0].text(), /\[卡片\]/)
-			// The tree itself is dynamic: it must not live in the section. The
-			// discipline mentions #践行/归档 as an example, so the header is
-			// what tells the two apart.
-			assert.equal(sections[0].text().includes('[标签树]'), false)
-			assert.match(contexts[0].text(), /\[标签树\]/)
-			assert.match(sections[1].text(), /\[主动性\]/)
+			// The card index is dynamic: it must not live in the static section.
+			assert.equal(sections[0].text().includes('[卡片索引]'), false)
+			assert.match(contexts[0].text(), /\[卡片索引\]/)
+			assert.match(contexts[0].text(), /\[知识结构\]/)
+			assert.match(sections[0].text(), /card_index/)
+			// 标签树不再注入：结构压缩成一段话，全树靠 card_index 工具取。
+			assert.equal(contexts[0].text().includes('[标签树]'), false)
+			assert.match(sections[0].text(), /\[主动性\]/)
 
+			// 新装后立刻有注入快照：首屏请求不必现场给全库排序。
+			const snapshotPath = join(home, 'evolver', 'knowledge', 'index.json')
+			JSON.parse(await readFile(snapshotPath, 'utf8'))
 			const overview = await (await post(routes, 'overview', {})).json()
-			assert.ok(overview.projection.entries >= 2)
+			assert.equal('projection' in overview, false, '恒为 0 的 projection 已删')
+			assert.equal('suggestions' in overview, false, '恒空的 suggestions 已删')
+			assert.match(overview.injection.index, /\[卡片索引\]/)
+			// 静态块已合并：纪律与主动性协议同属一个 section，API 上不再有第三块。
+			assert.match(overview.injection.section, /\[卡片\]/)
+			assert.match(overview.injection.section, /\[主动性\]/)
+			assert.equal('proactive' in overview.injection, false, '静态段已合并，不再单独返回 proactive 字段')
 			assert.ok(overview.stats.cards >= 2)
 			assert.equal(Array.isArray(overview.activity), true)
 			assert.equal(overview.activity.length, 365)
@@ -150,10 +162,21 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 			const saved = await (await post(routes, 'card-write', {
 				card: { body: '来自接口\n\n正文', tags: ['践行/测试'] },
 			})).json()
-			// The prompt injects only the tag tree, never the card itself.
-			assert.match(sections[0].text(), /#践行/)
-			assert.equal(sections[0].text().includes('来自接口'), false)
+			// The injected block is the card index: ids and labels, never bodies.
+			// 写卡不改注入：快照每天重建一次，写完之后读到的还是同一份快照。
+			assert.match(contexts[0].text(), /\[卡片索引\]/)
+			assert.match(contexts[0].text(), /\[知识结构\]/)
+			// 索引里是短 id；完整 id 只在卡片视图/查询结果里出现。
+			assert.equal(contexts[0].text().includes(saved.id), false, '注入不再带完整 id')
+			assert.equal(contexts[0].text().includes('来自接口'), false, '写卡不改注入：等下一天快照')
+			// 快照缺失时退回实时排序，新卡立刻出现（审计 H1 的 fallback 路径）。
+			await unlink(snapshotPath)
+			assert.equal(contexts[0].text().includes(saved.id.slice(-5)), true, '无快照时索引里能看到短 id')
+			assert.equal(contexts[0].text().includes('来自接口'), true, '无快照时 label 进索引')
+			assert.equal(contexts[0].text().includes('正文'), false, '正文不进索引')
 			assert.equal(sections[0].text().includes(saved.id), false)
+			// The static section points at the tools instead of injecting content.
+			assert.match(sections[0].text(), /card_index/)
 
 			const read = await (await post(routes, 'card-read', { id: saved.id })).json()
 			assert.equal(read.card.label, '来自接口')
@@ -183,7 +206,9 @@ test('接口拒绝超大请求体', async () => {
 		const { ctx, routes, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
-			const response = await post(routes, 'preferences', {}, { 'content-length': String(9 * 1024 * 1024) })
+			const allowed = await post(routes, 'preferences', {}, { 'content-length': String(15 * 1024 * 1024) })
+			assert.equal(allowed.status, 200, '16MB 是声明上限')
+			const response = await post(routes, 'preferences', {}, { 'content-length': String(17 * 1024 * 1024) })
 			assert.equal(response.status, 413)
 			const payload = await response.json()
 			assert.match(payload.error.message, /超过/)
@@ -413,14 +438,22 @@ test('卡片接口：列表、写入、读取、提升、附件、标签、归�
 			})).json()
 			assert.equal(attached.resources.length, 1)
 			assert.match(attached.body, new RegExp(`knowledge/resources/${created.id}/notes\\.md`))
+			// 附件也要等卡片日志落盘后才回「已保存」：否则崩溃窗口里资源在、
+			// 引用不在，卡片会因为「磁盘上有未引用资源」变只读。
+			const cardLog = await readFile(join(home, 'evolver', 'knowledge', 'cards', 'cards.jsonl'), 'utf8')
+			assert.match(cardLog, new RegExp(`knowledge/resources/${created.id}/notes\\.md`), '附件引用要立刻落盘')
 			const withResource = await (await post(routes, 'card-read', { id: created.id })).json()
 			assert.equal(withResource.card.resourceContents[0].text, 'hello resource')
 
 			// The tree travels with the list; there is no separate endpoint.
 			const listed = await (await post(routes, 'card-list', {})).json()
 			assert.ok(Array.isArray(listed.tree))
+			const beforeArchive = (await (await post(routes, 'overview', {})).json()).stats.cards
 			const archived = await (await post(routes, 'card-archive', { id: created.id })).json()
 			assert.ok(archived.tags.some((tag) => tag.endsWith('/归档')))
+			// 归档卡不算进「笔记」：字数与标签早就不算它，总数也不该算。
+			const afterArchive = (await (await post(routes, 'overview', {})).json()).stats.cards
+			assert.equal(afterArchive, beforeArchive - 1)
 			const removed = await (await post(routes, 'card-remove', { id: created.id })).json()
 			assert.equal(removed.removed, true)
 		} finally {
@@ -535,4 +568,45 @@ test('接口清单和分支一处都不能漏：两边必须是同一个集合',
 	assert.deepEqual([...listed].sort(), [...cases].sort(),
 		'ENDPOINTS 与 switch 的 case 必须一一对应')
 	assert.equal(listed.size, cases.size, '接口清单里不能有重复项')
+})
+
+test('密钥筛查覆盖阿里云/Bearer/AWS secret 等常见形状', async () => {
+	await withHome(async (home) => {
+		const { ctx, routes, effects } = fakeContext()
+		await apply(ctx, { dataDir: join(home, 'evolver') })
+		try {
+			const samples = [
+				'LTAI5tDk2Qm3Xv8Np7RtAbCd',
+				'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345',
+				'aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+				'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
+			]
+			for (const sample of samples) {
+				const response = await post(routes, 'card-write', { card: { body: `密钥：${sample}`, tags: ['即兴'] } })
+				assert.equal(response.status, 400, `应当拒绝：${sample.slice(0, 12)}`)
+				assert.match((await response.json()).error.message, /密钥/)
+			}
+			// 普通正文不能被误伤
+			const clean = await post(routes, 'card-write', { card: { body: '普通笔记：这段正文没有凭据', tags: ['即兴'] } })
+			assert.equal(clean.status, 200)
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
+})
+
+test('设置文件损坏时回到默认目录，并把原因写进面板 warning', async () => {
+	await withHome(async (home) => {
+		await writeFile(join(home, 'evolver.config.json'), '{ broken', 'utf8')
+		const { ctx, routes, effects } = fakeContext()
+		await apply(ctx, {})
+		try {
+			const view = await (await post(routes, 'settings', {})).json()
+			assert.equal(view.dataDir, join(home, 'evolver'), '损坏后回到默认目录')
+			assert.match(view.dataDirWarning, /无法解析/, 'warning 非空，面板才能解释原因')
+			await readFile(join(home, 'evolver.config.json.broken'), 'utf8')
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
 })

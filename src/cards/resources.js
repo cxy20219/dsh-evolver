@@ -19,7 +19,7 @@ import { isInsidePath, isReallyInside } from '../workspace.js'
 export const MAX_RESOURCE_BYTES = 10 * 1024 * 1024
 
 /** A text resource larger than this is returned as metadata, not text. */
-export const MAX_TEXT_READ_BYTES = 512 * 1024
+const MAX_TEXT_READ_BYTES = 512 * 1024
 
 /** The resource name pattern: no separators, no leading dot-dot. */
 const RESOURCE_NAME = /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,119}$/u
@@ -173,7 +173,13 @@ export class ResourceStore {
 	async read(cardId, name) {
 		const safe = safeResourceName(name)
 		if (safe === '') throw new Error('资源文件名不合法。')
-		const path = join(this.folderOf(cardId), safe)
+		const folder = this.folderOf(cardId)
+		// The write path refuses a folder that resolves outside the data dir;
+		// the read path has to say the same thing, or a symlinked folder (a
+		// restored archive, a hand edit) turns card_read into a file reader for
+		// the whole disk.
+		if (!(await isReallyInside(this.root, folder))) throw new Error('资源目录不在数据目录内。')
+		const path = join(folder, safe)
 		const info = await lstat(path).catch(() => undefined)
 		if (info === undefined || !info.isFile() || info.isSymbolicLink()) throw new Error(`找不到资源：${safe}`)
 		if (info.size > MAX_RESOURCE_BYTES) throw new Error('资源过大，无法读取。')
@@ -194,10 +200,15 @@ export class ResourceStore {
 	 */
 	async list(cardId) {
 		const folder = this.folderOf(cardId)
+		if (!(await isReallyInside(this.root, folder))) return []
 		const names = await readdir(folder).catch(() => [])
 		const resources = []
 		for (const name of names.sort()) {
 			if (name.endsWith('.tmp')) continue
+			// Only names this store could have written: a hand-edited directory
+			// entry that the read path would remap to a different safe name is
+			// not a card resource.
+			if (safeResourceName(name) !== name) continue
 			const info = await lstat(join(folder, name)).catch(() => undefined)
 			if (info === undefined || !info.isFile() || info.isSymbolicLink()) continue
 			resources.push({ name, bytes: info.size, executable: (info.mode & 0o111) !== 0 })

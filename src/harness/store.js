@@ -38,7 +38,7 @@ export const RESOURCE_LAYER = 'resources'
 export const REFERENCED_LAYERS = [TOOL_LAYER, RESOURCE_LAYER]
 
 /** Where each retired layer lived, for migration. */
-export const RETIRED_LAYERS = { scripts: TOOL_LAYER, references: RESOURCE_LAYER, assets: RESOURCE_LAYER }
+const RETIRED_LAYERS = { scripts: TOOL_LAYER, references: RESOURCE_LAYER, assets: RESOURCE_LAYER }
 
 /** The overview file every harness folder carries. */
 export const OVERVIEW = 'harness.md'
@@ -131,6 +131,7 @@ async function readText(path) {
  *
  * @param {string} text - The document.
  * @returns {{meta: Record<string, string>, body: string, fenced: boolean}} The parts.
+ * @internal exported for tests
  */
 export function splitFrontmatter(text) {
 	const source = String(text ?? '')
@@ -165,6 +166,7 @@ export function withFrontmatter(meta, body) {
  *
  * @param {string} body - The document body.
  * @returns {string} The heading text, or an empty string.
+ * @internal exported for tests
  */
 export function firstHeading(body) {
 	const match = /^#{1,6}\s+(.+)$/m.exec(String(body ?? ''))
@@ -271,6 +273,7 @@ export async function catalog(root) {
  *
  * @param {string} text - The index document.
  * @returns {Map<string, string>} The purposes it states.
+ * @internal exported for tests
  */
 export function parseIndexEntries(text) {
 	const map = new Map()
@@ -471,7 +474,7 @@ export async function migrateLayout(root, { dryRun = false } = {}) {
  * @param {string} text - The document.
  * @returns {string} The document with current paths.
  */
-export function rewritePaths(text) {
+function rewritePaths(text) {
 	return String(text ?? '').replace(
 		/(harness\/|\.\.\/|\(|`|\s)(scripts|references|assets)\//g,
 		(_match, prefix, layer) => `${prefix}${RETIRED_LAYERS[layer]}/`,

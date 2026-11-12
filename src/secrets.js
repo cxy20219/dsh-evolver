@@ -11,8 +11,14 @@ export const SECRET_PATTERNS = [
 	[/-----BEGIN [A-Z ]*PRIVATE KEY-----/, '私钥'],
 	[/\bgh[pousr]_[A-Za-z0-9]{20,}\b/, 'GitHub 令牌'],
 	[/\bAKIA[0-9A-Z]{16}\b/, 'AWS 访问密钥'],
+	[/\bLTAI[0-9A-Za-z]{10,}\b/, '阿里云 AccessKey'],
 	[/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, 'Slack 令牌'],
 	[/\bsk-[A-Za-z0-9_-]{20,}\b/, 'API 密钥'],
+	// A JWT is three dot-separated base64url runs; the header always starts
+	// with `eyJ` because the first bytes encode `{"`.
+	[/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/, 'JWT'],
+	[/\bBearer\s+[A-Za-z0-9._~+/-]{20,}/i, 'Bearer 令牌'],
+	[/\baws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{20,}/i, 'AWS 密钥'],
 ]
 
 /**

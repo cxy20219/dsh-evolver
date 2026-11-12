@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Evolver",
-    "description": "Self-evolution console: manage permanent cards, fleeting cards, resources and preferences with hierarchical tags and bidirectional links."
+    "description": "Self-evolution console for the DeepSeek Harness: an append-only card store with hierarchical tags, bidirectional links and resources; a snapshot-backed card index injected as runtime context, with injected discipline, a proactive protocol and a card tool surface; and a daily card consolidation pass."
   }
 }

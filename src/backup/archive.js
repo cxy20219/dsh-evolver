@@ -25,7 +25,7 @@ import { pipeline } from 'node:stream/promises'
 import { createGunzip, createGzip } from 'node:zlib'
 
 import { buildTarHeader, parseTarHeader } from './tar.js'
-import { isInsidePath, isReallyInside } from '../workspace.js'
+import { isInsidePath, isReallyInside, isTransient } from '../workspace.js'
 
 /** The largest archive an import will accept, in bytes. */
 /** The largest archive file the panel will accept. */
@@ -43,20 +43,15 @@ export const MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
 /** The largest single entry an import may unpack. */
 const MAX_EXTRACTED_ENTRY_BYTES = 64 * 1024 * 1024
 
-/** The largest entry count an import will process. */
-const MAX_IMPORT_ENTRIES = 20000
+/**
+ * The largest entry count an import will process.
+ *
+ * @internal exported for tests
+ */
+export const MAX_IMPORT_ENTRIES = 20000
 
 /** The only top-level folders an archive may write into. */
 const IMPORT_ROOTS = ['knowledge/', 'sight/', 'preferences/']
-
-/** Files that are never part of an archive. */
-function isTransient(name) {
-	if (name === '.DS_Store') return true
-	// Copies kept by an overwriting import: useful on disk, noise in a
-	// snapshot — and they would otherwise nest one per import.
-	if (name.includes('.before-import-')) return true
-	return name.endsWith('.tmp') || name.endsWith('.part')
-}
 
 /**
  * Walk the data folder without reading file contents.
@@ -67,7 +62,7 @@ function isTransient(name) {
  * @param {string} root - The data folder.
  * @returns {Promise<Array<{path: string, absPath: string, size: number, mode: number, mtimeMs: number}>>} The entries.
  */
-export async function collectFileEntries(root) {
+async function collectFileEntries(root) {
 	const entries = []
 	/**
 	 * Walk one folder.
@@ -350,6 +345,7 @@ export async function extractArchiveFile(source, root, { force = false } = {}) {
 	const reader = new ChunkReader(stream)
 	let files = 0
 	let bytes = 0
+	let readBytes = 0
 	let entries = 0
 	let skipped = 0
 	let sawEntry = false
@@ -360,18 +356,21 @@ export async function extractArchiveFile(source, root, { force = false } = {}) {
 		const parsed = parseTarHeader(header)
 		sawEntry = true
 		const padding = (512 - (parsed.size % 512)) % 512
+		// Counted for *every* entry, written or skipped: an archive full of
+		// entries outside the allowlist must still pay for the bytes it makes
+		// the gunzip stream produce, or a tiny archive can keep the importer
+		// decompressing for hours.
+		entries += 1
+		readBytes += parsed.size + padding
+		if (entries > MAX_IMPORT_ENTRIES) throw new Error(`压缩包条目过多（上限 ${MAX_IMPORT_ENTRIES}）。`)
+		if (readBytes > MAX_EXTRACTED_BYTES) throw new Error(`压缩包解压后超过 ${MAX_EXTRACTED_BYTES / 1024 / 1024} MB 上限。`)
 		const regular = parsed.type === '0' || parsed.type === '\0'
 		if (!regular || !isImportable(parsed.path)) {
 			await reader.skip(parsed.size + padding)
 			skipped += 1
 			continue
 		}
-		// Counted for every entry, written or skipped: an archive full of
-		// entries outside the allowlist is still an archive full of entries.
-		entries += 1
-		if (entries > MAX_IMPORT_ENTRIES) throw new Error(`压缩包条目过多（上限 ${MAX_IMPORT_ENTRIES}）。`)
 		if (parsed.size > MAX_EXTRACTED_ENTRY_BYTES) throw new Error(`压缩包里有超大条目：${parsed.path}`)
-		if (bytes + parsed.size > MAX_EXTRACTED_BYTES) throw new Error(`压缩包解压后超过 ${MAX_EXTRACTED_BYTES / 1024 / 1024} MB 上限。`)
 		const target = join(root, ...parsed.path.split('/'))
 		const folder = dirname(target)
 		await mkdir(folder, { recursive: true, mode: 0o700 })

@@ -15,6 +15,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { MemoryStore } from '../memory/store.js'
+import { buildGraph, combine, degrees, spread, subgraph } from '../memory/graph.js'
 import { hybridRetrieve } from '../memory/hybrid.js'
 import { cardCreatedAt, cardId, isCardId } from './ids.js'
 import { ResourceStore, resourceRelativePath, safeResourceName } from './resources.js'
@@ -22,44 +23,31 @@ import { findSecret } from '../secrets.js'
 import {
 	archiveTags,
 	buildTagTree,
+	coerceCardTags,
 	isArchived,
 	isUnder,
 	normalizeCardTags,
 	normalizeTags,
 	rootOf,
+	MAX_TAG_DESCRIPTION_CHARS,
+	MAX_TAGS,
+	sanitizeTagDescription,
 	settleTags,
 	TAG_DESCRIPTIONS,
 	TOP_TAGS,
 } from './tags.js'
 
 /** The default body budget, in Unicode code points. */
-export const DEFAULT_CARD_MAX_CHARS = 1000
+const DEFAULT_CARD_MAX_CHARS = 1000
 
-/**
- * How long one branch description may be.
- *
- * A description is appended to a line of the injected tag map, so it competes
- * with the branches themselves for the prompt budget. Sixty characters is
- * about what the built-in descriptions use.
- */
-const MAX_TAG_DESCRIPTION_CHARS = 60
+/** The longest a card description may be. */
+const MAX_DESCRIPTION_CHARS = 120
 
-/**
- * Make one description safe to put on a line of the injected map.
- *
- * The file can arrive from somewhere else — an imported archive, a hand edit —
- * so the read path applies the same rule as the write path instead of trusting
- * what is on disk. A newline here would add a line of its own to the system
- * prompt, which is how a tag description becomes an instruction.
- *
- * @param {string} value - The raw description.
- * @returns {string} A single line, or '' when nothing usable is left.
- */
-function sanitizeDescription(value) {
-	const clean = String(value ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim()
-	if (clean === '') return ''
-	return clean.length > MAX_TAG_DESCRIPTION_CHARS ? clean.slice(0, MAX_TAG_DESCRIPTION_CHARS) : clean
-}
+/** How many neighbours a graph search lists beyond the cards it returns. */
+const MAX_RELATED = 8
+
+/** How much resource text one card read may return before it degrades to metadata. */
+const MAX_TOTAL_TEXT_BYTES = 256 * 1024
 
 /**
  * Write one JSON document without ever leaving a half-written file.
@@ -120,6 +108,7 @@ function clipLabel(value) {
  * @param {unknown} body - The body text.
  * @returns {string} A single-line label.
  */
+/** @internal exported for tests */
 export function labelOf(body) {
 	const source = String(body ?? '')
 	const cached = LABEL_CACHE.get(source)
@@ -148,6 +137,138 @@ export function charCount(value) {
 	return [...String(value ?? '')].length
 }
 
+/**
+ * Whether two tag lists are the same, in order.
+ *
+ * @param {unknown[]} left - One list.
+ * @param {unknown[]} right - The other.
+ * @returns {boolean} True when every entry matches positionally.
+ */
+function sameTagList(left, right) {
+	return Array.isArray(left)
+		&& Array.isArray(right)
+		&& left.length === right.length
+		&& left.every((tag, index) => String(tag) === String(right[index]))
+}
+
+
+/** The longest verbatim quote a card may carry. */
+const MAX_SOURCE_QUOTE_CHARS = 160
+
+/**
+ * Normalise a one-line card description.
+ *
+ * The description is what search results and the injected index show next to
+ * the label, so it must stay on one line: a newline would break the rendered
+ * list and let a paragraph sneak into the prompt.
+ *
+ * @param {unknown} value - The proposed description.
+ * @returns {string} The clean description, `''` when unusable.
+ */
+export function normalizeDescription(value) {
+	const clean = String(value ?? '')
+		.replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim()
+	if (clean === '') return ''
+	return [...clean].slice(0, MAX_DESCRIPTION_CHARS).join('')
+}
+
+/**
+ * Normalise a card's provenance.
+ *
+ * Only the verbatim quote is kept: it is the part the review can check the note
+ * against, and it is bounded so one card cannot smuggle a transcript into the
+ * prompt.
+ *
+ * @param {unknown} value - The proposed source.
+ * @returns {{quote: string} | undefined} The stored source, when valid.
+ */
+function normalizeSource(value) {
+	if (value === null || typeof value !== 'object') return undefined
+	const quote = String(value.quote ?? '').replace(/\s+/g, ' ').trim()
+	if (quote === '' || charCount(quote) > MAX_SOURCE_QUOTE_CHARS) return undefined
+	if (findSecret(quote) !== undefined) return undefined
+	// The session id is what lets the reviewer pull the surrounding words out
+	// of the transcript instead of trusting the card's own summary of events.
+	const session = String(value.session ?? '').trim()
+	const cleanSession = /^[A-Za-z0-9_-]{4,120}$/.test(session) ? session : ''
+	return cleanSession === '' ? { quote } : { quote, session: cleanSession }
+}
+
+/**
+ * Build the tag and archive predicate shared by flat and graph search.
+ *
+ * The flat search needs it to keep a lexical hit, the graph search needs the
+ * very same filter to define the candidate library the walk may traverse.
+ * Sharing one predicate is what stops the two modes from disagreeing about
+ * which cards exist: a card the flat search hides must not arrive through a
+ * backlink.
+ *
+ * @param {{tags?: string[], anyTags?: string[], includeArchived?: boolean, archivedOnly?: boolean}} [filters] - The tag filters.
+ * @returns {(card: object) => boolean} Whether a card passes.
+ */
+function cardFilter({ tags = [], anyTags = [], includeArchived = false, archivedOnly = false } = {}) {
+	const filters = normalizeTags(tags)
+	const any = normalizeTags(anyTags)
+	const archivedFilter = filters.some((tag) => tag.split('/').pop() === '归档')
+	return (card) => {
+		if (archivedOnly && !isArchived(card.tags)) return false
+		if (!includeArchived && !archivedFilter && !archivedOnly && isArchived(card.tags)) return false
+		if (filters.length > 0 && !filters.every((filter) => (card.tags ?? []).some((tag) => isUnder(tag, filter)))) return false
+		if (any.length > 0 && !any.some((filter) => (card.tags ?? []).some((tag) => isUnder(tag, filter)))) return false
+		return true
+	}
+}
+
+/**
+ * Normalise the ids of a secondary-search scope.
+ *
+ * An empty set means "the whole candidate library": an empty `within` is a
+ * request to search without a scope, not a scope that contains nothing.
+ *
+ * @param {unknown} value - The proposed card ids.
+ * @returns {Set<string>} The non-empty ids.
+ */
+function scopedIds(value) {
+	const ids = new Set()
+	if (!Array.isArray(value)) return ids
+	for (const raw of value) {
+		const id = String(raw ?? '').trim()
+		if (id !== '') ids.add(id)
+	}
+	return ids
+}
+
+/**
+ * Render the subgraph around a ranked id list.
+ *
+ * Node degree is the number of neighbours inside the candidate library, not
+ * the in/out count a card view carries: this is the number a layout needs and
+ * the answer to "what is one hop from here". `subgraph` already drops edges
+ * with only one end kept, so the payload never implies a node it does not
+ * include.
+ *
+ * @param {{nodes: Map<string, object>, adjacency: Map<string, Set<string>>}} graph - The candidate graph.
+ * @param {Map<string, number>} degree - Neighbour count per node.
+ * @param {string[]} ids - Preferred node ids, in rank order.
+ * @returns {{nodes: object[], edges: Array<{from: string, to: string}>}} The subgraph view.
+ */
+function subgraphView(graph, degree, ids) {
+	const slice = subgraph({ graph, ids })
+	return {
+		nodes: slice.nodes.map((id) => {
+			const card = graph.nodes.get(id)
+			return {
+				id,
+				label: card.label,
+				description: card.description ?? '',
+				degree: degree.get(id) ?? 0,
+			}
+		}),
+		edges: slice.edges,
+	}
+}
 
 /**
  * Escape a string for a regular expression.
@@ -166,6 +287,7 @@ function escapeRegExp(value) {
  * @param {string} relativePath - Data-dir-relative resource path.
  * @returns {boolean} True when the reference is present with a description.
  */
+/** @internal exported for tests */
 export function hasResourceReference(body, relativePath) {
 	const pattern = new RegExp(`\\[[^\\]]+\\]\\(\\s*${escapeRegExp(relativePath)}\\s*\\)\\s*[：:]\\s*\\S`)
 	return pattern.test(String(body ?? ''))
@@ -199,6 +321,7 @@ export class CardStore {
 	 */
 	constructor({ dataDir, logger, cardMaxChars = DEFAULT_CARD_MAX_CHARS }) {
 		this.dataDir = dataDir
+		this.logger = logger
 		this.cardMaxChars = Math.max(1, Math.min(4000, Math.round(Number(cardMaxChars) || DEFAULT_CARD_MAX_CHARS)))
 		this.cards = new MemoryStore({
 			dataDir,
@@ -209,6 +332,11 @@ export class CardStore {
 		/** The card views of the current store version, rebuilt on change. */
 		this.allCache = null
 		this.allVersion = -1
+		/** Derived views that are cheap to keep until the store changes. */
+		this.backlinksCache = null
+		this.backlinksVersion = -1
+		this.idCache = null
+		this.idVersion = -1
 		this.resources = new ResourceStore({ root: dataDir })
 	}
 
@@ -270,7 +398,7 @@ export class CardStore {
 			const map = {}
 			for (const [tag, description] of Object.entries(parsed)) {
 				if (typeof description !== 'string') continue
-				const clean = sanitizeDescription(description)
+				const clean = sanitizeTagDescription(description)
 				if (clean !== '') map[tag] = clean
 			}
 			return map
@@ -311,6 +439,33 @@ export class CardStore {
 		}
 		await writeJsonAtomic(this.tagDescriptionsPath(), map)
 		return map
+	}
+
+	/**
+	 * The tail of the consolidation audit log.
+	 *
+	 * The ledger says when the job ran; this file says what it did. It is the
+	 * only way to answer "did the tag rules actually change anything?", so
+	 * both the panel and `evolve_review` read it back through here.
+	 *
+	 * @param {number} [limit] - How many entries to keep, newest last.
+	 * @returns {Promise<object[]>} The audit entries, best effort.
+	 */
+	async consolidationAudit(limit = 100) {
+		const path = join(this.dataDir, 'knowledge', 'consolidation.jsonl')
+		try {
+			const raw = await readFile(path, 'utf8')
+			const lines = raw.trim().split('\n').filter(Boolean).slice(-limit)
+			return lines.map((line) => {
+				try {
+					return JSON.parse(line)
+				} catch {
+					return null
+				}
+			}).filter((entry) => entry !== null)
+		} catch {
+			return []
+		}
 	}
 
 	/**
@@ -400,14 +555,21 @@ export class CardStore {
 	 * @returns {object} The card.
 	 */
 	cardOf(record) {
+		// The log can arrive by import and be hand-edited. Reading tells us the
+		// record is JSON, not that every field kept its shape, and one wrong
+		// shape (links as a number) used to throw from `backlinks()` on every
+		// query. Drop the bad field, keep the card.
+		const links = Array.isArray(record.links) ? record.links.filter((id) => typeof id === 'string') : []
 		return {
 			id: record.id,
 			label: labelOf(record.body),
-			body: record.body ?? '',
-			tags: record.tags ?? [],
-			links: record.links ?? [],
+			description: normalizeDescription(record.description),
+			body: typeof record.body === 'string' ? record.body : '',
+			tags: Array.isArray(record.tags) ? record.tags.filter((tag) => typeof tag === 'string') : [],
+			links,
+			...(record.source !== null && typeof record.source === 'object' ? { source: record.source } : {}),
 			created: cardCreatedAt(record.id),
-			updated: record.updated ?? '',
+			updated: typeof record.updated === 'string' ? record.updated : '',
 		}
 	}
 
@@ -427,6 +589,15 @@ export class CardStore {
 	}
 
 	/**
+	 * The raw records, for derived views that do not need card objects.
+	 *
+	 * @returns {object[]} The records, insertion order.
+	 */
+	records() {
+		return this.cards.records()
+	}
+
+	/**
 	 * One card.
 	 *
 	 * @param {string} id - Card id.
@@ -438,13 +609,48 @@ export class CardStore {
 	}
 
 	/**
+	 * Decide the tag list one write stores.
+	 *
+	 * An explicit list is the caller's promise and is validated strictly — the
+	 * `card_write` contract says only the six branches exist. A list inherited
+	 * from the record on disk is different: it may come from an imported older
+	 * library whose roots this store no longer knows. Instead of making such a
+	 * card unwritable (body edits, archives and the nightly repair all pass
+	 * through here), inherited tags are settled deterministically by
+	 * `coerceCardTags` and the degradation is logged once per write.
+	 *
+	 * @param {unknown} proposed - The tags the caller passed, when any.
+	 * @param {object | undefined} previous - The current card view.
+	 * @param {number} limit - Maximum tags to keep.
+	 * @returns {string[]} The tags to store.
+	 */
+	resolveTags(proposed, previous, limit = MAX_TAGS) {
+		const cap = Math.max(1, Math.min(MAX_TAGS + 1, Math.round(Number(limit) || MAX_TAGS)))
+		// The panel sends the whole card back; unchanged inherited tags are not a
+		// new proposal, so they take the lenient path too.
+		if (previous !== undefined && Array.isArray(proposed) && sameTagList(proposed, previous.tags ?? [])) {
+			return coerceCardTags(previous.tags, {
+				limit: cap,
+				onDegrade: (from, to) => this.logger?.warn?.(`dsh-evolver: 旧标签 #${from} 已降级为 #${to}（继承写入）`),
+			})
+		}
+		if (proposed === undefined && previous !== undefined) {
+			return coerceCardTags(previous.tags, {
+				limit: cap,
+				onDegrade: (from, to) => this.logger?.warn?.(`dsh-evolver: 旧标签 #${from} 已降级为 #${to}（继承写入）`),
+			})
+		}
+		return normalizeCardTags(proposed, { limit: cap })
+	}
+
+	/**
 	 * Validate and store one card.
 	 *
 	 * @param {object} input - The card fields.
-	 * @param {{resourceInputs?: Array<{name: string, data: string | Buffer}>}} [options] - Files to attach.
+	 * @param {{resourceInputs?: Array<{name: string, data: string | Buffer}>, tagsLimit?: number}} [options] - Files to attach and the tag cap (archive/promote need one extra slot).
 	 * @returns {Promise<object>} The stored card.
 	 */
-	async put(input = {}, { resourceInputs = [] } = {}) {
+	async put(input = {}, { resourceInputs = [], tagsLimit = MAX_TAGS } = {}) {
 		const id = input.id === undefined ? cardId() : input.id
 		if (!isCardId(id)) throw new Error('卡片 id 不合法。')
 		const existing = this.cards.getEntry(id)
@@ -456,9 +662,23 @@ export class CardStore {
 		if (body.trim() === '') throw new Error('卡片正文不能为空。')
 		const secret = findSecret(body)
 		if (secret !== undefined) throw new Error(`正文里像是${secret}：卡片库不保存密钥，请删掉后重写。`)
-		const tags = normalizeCardTags(input.tags ?? previous?.tags ?? [])
+		const tags = this.resolveTags(input.tags, previous, tagsLimit)
 		const now = new Date().toISOString()
 		const links = Array.isArray(input.links) ? [...new Set(input.links.map(String))] : (previous?.links ?? [])
+		// Verbatim provenance travels with the card: the daily review uses it to
+		// check the note against what was actually said, which is the one thing
+		// a card cannot tell about itself.
+		const source = input.source === undefined ? previous?.source : normalizeSource(input.source)
+		const description = input.description === undefined
+			? (previous?.description ?? '')
+			: normalizeDescription(input.description)
+		// The description is injected next to the card in the index, so it goes
+		// through the same secret screen as the body. A missing description is
+		// not an error (it is optional), a line that looks like a credential is.
+		if (description !== '') {
+			const leaked = findSecret(description)
+			if (leaked !== undefined) throw new Error(`描述里像是${leaked}：卡片库不保存密钥，请删掉后重写。`)
+		}
 		for (const link of links) {
 			if (!isCardId(link)) throw new Error(`链接目标不是卡片 id：${link}`)
 			if (link === id) throw new Error('卡片不能链接自己。')
@@ -491,7 +711,9 @@ export class CardStore {
 			id,
 			body,
 			tags,
+			...(description === '' ? {} : { description }),
 			...(links.length > 0 ? { links } : {}),
+			...(source === undefined ? {} : { source }),
 			updated: now,
 		}
 		await this.cards.putMemory(record)
@@ -535,14 +757,33 @@ export class CardStore {
 		if (card === undefined) return undefined
 		const listed = await this.resources.list(id)
 		const contents = []
+		let textBudget = MAX_TOTAL_TEXT_BYTES
 		for (const item of listed) {
 			try {
-				contents.push(await this.resources.read(id, item.name))
+				const resource = await this.resources.read(id, item.name)
+				if (typeof resource.text === 'string') {
+					// One card can carry several large documents; returning all of
+					// them put megabytes into one tool result (and the model's
+					// context). Keep the metadata, drop the overflow text.
+					if (resource.text.length > textBudget) {
+						contents.push({
+							name: resource.name,
+							bytes: resource.bytes,
+							sha256: resource.sha256,
+							path: resource.path,
+							omitted: true,
+							note: '文本超过单卡读取预算，请用 path 单独读取。',
+						})
+						continue
+					}
+					textBudget -= resource.text.length
+				}
+				contents.push(resource)
 			} catch (error) {
 				contents.push({ name: item.name, bytes: item.bytes, error: error instanceof Error ? error.message : String(error) })
 			}
 		}
-		return { ...card, resources: listed, resourceContents: contents }
+		return { ...card, resources: listed, resourceContents: contents, ...(textBudget < MAX_TOTAL_TEXT_BYTES ? { textBudget } : {}) }
 	}
 
 	/**
@@ -593,19 +834,10 @@ export class CardStore {
 	 * @returns {Promise<object[]>} Matching cards.
 	 */
 	async query({ text = '', tags = [], anyTags = [], limit = 8, includeArchived = false, archivedOnly = false } = {}) {
-		const filters = normalizeTags(tags)
-		const any = normalizeTags(anyTags)
-		const archivedFilter = filters.some((tag) => tag.split('/').pop() === '归档')
-		const keep = (card) => {
-			if (archivedOnly && !isArchived(card.tags)) return false
-			if (!includeArchived && !archivedFilter && !archivedOnly && isArchived(card.tags)) return false
-			if (filters.length > 0 && !filters.every((filter) => (card.tags ?? []).some((tag) => isUnder(tag, filter)))) return false
-			if (any.length > 0 && !any.some((filter) => (card.tags ?? []).some((tag) => isUnder(tag, filter)))) return false
-			return true
-		}
 		const queryText = String(text ?? '').trim()
 		const size = Math.max(1, Math.min(50, Math.round(Number(limit) || 8)))
 		if (queryText === '') return this.list({ tags, anyTags, limit: size, includeArchived, archivedOnly })
+		const keep = cardFilter({ tags, anyTags, includeArchived, archivedOnly })
 		const results = await hybridRetrieve({
 			db: this.cards.db,
 			query: queryText,
@@ -615,6 +847,103 @@ export class CardStore {
 			.map((result) => this.cardOf(result.memory))
 			.filter(keep)
 			.slice(0, size)
+	}
+
+	/**
+	 * Search cards and walk the link graph around the hits.
+	 *
+	 * The flat `query` answers "which cards say the words". This one also
+	 * answers "what came with them": the lexical hits become seeds, the
+	 * score spreads along the links (see ../memory/graph.js), and the result
+	 * carries the neighbourhood as a subgraph. Lexical match is still the
+	 * stronger signal — the walk can add a neighbour to the list, but it
+	 * cannot outrank the card that actually matched.
+	 *
+	 * `within` is the second-pass scoping: the candidate library is
+	 * intersected with the given ids before the graph is built, so a caller
+	 * can dig into a subgraph it already saw instead of searching the whole
+	 * library again. An empty `within` means "no scope".
+	 *
+	 * @param {{text?: string, tags?: string[], anyTags?: string[], limit?: number, includeArchived?: boolean, hops?: number, within?: string[]}} [request] - The query.
+	 * @returns {Promise<{cards: object[], related: object[], graph: {nodes: object[], edges: Array<{from: string, to: string}>}}>} The hits, their neighbours and the subgraph.
+	 */
+	async queryGraph({ text = '', tags = [], anyTags = [], limit = 8, includeArchived = false, hops = 1, within = [] } = {}) {
+		const keep = cardFilter({ tags, anyTags, includeArchived })
+		const scope = scopedIds(within)
+		const scoped = (card) => scope.size === 0 || scope.has(card.id)
+		// The graph is built over exactly the cards the flat search would be
+		// allowed to return. An edge to an archived or filtered card is not a
+		// route the caller can take, so keeping it would only add dead ends.
+		const candidates = this.all().filter((card) => keep(card) && scoped(card))
+		const graph = buildGraph(candidates)
+		const degree = degrees(graph)
+		const backlinks = this.backlinks()
+		const queryText = String(text ?? '').trim()
+		const size = Math.max(1, Math.min(50, Math.round(Number(limit) || 8)))
+		// The card view keeps the degree the flat search already reports, so a
+		// caller can compare hub-ness across both modes without branching.
+		const cardView = (card) => ({
+			...card,
+			degree: { in: (backlinks[card.id] ?? []).length, out: (card.links ?? []).length },
+		})
+		if (queryText === '') {
+			// No words to score: the answer is the filtered list itself, newest
+			// first (the same order `list` returns), with an empty relation half.
+			const cards = [...candidates]
+				.sort((left, right) => String(right.updated).localeCompare(String(left.updated)))
+				.slice(0, size)
+			return {
+				cards: cards.map(cardView),
+				related: [],
+				graph: subgraphView(graph, degree, cards.map((card) => card.id)),
+			}
+		}
+		const results = await hybridRetrieve({
+			db: this.cards.db,
+			query: queryText,
+			limit: Math.max(size * 4, 20),
+		})
+		const hits = results
+			.map((result) => ({ card: this.cardOf(result.memory), score: result.score }))
+			.filter((hit) => keep(hit.card) && scoped(hit.card))
+		// BM25 scores are only comparable within one query (see hybrid.js), so
+		// the seed weights are scaled against the best surviving hit: the walk
+		// wants relative weight, not absolute keyword numbers.
+		const best = hits.reduce((max, hit) => Math.max(max, hit.score), 0)
+		const lexical = new Map()
+		const seeds = []
+		for (const hit of hits) {
+			const weight = best > 0 ? hit.score / best : 0
+			if (weight <= 0) continue
+			lexical.set(hit.card.id, weight)
+			seeds.push({ id: hit.card.id, weight })
+		}
+		const relatedScores = spread({ graph, seeds, hops })
+		const combined = combine(lexical, relatedScores)
+		const ranked = [...combined.entries()]
+			.filter(([id]) => graph.nodes.has(id))
+			.sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+		const cardIds = ranked.slice(0, size).map(([id]) => id)
+		const cardSet = new Set(cardIds)
+		const relatedIds = ranked
+			.filter(([id]) => !cardSet.has(id))
+			.slice(0, MAX_RELATED)
+			.map(([id]) => id)
+		return {
+			cards: cardIds.map((id) => cardView(graph.nodes.get(id))),
+			related: relatedIds.map((id) => {
+				const card = graph.nodes.get(id)
+				return {
+					id,
+					label: card.label,
+					description: card.description ?? '',
+					tags: card.tags ?? [],
+					degree: { in: (backlinks[id] ?? []).length, out: (card.links ?? []).length },
+					score: Number((combined.get(id) ?? 0).toFixed(4)),
+				}
+			}),
+			graph: subgraphView(graph, degree, [...cardIds, ...relatedIds]),
+		}
 	}
 
 	/**
@@ -629,11 +958,53 @@ export class CardStore {
 	}
 
 	/**
+	 * Resolve a full id, a prefixed id, or an unambiguous short id.
+	 *
+	 * The injected index shows suffixes (see `ids.shortIds`); models and people
+	 * type what they see, so every entry point that takes an id accepts one.
+	 * A suffix that matches more than one card is an error rather than a guess:
+	 * reading the wrong card silently is worse than asking for the full id.
+	 *
+	 * @param {unknown} token - The id or abbreviation.
+	 * @returns {string | undefined} The full id, or undefined when nothing matches.
+	 */
+	resolveId(token) {
+		const raw = String(token ?? '').trim()
+		if (raw === '') return undefined
+		const ids = this.resolvedIds()
+		if (ids.includes(raw)) return raw
+		const prefixed = raw.startsWith('card-') ? raw : `card-${raw}`
+		if (ids.includes(prefixed)) return prefixed
+		const body = prefixed.slice(5)
+		if (body.length < 3) return undefined
+		const matches = ids.filter((id) => id.slice(5).endsWith(body))
+		if (matches.length === 1) return matches[0]
+		if (matches.length === 0) return undefined
+		const sample = matches.slice(0, 3).map((id) => id.slice(-8)).join('、')
+		throw new Error(`缩写「${raw}」不唯一：匹配 ${matches.length} 张卡（${sample}…），请用完整 id 或更长的缩写。`)
+	}
+
+	/**
+	 * The id list of the current store version.
+	 *
+	 * @returns {string[]} Every card id.
+	 */
+	resolvedIds() {
+		const version = this.cards.version
+		if (this.idCache !== null && this.idVersion === version) return this.idCache
+		this.idCache = this.cards.all().map((record) => record.id)
+		this.idVersion = version
+		return this.idCache
+	}
+
+	/**
 	 * Incoming links per card.
 	 *
 	 * @returns {Record<string, string[]>} Target id to source ids.
 	 */
 	backlinks() {
+		const version = this.cards.version
+		if (this.backlinksCache !== null && this.backlinksVersion === version) return this.backlinksCache
 		const map = new Map()
 		for (const card of this.all()) {
 			for (const link of card.links ?? []) {
@@ -641,7 +1012,9 @@ export class CardStore {
 				map.get(link).push(card.id)
 			}
 		}
-		return Object.fromEntries([...map.entries()].sort(([left], [right]) => left.localeCompare(right)))
+		this.backlinksCache = Object.fromEntries([...map.entries()].sort(([left], [right]) => left.localeCompare(right)))
+		this.backlinksVersion = version
+		return this.backlinksCache
 	}
 
 	/**
@@ -658,7 +1031,7 @@ export class CardStore {
 			...card,
 			id,
 			tags: settleTags(card.tags, Array.isArray(tags) ? tags : []),
-		})
+		}, { tagsLimit: MAX_TAGS + 1 })
 	}
 
 	/**
@@ -670,7 +1043,7 @@ export class CardStore {
 	async archive(id) {
 		const card = this.get(id)
 		if (card === undefined) throw new Error(`找不到卡片：${id}`)
-		return this.put({ ...card, id, tags: archiveTags(card.tags) })
+		return this.put({ ...card, id, tags: archiveTags(card.tags) }, { tagsLimit: MAX_TAGS + 1 })
 	}
 
 	/**

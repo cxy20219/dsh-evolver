@@ -24,6 +24,7 @@ summary: 改完插件的标准验证顺序：语法单测→重启或刷新→�
 ```bash
 node --check index.js
 node --test test/harness.test.mjs
+node --test test/contract.test.mjs   # 改过接口清单/调用时先跑这条：三方同集合
 npm test
 ```
 
@@ -36,7 +37,7 @@ curl -s -X POST -H 'content-type: application/json' -d '{}' \
   http://127.0.0.1:<端口>/api/evolver/overview
 ```
 
-4. 新增接口时确认两处都登记了（`src/remote.js` 的 `ENDPOINTS` 与 `createEvolverHandler` 的 switch），少一处就是 404。
+4. 新增接口时确认三处都登记了：`src/remote.js` 的 `ENDPOINTS`、`createEvolverHandler` 的 switch、`client.js` 里的 `call('<name>')`。少一处就是 404 或面板永远不调用；`test/contract.test.mjs` 会静态断言三处同集合。
 
 ## 验证
 

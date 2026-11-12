@@ -1,4 +1,4 @@
-import { access, lstat, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdtemp, readdir, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -33,6 +33,18 @@ test('ensure 只建文档骨架，不再生成旧实践树', async () => {
 		await assert.rejects(() => access(join(root, 'sight/soul.md')), { code: 'ENOENT' })
 		await assert.rejects(() => access(join(root, 'practice')), { code: 'ENOENT' })
 		assert.equal(evolver.globalPath, join(home, 'AGENTS.md'))
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
+})
+
+test('数据目录与偏好目录按 0700 创建，偏好文件按 0600', async () => {
+	const { evolver, root, home } = await fixture()
+	try {
+		await evolver.ensure()
+		assert.equal((await stat(root)).mode & 0o777, 0o700)
+		assert.equal((await stat(join(root, 'preferences'))).mode & 0o777, 0o700)
+		assert.equal((await stat(join(root, 'preferences/AGENTS.md'))).mode & 0o777, 0o600)
 	} finally {
 		await rm(home, { recursive: true, force: true })
 	}
@@ -77,6 +89,51 @@ test('全局链接不自动接管别人的软链，也不删别人的链接', as
 	}
 })
 
+test('二次接管不会丢掉上一份全局指令（备份名带时间戳）', async () => {
+	const { evolver, root, home } = await fixture()
+	try {
+		await evolver.ensure()
+		await writeFile(join(home, 'AGENTS.md'), '# 第一次\n', 'utf8')
+		assert.equal((await evolver.linkGlobal()).linked, true)
+		// 用户手动把软链换回普通文件并改了内容
+		await rm(join(home, 'AGENTS.md'), { force: true })
+		await writeFile(join(home, 'AGENTS.md'), '# 第二次\n', 'utf8')
+		assert.equal((await evolver.linkGlobal()).linked, true)
+		const names = await readdir(join(root, 'preferences'))
+		const imported = await Promise.all(
+			names.filter((name) => name.startsWith('AGENTS.md.imported')).map((name) => readFile(join(root, 'preferences', name), 'utf8')),
+		)
+		assert.equal(imported.some((text) => text.includes('第一次')), true, '第一次的内容仍留着')
+		assert.equal(imported.some((text) => text.includes('第二次')), true, '第二次的内容也有备份，不被静默删掉')
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
+})
+
+test('悬空的全局链接会修到当前偏好', async () => {
+	const { evolver, root, home } = await fixture()
+	try {
+		await evolver.ensure()
+		await symlink(join(home, 'gone', 'AGENTS.md'), join(home, 'AGENTS.md'))
+		assert.equal((await evolver.globalLinkState()).ours, false)
+		await evolver.linkGlobalIfNeeded()
+		const state = await evolver.globalLinkState()
+		assert.equal(state.kind, 'link')
+		assert.equal(state.ours, true, '悬空链要修到当前数据目录')
+		assert.equal(await readlink(join(home, 'AGENTS.md')), join(root, 'preferences', 'AGENTS.md'))
+		assert.match(await readFile(join(home, 'AGENTS.md'), 'utf8'), /个人偏好/)
+		// 指向存在目标的别人的链接不被接管（原有行为）
+		await rm(join(home, 'AGENTS.md'), { force: true })
+		const foreign = join(home, 'foreign.md')
+		await writeFile(foreign, '# 别人的\n', 'utf8')
+		await symlink(foreign, join(home, 'AGENTS.md'))
+		await evolver.linkGlobalIfNeeded()
+		assert.equal((await evolver.globalLinkState()).ours, false)
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
+})
+
 test('injectionPreview 只给偏好，卡片投影由 card API 提供', async () => {
 	const { evolver, home } = await fixture()
 	try {
@@ -97,7 +154,7 @@ test('overview 带出版本、根目录和偏好', async () => {
 		await evolver.ensure()
 		const overview = await evolver.overview()
 		assert.equal(overview.root, join(home, 'evolver'))
-		assert.equal(Array.isArray(overview.suggestions), true)
+		assert.equal('suggestions' in overview, false, '恒空的 suggestions 已删')
 		assert.equal(overview.soul, undefined)
 		assert.ok(overview.preferences.bytes > 0)
 	} finally {

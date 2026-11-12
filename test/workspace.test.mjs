@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -10,6 +10,7 @@ import {
 	describeTree,
 	isDirectory,
 	isInsidePath,
+	isTransient,
 	pathsOverlap,
 } from '../src/workspace.js'
 
@@ -79,5 +80,28 @@ test('copyTree 不跟随软链，countEntries / isDirectory 容忍缺失', async
 		await rm(source, { recursive: true, force: true })
 		await rm(target, { recursive: true, force: true })
 		await rm(outside, { recursive: true, force: true })
+	}
+})
+
+test('临时文件与导入备份不被复制或归档（一套 isTransient 规则）', async () => {
+	const base = await mkdtemp(join(tmpdir(), 'evr-ws-'))
+	const dir = join(base, 'src')
+	const target = join(base, 'copy')
+	try {
+		await mkdir(dir, { recursive: true })
+		await writeFile(join(dir, 'keep.md'), 'x', 'utf8')
+		await writeFile(join(dir, 'half.part'), 'x', 'utf8')
+		await writeFile(join(dir, 'save.tmp'), 'x', 'utf8')
+		await writeFile(join(dir, 'cards.jsonl.before-import-2026-01-01T00-00-00-000Z'), 'x', 'utf8')
+		await writeFile(join(dir, '.DS_Store'), 'x', 'utf8')
+		assert.equal(isTransient('half.part'), true)
+		assert.equal(isTransient('cards.jsonl.before-import-x'), true)
+		assert.equal(isTransient('keep.md'), false)
+		assert.equal((await describeTree(dir)).files, 1, '只统计真文件')
+		await copyTree(dir, target)
+		const copied = (await readdir(target)).sort()
+		assert.deepEqual(copied, ['keep.md'])
+	} finally {
+		await rm(base, { recursive: true, force: true })
 	}
 })

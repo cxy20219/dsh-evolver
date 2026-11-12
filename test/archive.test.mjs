@@ -1,11 +1,15 @@
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { once } from 'node:events'
+import { createWriteStream } from 'node:fs'
+import { chmod, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createGzip } from 'node:zlib'
 
-import { extractArchiveFile, isGzip, writeArchiveFile, writeTarFile } from '../src/backup/archive.js'
-import { createTar, readTar } from '../src/backup/tar.js'
+import { MAX_EXTRACTED_BYTES, MAX_IMPORT_ENTRIES, extractArchiveFile, isGzip, writeArchiveFile, writeTarFile } from '../src/backup/archive.js'
+import { buildTarHeader } from '../src/backup/tar.js'
+import { createTar, readTar } from './support/tar-fixture.mjs'
 import { safeResourceName } from '../src/cards/resources.js'
 
 /** A 3 MB resource: big enough that the writer has to stream it. */
@@ -132,6 +136,48 @@ test('路径穿越、损坏包和空包都会被拒绝', async () => {
 	}
 })
 
+/**
+ * Turn a regular-file header into a link entry, with a correct checksum.
+ *
+ * @param {Buffer} header - The 512-byte header from buildTarHeader.
+ * @param {'1' | '2'} type - '1' hard link, '2' symbolic link.
+ * @param {string} linkname - The link target.
+ * @returns {Buffer} The same buffer, retyped in place.
+ */
+function asLinkEntry(header, type, linkname) {
+	header[156] = type.charCodeAt(0)
+	Buffer.from(linkname, 'utf8').copy(header, 157, 0, 100)
+	header.fill(0x20, 148, 156)
+	let sum = 0
+	for (const byte of header) sum += byte
+	Buffer.from(`${sum.toString(8).padStart(6, '0')}\0 `, 'utf8').copy(header, 148)
+	return header
+}
+
+test('tar 里的软链/硬链条目被跳过，且不影响后面的正常文件', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-archive-link-'))
+	const target = await mkdtemp(join(tmpdir(), 'evr-archive-link-target-'))
+	try {
+		const body = Buffer.from('real content\n')
+		const hard = asLinkEntry(buildTarHeader({ path: 'knowledge/hard', size: 0 }), '1', 'knowledge/ok.txt')
+		const soft = asLinkEntry(buildTarHeader({ path: 'knowledge/escape', size: 0 }), '2', '../../outside')
+		const regular = buildTarHeader({ path: 'knowledge/ok.txt', size: body.length })
+		const padding = Buffer.alloc((512 - (body.length % 512)) % 512)
+		const archive = join(dir, 'links.tar')
+		await writeFile(archive, Buffer.concat([hard, soft, regular, body, padding, Buffer.alloc(1024)]))
+
+		const restored = await extractArchiveFile(archive, target)
+		// Both link entries are skipped, not followed: one import, one normal file.
+		assert.equal(restored.skipped, 2)
+		assert.equal(restored.files, 1)
+		await assert.rejects(() => lstat(join(target, 'knowledge', 'escape')), { code: 'ENOENT' })
+		assert.equal(await readFile(join(target, 'knowledge', 'ok.txt'), 'utf8'), 'real content\n')
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+		await rm(target, { recursive: true, force: true })
+	}
+})
+
 test('附件名按字节截断，不会让导出永久失败', () => {
 	// The ustar name field is 100 bytes; the card folder takes 52 of the path,
 	// so a 63-character Chinese name (189 bytes) used to break every export.
@@ -165,5 +211,61 @@ test('打包途中文件被替换，归档仍然是可解开的', async () => {
 		assert.match(await readFile(join(dst, 'knowledge', 'b.txt'), 'utf8'), /^v\d-/)
 	} finally {
 		for (const dir of [src, out, dst]) await rm(dir, { recursive: true, force: true })
+	}
+})
+
+/**
+ * Write a gzip of zeros that claims huge entries outside the import allowlist.
+ *
+ * The point is the size accounting: an importer that only counts entries it
+ * accepts can be handed a one-megabyte file that makes it decompress terabytes.
+ *
+ * @param {string} target - The archive path.
+ * @param {Array<{path: string, bytes: number}>} entries - Entry paths and sizes; sizes are multiples of 512.
+ * @returns {Promise<void>} Resolves when the archive is on disk.
+ */
+async function writeBombArchive(target, entries) {
+	const output = createWriteStream(target)
+	const gzip = createGzip({ level: 1 })
+	gzip.pipe(output)
+	const zeros = Buffer.alloc(64 * 1024)
+	for (const entry of entries) {
+		gzip.write(buildTarHeader({ path: entry.path, size: entry.bytes, mode: 0o644 }))
+		let written = 0
+		while (written < entry.bytes) {
+			const chunk = Math.min(zeros.length, entry.bytes - written)
+			if (!gzip.write(chunk === zeros.length ? zeros : zeros.subarray(0, chunk))) await once(gzip, 'drain')
+			written += chunk
+		}
+	}
+	gzip.end(Buffer.alloc(1024))
+	await once(output, 'finish')
+}
+
+test('条目上限对白名单外的条目同样计数：小包不能塞爆导入循环', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-bomb-'))
+	const archive = join(dir, 'many.tar.gz')
+	const root = join(dir, 'data')
+	try {
+		const entries = Array.from({ length: MAX_IMPORT_ENTRIES + 1 }, (_, index) => ({ path: `outside/${index}.txt`, bytes: 0 }))
+		await writeBombArchive(archive, entries)
+		await assert.rejects(() => extractArchiveFile(archive, root), /条目过多/)
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('解压上限按实际解压字节算：白名单外的大条目也把预算花掉', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-bomb-'))
+	const archive = join(dir, 'bomb.tar.gz')
+	const root = join(dir, 'data')
+	try {
+		// 3 x 368 MiB = 1.078 GiB > 1 GiB, each entry below the 512 MiB entry cap.
+		const each = 368 * 1024 * 1024
+		await writeBombArchive(archive, [0, 1, 2].map((index) => ({ path: `outside/huge-${index}.bin`, bytes: each })))
+		assert.ok(3 * each > MAX_EXTRACTED_BYTES)
+		await assert.rejects(() => extractArchiveFile(archive, root), /解压后超过/)
+	} finally {
+		await rm(dir, { recursive: true, force: true })
 	}
 })

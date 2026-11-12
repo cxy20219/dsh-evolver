@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -147,16 +147,71 @@ test('配置会被夹取到合理范围', async () => {
 	}
 })
 
-test('损坏的设置文件被保留为 .broken，并回到默认值', async () => {
+test('损坏的设置文件被保留为 .broken，回到默认值并给出 warning', async () => {
 	const { dir, path } = await fixture()
 	try {
 		await writeFile(path, '{ not json', 'utf8')
 		await chmod(path, 0o600)
-		const store = new SettingsStore({ path })
+		const warnings = []
+		const store = new SettingsStore({ path, logger: { warn: (line) => warnings.push(line) } })
 		await store.load()
 		assert.deepEqual(store.get(), defaultSettings())
 		const broken = await readFile(`${path}.broken`, 'utf8')
 		assert.match(broken, /not json/)
+		// 面板靠这个 warning 解释“数据目录为什么回到默认”；损坏时必须非空。
+		assert.match(store.warning, /无法解析/)
+		assert.equal(warnings.length, 1)
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('不可读的设置文件也给出 warning（不静默切默认目录）', async () => {
+	const { dir, path } = await fixture()
+	try {
+		// A directory where the file should be makes readFile fail with EISDIR.
+		await rm(path, { force: true })
+		await mkdir(path, { recursive: true })
+		const warnings = []
+		const store = new SettingsStore({ path, logger: { warn: (line) => warnings.push(line) } })
+		await store.load()
+		assert.deepEqual(store.get(), defaultSettings())
+		assert.match(store.warning, /无法读取/)
+		assert.equal(warnings.length, 1)
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('并发保存不会丢字段：先入队的快照先落盘', async () => {
+	const { store, path, dir } = await fixture()
+	try {
+		for (let round = 0; round < 10; round += 1) {
+			await Promise.all([
+				store.update({ consolidate: { hour: 5 } }),
+				store.updateStatus({ lastError: `round-${round}` }),
+				store.update({ ingest: { idleMinutes: 9 } }),
+			])
+		}
+		const reloaded = new SettingsStore({ path })
+		await reloaded.load()
+		assert.equal(reloaded.get().consolidate.hour, 5)
+		assert.equal(reloaded.get().ingest.idleMinutes, 9)
+		assert.equal(reloaded.get().status.lastError, 'round-9')
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('endpoint 只接受 http(s) URL 或裸 OSS 主机名，拒绝 userinfo 与其它协议', async () => {
+	const { dir, path } = await fixture()
+	try {
+		assert.equal(normalizeBackup({ endpoint: 'https://oss.example.com/' }).endpoint, 'https://oss.example.com')
+		assert.equal(normalizeBackup({ endpoint: 'oss-cn-hangzhou.aliyuncs.com' }).endpoint, 'oss-cn-hangzhou.aliyuncs.com')
+		assert.equal(normalizeBackup({ endpoint: 'http://127.0.0.1:9000' }).endpoint, 'http://127.0.0.1:9000')
+		assert.equal(normalizeBackup({ endpoint: 'https://user:pass@gateway.example.com' }).endpoint, '', '带凭据的 URL 拒绝')
+		assert.equal(normalizeBackup({ endpoint: 'ftp://gateway.example.com' }).endpoint, '', '非 http(s) 拒绝')
+		assert.equal(normalizeBackup({ endpoint: 'not a url' }).endpoint, '')
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}

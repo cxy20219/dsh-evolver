@@ -1,9 +1,25 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { createIngestController } from '../src/ingest.js'
+import { createIngestController, parseMemories, quoteFromDigest } from '../src/ingest.js'
 
 const NOW = Date.parse('2026-11-10T12:00:00Z')
+test('提取的记忆带一句逐字原文；查不到原文就只存记忆，不存出处', () => {
+	const parsed = parseMemories(JSON.stringify({
+		memories: [{ text: '部署走 SSH，不用 HTTPS。', kind: 'convention', quote: '部署用 SSH，不要用 HTTPS。' }],
+	}))
+	assert.equal(parsed.memories[0].quote, '部署用 SSH，不要用 HTTPS。')
+
+	const digest = { sessions: [{ id: 's-42', messages: [{ role: 'user', text: '部署用 SSH，不要用 HTTPS。' }] }] }
+	assert.deepEqual(quoteFromDigest('部署用 SSH，不要用 HTTPS。', digest), {
+		quote: '部署用 SSH，不要用 HTTPS。',
+		session: 's-42',
+	})
+	// 模型自己编的句子不能变成"出处"：那会让整理器拿一句没人说过的话来核对。
+	assert.equal(quoteFromDigest('部署应该用 SSH。', digest), undefined)
+	assert.equal(quoteFromDigest('', digest), undefined)
+})
+
 
 /**
  * A query and ledger with one fresh session.
@@ -112,7 +128,7 @@ test('后台整理直接调模型提取，校验后保存并推进游标', async
 	const memory = fakeMemory()
 	const llm = fakeLlm({
 		memories: [
-			{ text: '部署走 SSH，不要用 HTTPS。', kind: 'fact' },
+			{ text: '部署走 SSH，不要用 HTTPS。', kind: 'fact', quote: '部署用 SSH，不要用 HTTPS。' },
 			{ text: '别把密钥写进记忆。', kind: 'convention' },
 		],
 	})
@@ -122,6 +138,10 @@ test('后台整理直接调模型提取，校验后保存并推进游标', async
 	assert.equal(result.success, true)
 	assert.equal(result.sessions, 1)
 	assert.equal(result.saved, 2)
+	// 只有抄得回原文的那条带出处；另一条不编造。
+	assert.equal(result.quoted, 1)
+	assert.equal(memory.saves[0].source.quote, '部署用 SSH，不要用 HTTPS。')
+	assert.equal(memory.saves[1].source, undefined)
 	assert.equal(memory.saves.length, 2)
 	assert.equal(memory.saves[0].kind, 'fact')
 	assert.equal(memory.saves[0].scope, undefined)
@@ -233,4 +253,21 @@ test('只有合成消息的会话不花钱调模型，直接标记已处理', as
 	assert.equal(llm.calls.length, 0)
 	assert.equal(memory.saves.length, 0)
 	assert.equal(commits[0].entries[0].id, 's1')
+})
+
+
+test('数据目录操作进行中时，会话整理直接跳过：不探测、不调模型、不推进游标', async () => {
+	const { query, ledger, commits } = fakeSession()
+	const memory = fakeMemory()
+	const llm = fakeLlm({ memories: [] })
+	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
+	let clock = NOW + 60 * 60_000
+	const controller = createIngestController({
+		settings, query, ledger, save: memory.save, llm, modelSelection: fakeSelection(),
+		now: () => clock, isBusy: () => true,
+	})
+	await assert.rejects(() => controller.run(), /数据目录操作/)
+	assert.equal(await controller.check(), null)
+	assert.equal(llm.calls.length, 0)
+	assert.equal(commits.length, 0)
 })

@@ -7,4 +7,9 @@
 - [校验器不许有副作用](harness/experience/validators-have-no-side-effects.md)：校验器只能读：py_compile 会写 __pycache__，改用内存 compile 并排除构建产物
 - [探针不能挂在请求路径上](harness/experience/probes-off-the-request-path.md)：状态接口现场探针 410ms；改成缓存 60 秒 + 后台刷新后 6.7ms
 - [布局是双份契约：插件改了，技能必须跟着改](harness/experience/layout-is-a-two-sided-contract.md)：harness 布局是插件与技能共有的契约，改一边必须同步改另一边并用两套校验器互验
-- [会变的东西不进系统段：标签树迁到运行时上下文](harness/experience/cache-volatile-content-goes-to-context.md)：标签树迁到 runtime context：新增枝干只追加 1.2KB 快照，实测未缓存输入从 29 万降到 651
+- [会变的东西不进系统段：静态纪律 + 运行时候选](harness/experience/cache-volatile-content-goes-to-context.md)：注入拆两半：静态纪律+主动性协议进系统段、会变的卡片索引进运行时上下文；只读每日快照（实测 1366 B），快照缺失时回退记忆化
+- [link-layout-metrics.mjs](harness/tool/link-layout-metrics.mjs)：从 client.js 抽出 computeLinkLayout 跑真实卡片库，输出重叠/按度数半径/枢纽与叶子离中心距离/耗时
+- [链接关系图的力学：度中心性、核心-外围与稳定性边界](harness/experience/link-graph-force-layout.md)：链接关系图力导向的四个力各管什么、旧版为何堆积、三个稳定性边界与规模/耗时实测
+- [标签治理：动作、纪律、护栏三件套](harness/experience/tag-governance.md)：每日整理的标签治理：retag/tag-merge 动作、十四条纪律、四条代码护栏与审计，以及为什么「没动作入口的规则等于没有」
+- [记忆分层：会话、卡片、注入与图检索](harness/experience/memory-layers.md)：当前记忆分层：会话→卡片→注入（卡片索引+结构摘要）+ 双链图检索；页层已移除，写卡不再改注入
+- [混合检索：BM25 召回 + 双链扩散补全](harness/experience/hybrid-graph-search.md)：卡片检索升级为 BM25 召回 + 双链扩散补全：扩散权重、子图返回、within 二次搜索与为什么不用 embedding/GraphRAG

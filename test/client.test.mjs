@@ -8,6 +8,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 /**
@@ -42,11 +43,25 @@ function createRuntime() {
 	function instanceFor(key) {
 		let instance = instances.get(key)
 		if (instance === undefined) {
-			instance = { key, state: [], memo: [], refs: [], effectSlots: [], pendingEffects: [], cursor: 0 }
+			instance = { key, state: [], memo: [], refs: [], effectSlots: [], pendingEffects: [], cursor: 0, kinds: [], lastKinds: undefined }
 			instances.set(key, instance)
 		}
 		instance.cursor = 0
+		instance.kinds = []
 		return instance
+	}
+
+	/**
+	 * Record one hook call, so a component cannot change its hook sequence
+	 * between renders (real React throws "Rendered more/fewer hooks").
+	 *
+	 * @param {string} kind - Hook name.
+	 * @returns {number} The hook slot index.
+	 */
+	function noteHook(kind) {
+		const instance = currentInstance
+		instance.kinds.push(kind)
+		return instance.cursor++
 	}
 
 	/**
@@ -69,7 +84,7 @@ function createRuntime() {
 
 	function useState(initial) {
 		const instance = currentInstance
-		const index = instance.cursor++
+		const index = noteHook('state')
 		if (!(index in instance.state)) {
 			instance.state[index] = typeof initial === 'function' ? initial() : initial
 		}
@@ -87,7 +102,7 @@ function createRuntime() {
 
 	function useEffect(effect, deps) {
 		const instance = currentInstance
-		const index = instance.cursor++
+		const index = noteHook('effect')
 		const previous = instance.effectSlots[index]
 		if (previous !== undefined && sameDeps(previous.deps, deps)) return
 		instance.pendingEffects.push({ index, effect, deps })
@@ -96,14 +111,14 @@ function createRuntime() {
 	/** A ref that survives re-renders, like React's. */
 	function useRef(initial) {
 		const instance = currentInstance
-		const index = instance.cursor++
+		const index = noteHook('ref')
 		if (!(index in instance.refs)) instance.refs[index] = { current: initial }
 		return instance.refs[index]
 	}
 
 	function useCallback(callback, deps) {
 		const instance = currentInstance
-		const index = instance.cursor++
+		const index = noteHook('callback')
 		const previous = instance.memo[index]
 		if (previous !== undefined && sameDeps(previous.deps, deps)) return previous.value
 		instance.memo[index] = { deps, value: callback }
@@ -112,7 +127,7 @@ function createRuntime() {
 
 	function useMemo(factory, deps) {
 		const instance = currentInstance
-		const index = instance.cursor++
+		const index = noteHook('memo')
 		const previous = instance.memo[index]
 		if (previous !== undefined && sameDeps(previous.deps, deps)) return previous.value
 		const value = factory()
@@ -143,6 +158,12 @@ function createRuntime() {
 				output = type(props)
 			} finally {
 				currentInstance = previous
+				if (instance.lastKinds !== undefined) {
+					const same = instance.lastKinds.length === instance.kinds.length
+						&& instance.lastKinds.every((kind, index) => kind === instance.kinds[index])
+					assert.ok(same, `Hook 序列在同一次挂载内变化：${instanceKey}\n  前: ${instance.lastKinds.join(',')}\n  后: ${instance.kinds.join(',')}`)
+				}
+				instance.lastKinds = instance.kinds
 			}
 			return renderNode(output, instanceKey)
 		}
@@ -300,7 +321,7 @@ async function loadPanel(runtime) {
 		return runtime
 	})
 	let Panel = null
-	const styles = { locale: [], registered: [] }
+	const styles = { registered: [] }
 	const ctx = {
 		locale: {
 			register() {
@@ -351,17 +372,19 @@ function apiPayload(endpoint, payload) {
 			return {
 				version: '9.9.9',
 				root: '/data/evolver',
-				projection: { entries: 3, injectedBytes: 100, injectedBudget: 2048, byKind: [] },
 				cards: { total: 3 },
-				stats: { cards: 3, tags: 2, days: 10, words: 120 },
+				stats: { cards: 3, tags: 2, days: 10, words: 120, indexRatio: 0.015 },
 				year: { days: 365, notes: 3, words: 120, maxNotes: 2, maxWords: 80, activeDays: 2 },
 				activity: [{ date: '2026-11-09', count: 1 }, { date: '2026-11-10', count: 2 }],
+				injection: {
+					section: '[卡片] 纪律段\n\n[主动性] 协议',
+					index: '[卡片索引]\n- card-01HF7YAT00S37S1ZGTH35DPPXW｜示例卡｜连 2',
+				},
 				tree: [{
 					path: '践行', name: '践行', count: 2, direct: 0, children: [{
 						path: '践行/工作流', name: '工作流', count: 1, direct: 1, children: [],
 					}],
 				}],
-				suggestions: [],
 			}
 		case 'consolidate-status':
 			return {
@@ -376,6 +399,7 @@ function apiPayload(endpoint, payload) {
 				lastBatch: 15,
 				lastError: '',
 				running: false,
+				lastRun: { at: '2026-11-12T03:00:00.000Z', actions: 3, retagged: 2, tagMerges: 1 },
 			}
 		case 'consolidate-save':
 			return { ...apiPayload('consolidate-status', payload), ...(payload.consolidate ?? {}) }
@@ -463,6 +487,7 @@ function apiPayload(endpoint, payload) {
 					tags: ['践行/验证/浏览器'],
 					links: [],
 					resources: [],
+					source: { quote: '用户原话：部署走 SSH，不要用 HTTPS。' },
 				},
 				links: [],
 				backlinks: [],
@@ -476,6 +501,8 @@ function apiPayload(endpoint, payload) {
 				taskId: '',
 				lastActivityAt: 0,
 				lastAutoAt: 0,
+				lastSaved: 3,
+				lastQuoted: 2,
 				ledger: { processed: 0, lastCommitAt: '' },
 			}
 		case 'data-archives':
@@ -569,6 +596,9 @@ test('两个整理器在独立整理页，卡片页与设置页都不再自带�
 		assert.ok(findAll(tree, (node) => textOf(node) === 'sight.ingest.auto').length >= 1)
 		assert.ok(findAll(tree, (node) => textOf(node) === 'settings.consolidate.title').length >= 1)
 		assert.ok(findAll(tree, (node) => textOf(node).includes('settings.consolidate.due')).length >= 1)
+		// 出处捕获率要看得见，否则不知道这个约定有没有在生效。
+		assert.ok(findAll(tree, (node) => textOf(node) === 'sight.ingest.quoted').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'settings.consolidate.lastTags').length >= 1, '面板要能看到上次整理改了几个标签')
 
 		// The daily batch defaults to 15 and can be changed before saving.
 		const numbers = findAll(tree, (node) => node.type === 'input' && node.props?.type === 'number')
@@ -627,7 +657,7 @@ test('卡片和偏好是独立标签，卡片页有筛选、列表和新建入�
 		// not jitter on a fresh simulation.
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.descriptions')[0].props.onClick()
 		tree = await runtime.settle(render)
-		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.cards')[0].props.onClick()
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.info')[0].props.onClick()
 		tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.stats')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -637,7 +667,7 @@ test('卡片和偏好是独立标签，卡片页有筛选、列表和新建入�
 		// The version sits next to the panel title; the injected-context cards are gone.
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrVersion' && textOf(node) === 'v9.9.9').length, 1)
 		const cardTitles = findAll(tree, (node) => node.props?.className === 'evrCardTitle').map((node) => textOf(node))
-		assert.deepEqual(cardTitles, ['overview.notes', 'overview.tags', 'overview.days'])
+		assert.deepEqual(cardTitles, ['overview.notes', 'overview.tags', 'overview.days', 'overview.index'])
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrHeatmapWrap').length, 1)
 		assert.ok(findAll(tree, (node) => node.props?.className === 'evrGraph').length === 1)
 		// Graph labels are plain tag names; the '#' prefix is not drawn.
@@ -649,10 +679,16 @@ test('卡片和偏好是独立标签，卡片页有筛选、列表和新建入�
 		assert.equal(tabs.includes('tab.soul'), false)
 		assert.equal(tabs.includes('tab.sight'), false)
 
-		// One heatmap, always the whole year; no range switch.
+		// One heatmap, always the whole year; no range switch, and no fixed
+		// width either: the cells share whatever width the pane has.
 		const heatmap = findAll(tree, (node) => node.props?.className === 'evrHeatmapWrap')
 		assert.equal(heatmap.length, 1)
-		assert.equal(heatmap[0].props.style['--eh-cols'], '1')
+		assert.equal(heatmap[0].props.style, undefined)
+		assert.equal(findAll(heatmap[0], (node) => node.props?.className === 'evrHeatmapWeek').length, 1)
+		const grid = findAll(heatmap[0], (node) => node.props?.className === 'evrHeatmap')[0]
+		assert.equal(findAll(grid, (node) => node.props?.className === 'evrHeatCell evrHeat1').length, 1)
+		assert.equal(findAll(grid, (node) => node.props?.className === 'evrHeatCell evrHeat2').length, 1)
+		assert.equal(findAll(grid, (node) => node.props?.className === 'evrHeatCell evrHeatBlank').length, 5)
 		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.range.year').length, 0)
 		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.range.days').length, 0)
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.yearHeatmap.hint').length >= 1)
@@ -686,7 +722,7 @@ test('卡片和偏好是独立标签，卡片页有筛选、列表和新建入�
 
 		// The overview splits into four sub-tabs; the injected blocks are read-only previews.
 		const subTabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
-		for (const label of ['overview.stats', 'overview.descriptions', 'overview.cards', 'overview.preferences']) {
+		for (const label of ['overview.stats', 'overview.descriptions', 'overview.info', 'overview.preferences']) {
 			assert.ok(subTabs.includes(label), `missing sub-tab ${label}`)
 		}
 		assert.equal(subTabs.includes('overview.soul'), false)
@@ -702,13 +738,34 @@ test('卡片和偏好是独立标签，卡片页有筛选、列表和新建入�
 		assert.equal(findAll(tree, (node) => typeof node.props?.className === 'string'
 			&& node.props.className.includes('evrOverviewPane'))
 			.some((pane) => findAll(pane, (node) => node.props?.className === 'evrHint').length > 0), false)
-		const cardsSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.cards')
-		assert.equal(cardsSubTab.length, 1)
-		cardsSubTab[0].props.onClick()
+		const infoSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.info')
+		assert.equal(infoSubTab.length, 1)
+		infoSubTab[0].props.onClick()
 		tree = await runtime.settle(render)
-		assert.ok(findAll(tree, (node) => node.props?.className === 'evrMd').length === 1)
+		// 信息页把每次请求注入的内容分成两张卡：静态段（纪律 + 主动性）、卡片索引。
+		const infoBlocks = findAll(tree, (node) => node.props?.className === 'evrInfoBlock')
+		assert.equal(infoBlocks.length, 2)
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrPre').length, 0)
-		assert.ok(findAll(tree, (node) => textOf(node) === '[卡片]').length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.info.hint').length >= 1)
+		assert.ok(findAll(tree, (node) => typeof textOf(node) === 'string'
+			&& /^overview\.info\.total$/.test(textOf(node)) === false
+			&& textOf(node).includes('overview.info.total')).length >= 1, '页首有总量与预算')
+		const blockTitles = findAll(tree, (node) => node.props?.className === 'evrSection evrInfoTitle').map((node) => textOf(node))
+		assert.deepEqual(blockTitles, ['overview.info.section', 'overview.info.index'])
+		// 两块默认展开，正文都渲染；卡片索引里有具体卡。
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrMd').length, 2)
+		assert.ok(findAll(tree, (node) => typeof textOf(node) === 'string' && textOf(node).includes('示例卡')).length >= 1,
+			'卡片索引的正文要渲染出来')
+		// 收起一块 → 只少一块正文；再展开回来。
+		const toggles = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.info.collapse')
+		assert.equal(toggles.length, 2)
+		toggles[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrMd').length, 1, '收起后正文隐藏')
+		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.info.expand').length, 1)
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.info.expand')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrMd').length, 2, '展开后正文回来')
 
 		// Descriptions and the injected tree are separate pages: the editor is
 		// not crammed under the prompt preview any more.
@@ -773,6 +830,12 @@ test('卡片和偏好是独立标签，卡片页有筛选、列表和新建入�
 		tree = await runtime.settle(render)
 		assert.equal(findAll(tree, (node) => textOf(node) === '#部署').length, 0)
 		assert.ok(findAll(tree, (node) => textOf(node) === '卡片标题').length >= 1)
+
+		// 详情里要能看到出处：卡片本身证明不了自己有没有记错。
+		findAll(tree, (node) => node.props?.className === 'evrRow')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(findAll(tree, (node) => textOf(node).includes('用户原话：部署走 SSH，不要用 HTTPS。')).length >= 1)
+		assert.ok(findAll(tree, (node) => textOf(node).includes('cards.source')).length >= 1)
 
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.preferences')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -884,6 +947,431 @@ test('搜索框边输入边过滤，没有搜索按钮', async () => {
 		await new Promise((resolve) => setTimeout(resolve, 320))
 		tree = await runtime.settle(render)
 		assert.equal(calls[calls.length - 1], '缓存', '停顿后按输入内容过滤')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('链接关系图：连线越多的圆越大、枢纽居中，节点互不重叠', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	// One obvious hub, one second-tier hub, one two-link card and six leaves:
+	// enough for the layout to show a core, a halo and a periphery.
+	const cards = [
+		{ id: 'hub', label: '枢纽', tags: ['践行'], links: ['a', 'b', 'c', 'd', 'e', 'second'] },
+		{ id: 'second', label: '次枢纽', tags: ['见闻'], links: ['f', 'g'] },
+		{ id: 'g', label: '两连接', tags: ['践行'], links: ['h'] },
+		{ id: 'a', label: '叶子甲', tags: ['践行'], links: [] },
+		{ id: 'b', label: '叶子乙', tags: ['践行'], links: [] },
+		{ id: 'c', label: '叶子丙', tags: ['践行'], links: [] },
+		{ id: 'd', label: '叶子丁', tags: ['见闻'], links: [] },
+		{ id: 'e', label: '叶子戊', tags: ['见闻'], links: [] },
+		{ id: 'f', label: '叶子己', tags: ['见闻'], links: [] },
+		{ id: 'h', label: '叶子庚', tags: ['践行'], links: [] },
+	]
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-list') {
+			return { ok: true, status: 200, json: async () => ({ cards, total: cards.length }) }
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const tree = await runtime.settle(() => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root'))
+		const svg = findAll(tree, (node) => node.props?.className === 'evrLinkGraph')[0]
+		assert.ok(svg !== undefined, '关系图没有渲染')
+		const dots = findAll(svg, (node) => node.type === 'g' && typeof node.props?.['aria-label'] === 'string')
+			.map((group) => {
+				const circle = findAll(group, (node) => node.type === 'circle')[0]
+				const [label, degree] = group.props['aria-label'].split(' · ')
+				return { label, degree: Number(degree), x: circle.props.cx, y: circle.props.cy, r: circle.props.r }
+			})
+		assert.equal(dots.length, cards.length)
+		const byDegree = dots.slice().sort((left, right) => right.degree - left.degree)
+		// 1. Size is degree centrality: never decreasing as links grow.
+		for (let i = 1; i < byDegree.length; i += 1) {
+			if (byDegree[i].degree === byDegree[i - 1].degree) {
+				assert.equal(byDegree[i].r, byDegree[i - 1].r, '同度数必须同大小')
+			} else {
+				assert.ok(byDegree[i].r <= byDegree[i - 1].r, `度数低的圆不能更大：${byDegree[i].label}`)
+			}
+		}
+		assert.ok(byDegree[0].r > byDegree[byDegree.length - 1].r * 2, '枢纽必须明显大于叶子')
+		// 2. No two circles overlap, and the whole picture stays inside the viewBox.
+		for (let i = 0; i < dots.length; i += 1) {
+			for (let j = i + 1; j < dots.length; j += 1) {
+				const distance = Math.hypot(dots[i].x - dots[j].x, dots[i].y - dots[j].y)
+				assert.ok(distance > dots[i].r + dots[j].r, `${dots[i].label} 与 ${dots[j].label} 重叠`)
+			}
+			assert.ok(dots[i].x - dots[i].r > 0 && dots[i].x + dots[i].r < 320, '节点跑出了画布')
+			assert.ok(dots[i].y - dots[i].r > 0 && dots[i].y + dots[i].r < 300, '节点跑出了画布')
+		}
+		// 3. Core and periphery: the hub sits nearer the middle than the leaves,
+		//    and holds its neighbours closer than the leaves sit to each other.
+		const centreX = dots.reduce((sum, dot) => sum + dot.x, 0) / dots.length
+		const centreY = dots.reduce((sum, dot) => sum + dot.y, 0) / dots.length
+		const radiusOf = (dot) => Math.hypot(dot.x - centreX, dot.y - centreY)
+		const leaves = dots.filter((dot) => dot.degree === 1)
+		const hub = dots.find((dot) => dot.degree === 6)
+		assert.ok(radiusOf(hub) < leaves.reduce((sum, dot) => sum + radiusOf(dot), 0) / leaves.length,
+			'枢纽应当比叶子更靠中心')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('mini React 在 Hook 序列变化时报错（守卫自检）', () => {
+	const runtime = createRuntime()
+	let flip = false
+	/**
+	 * A component that calls an extra hook on the second render.
+	 *
+	 * @returns {object} The element.
+	 */
+	function Probe() {
+		const [value] = runtime.useState(0)
+		if (flip) runtime.useState(1)
+		return runtime.createElement('div', null, String(value))
+	}
+	const render = () => runtime.renderNode(runtime.createElement(Probe), 'probe')
+	render()
+	flip = true
+	assert.throws(render, /Hook 序列/)
+})
+
+test('客户端 t() 用到的 key 在中英文字典里都存在且两份字典键一致', () => {
+	const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+	const zhStart = source.indexOf('var zh = {')
+	const enStart = source.indexOf('var en = {')
+	const enEnd = source.indexOf('//#endregion', enStart)
+	assert.ok(zhStart > -1 && enStart > zhStart && enEnd > enStart, '找不到内联字典')
+	/**
+	 * The literal keys of one dictionary block.
+	 *
+	 * @param {string} text - The block source.
+	 * @returns {Set<string>} The keys.
+	 */
+	function keysOf(text) {
+		return new Set([...text.matchAll(/'([a-zA-Z][\w.\-]*)':/g)].map((match) => match[1]))
+	}
+	const zh = keysOf(source.slice(zhStart, enStart))
+	const en = keysOf(source.slice(enStart, enEnd))
+	assert.deepEqual([...zh].sort(), [...en].sort(), '中英文字典的键必须一致')
+	const used = new Set()
+	// t('key') 里出现的每个字面量都是字典键；t(item.label) 的 TABS 标签单独收集。
+	for (const call of source.matchAll(/\bt\(([^)]*)\)/g)) {
+		for (const inner of call[1].matchAll(/'([^']+)'/g)) used.add(inner[1])
+	}
+	for (const match of source.matchAll(/label: '([a-zA-Z][\w.\-]*)'/g)) used.add(match[1])
+	const missing = [...used].filter((key) => !zh.has(key))
+	assert.deepEqual(missing, [], `未定义的 i18n key：${missing.join(', ')}`)
+})
+
+test('非关键端点失败只提示部分失败，其它页签照常可用', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'preferences') throw new Error('preferences down')
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => textOf(node) === 'state.error').length, 0, '单个非关键端点失败不应出现错误页')
+		assert.ok(findAll(tree, (node) => textOf(node) === 'state.partial').length >= 1, '应有部分失败提示')
+		assert.ok(findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards').length === 1)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.new').length === 1, '卡片页仍可用')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('首屏端点失败显示错误页与重试按钮，重试后恢复；非 JSON 错误回落到状态码', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	let broken = true
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (broken && endpoint === 'overview') {
+			// A proxy-style failure: HTML/text body with a 502 status.
+			return { ok: false, status: 502, json: async () => { throw new SyntaxError('not json') } }
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		assert.ok(findAll(tree, (node) => node.props?.className === 'evrEmpty').length >= 1, '应显示错误页')
+		assert.match(textOf(findAll(tree, (node) => node.props?.className === 'evrEmpty')[0]), /HTTP 502/)
+		const retry = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'action.retry')
+		assert.equal(retry.length, 1, '错误页应有重试按钮')
+		broken = false
+		retry[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => textOf(node) === 'state.error').length, 0)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.stats').length >= 1, '重试后恢复首屏')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('链接图的 Hook 数量不随布局有无翻转（真实 React 白屏回归）', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	let linked = false
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-list') {
+			const cards = [
+				{ id: 'c1', label: '第一张', body: '正文', tags: ['践行'], links: linked ? ['c2'] : [], resources: [], updated: '2026-11-10T00:00:00.000Z' },
+				{ id: 'c2', label: '第二张', body: '正文', tags: ['见闻'], links: [], resources: [], updated: '2026-11-09T00:00:00.000Z' },
+			]
+			return { ok: true, status: 200, json: async () => ({ cards, total: cards.length, tree: [], status: {}, cardMaxChars: 1000 }) }
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		const refresh = () => findAll(tree, (node) => node.type === 'button' && textOf(node) === 'action.refresh')[0]
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkGraph').length, 0, '无链接时只有空态')
+		// 无链接 → 有链接：Hook 数量若翻转，mini React 的守卫会直接抛错。
+		linked = true
+		refresh().props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkGraph').length, 1)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkNode').length, 2)
+		// 有链接 → 无链接：反向也要通过。
+		linked = false
+		refresh().props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkGraph').length, 0)
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('快速连点两张卡时，后点的卡片不会被先前的慢响应覆盖', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const cards = [
+		{ id: 'c1', label: '第一张', body: '正文一', tags: ['践行'], links: [], resources: [], updated: '2026-11-10T00:00:00.000Z' },
+		{ id: 'c2', label: '第二张', body: '正文二', tags: ['见闻'], links: [], resources: [], updated: '2026-11-09T00:00:00.000Z' },
+	]
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-list') return { ok: true, status: 200, json: async () => ({ cards, total: cards.length, tree: [], status: {}, cardMaxChars: 1000 }) }
+		if (endpoint === 'card-read') {
+			const id = payload.id
+			await new Promise((resolve) => setTimeout(resolve, id === 'c1' ? 120 : 5))
+			return { ok: true, status: 200, json: async () => ({ card: cards.find((card) => card.id === id), links: [], backlinks: [] }) }
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const rows = findAll(tree, (node) => node.props?.className === 'evrRow')
+		assert.equal(rows.length, 2)
+		rows[0].props.onClick()
+		rows[1].props.onClick()
+		await new Promise((resolve) => setTimeout(resolve, 250))
+		tree = await runtime.settle(render)
+		const titles = findAll(tree, (node) => node.props?.className === 'evrCardTitle').map((node) => textOf(node))
+		assert.deepEqual(titles, ['第二张'], '慢响应覆盖了后点的卡片')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('220ms 内点标签筛选时，搜索防抖不会丢掉标签条件', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const calls = []
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-list') calls.push(payload)
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const input = findAll(tree, (node) => node.type === 'input' && node.props?.type === 'search')[0]
+		input.props.onChange({ target: { value: '缓存' } })
+		// Arm the debounce timer first, then click the tag filter while it is pending.
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.input')[0].props.onClick()
+		tree = await runtime.settle(render)
+		await new Promise((resolve) => setTimeout(resolve, 320))
+		tree = await runtime.settle(render)
+		const last = calls[calls.length - 1]
+		assert.equal(last.query, '缓存')
+		assert.deepEqual(last.tags, ['见闻'], '防抖把刚点的标签条件丢了')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('概览链接图与卡片页筛选解耦，并在截断时注明', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const all = [
+		{ id: 'a1', label: '甲', body: '正文', tags: ['践行'], links: ['a2'], resources: [], updated: '2026-11-10T00:00:00.000Z' },
+		{ id: 'a2', label: '乙', body: '正文', tags: ['践行'], links: ['a1'], resources: [], updated: '2026-11-09T00:00:00.000Z' },
+		{ id: 'a3', label: '丙', body: '正文', tags: ['见闻'], links: [], resources: [], updated: '2026-11-08T00:00:00.000Z' },
+	]
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-list') {
+			// The cards tab filters; the link graph asks for its own page (limit 200).
+			const filtered = Array.isArray(payload.tags) && payload.tags.length > 0
+			const cards = filtered ? [all[2]] : all
+			return { ok: true, status: 200, json: async () => ({ cards, total: filtered ? 1 : all.length + 4, tree: [], status: {}, cardMaxChars: 1000 }) }
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		const nodesBefore = findAll(tree, (node) => node.props?.className === 'evrLinkNode').length
+		assert.equal(nodesBefore, 2)
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.linkGraph.truncated').length >= 1, '截断时要注明')
+		// Narrow the cards tab, then go back: the graph must keep the whole library.
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.input')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.overview')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkNode').length, 2, '概览图不能继承卡片页的筛选')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('超过 8MB 的附件在读取前就被拒绝', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const calls = []
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		calls.push(endpoint)
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.className === 'evrRow')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const input = findAll(tree, (node) => node.type === 'input' && node.props?.type === 'file')[0]
+		assert.ok(input !== undefined, '附件入口没有渲染')
+		input.props.onChange({ target: { files: [{ name: 'big.log', size: 9 * 1024 * 1024 }], value: '' } })
+		tree = await runtime.settle(render)
+		const toast = findAll(tree, isToast)
+		assert.equal(toast.length, 1)
+		assert.match(textOf(toast[0]), /cards\.attachTooLarge/)
+		assert.equal(calls.includes('card-attach'), false, '大文件不应发出上传请求')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('Markdown 预览不把 //host 变成可点的站外链接', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		const body = apiPayload(endpoint, payload)
+		if (endpoint === 'overview') {
+			body.injection = {
+				section: '[点我](//evil.example/phish) 与 [正常](https://example.com/ok)',
+				index: '[卡片索引]',
+			}
+		}
+		return { ok: true, status: 200, json: async () => body }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.info')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const anchors = findAll(tree, (node) => node.type === 'a')
+		const hrefs = anchors.map((node) => node.props.href)
+		assert.equal(hrefs.includes('//evil.example/phish'), false, '协议相对 URL 不能渲染成链接')
+		assert.ok(hrefs.includes('https://example.com/ok'), '正常外链仍要渲染')
+		assert.equal(anchors.find((node) => node.props.href === 'https://example.com/ok').props.rel, 'noopener noreferrer')
 	} finally {
 		globalThis.fetch = previousFetch
 	}

@@ -66,9 +66,10 @@ test('session_digest 把参数交给会话读取层，缺失时明确报错', as
 	})
 	const tool = tools.find((entry) => entry.name === 'session_digest')
 	assert.ok(tool)
-	const result = await tool.execute({ sinceDays: 2, limit: 3, commit: true })
+	const result = await tool.execute({ sinceDays: 2, limit: 3 })
 	assert.equal(result.success, true)
-	assert.deepEqual(calls[0], { sinceDays: 2, limit: 3, commit: true })
+	// 只读：游标归自动整理独占，工具层不再把 commit 透传下去。
+	assert.deepEqual(calls[0], { sinceDays: 2, limit: 3 })
 
 	const missing = createTools({ cards: {} }).find((entry) => entry.name === 'session_digest')
 	const empty = await missing.execute({})

@@ -8,7 +8,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -146,6 +146,23 @@ test('拿不到缓存数据时这两列留空，不写 0 冒充', async () => {
 		// summary sentence that would claim a number we do not have.
 		assert.equal(/提示词缓存 \d+%/.test(body), false)
 		assert.match(body, /—/) // 表格里的空列
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('数据目录操作进行中，健康日报跳过本轮且不写任何文件', async () => {
+	const { dir, store } = await fixture()
+	try {
+		await store.put({ body: '一张卡', tags: ['践行/经验'] })
+		const job = createHealthJob({
+			store: () => store,
+			now: () => new Date(2026, 10, 11, 10, 0, 0).getTime(),
+			isBusy: () => true,
+		})
+		assert.equal(await job.check(), null, '搬家/导入窗口内跳过')
+		await assert.rejects(() => access(join(dir, 'knowledge', 'health.json')), { code: 'ENOENT' })
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })

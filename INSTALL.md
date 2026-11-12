@@ -55,7 +55,7 @@ dsh plugin --profile web add https://github.com/cxy20219/dsh-evolver.git
 
 数据目录、卡片正文上限、OSS 备份配置和密钥保存在 `~/.dsh/evolver.config.json`（0600），
 不在数据目录里。设置页里改过的数据目录优先于组合配置里的 `dataDir`；
-迁移、导入/导出与云端备份的细节见 [README](README.md#设置页数据目录与云端备份)。
+迁移、导入/导出与云端备份的细节见 [README](README.md#设置)。
 
 ## 迁移到另一台机器
 

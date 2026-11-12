@@ -41,6 +41,19 @@ export class MemoryStore {
 	}
 
 	/**
+	 * The raw records, insertion order.
+	 *
+	 * The prompt's live fallback needs every card at once but not the card
+	 * views: building 2000 of them just to name the eight best-connected ones
+	 * was most of the fallback cost. This hands out the records instead.
+	 *
+	 * @returns {object[]} The records.
+	 */
+	records() {
+		return this.db.values()
+	}
+
+	/**
 	 * A counter that changes whenever the record set does.
 	 *
 	 * Derived views cache against it.
