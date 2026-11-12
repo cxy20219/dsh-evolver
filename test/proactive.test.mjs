@@ -15,7 +15,11 @@ test('主动性协议覆盖卡片触发点且保持精简', () => {
 	// the obvious third place — the instruction file — looked allowed. The
 	// boundary has to be written down or it gets re-invented.
 	assert.match(PROACTIVE_PROTOCOL, /全局 AGENTS\.md 只读/)
-	assert.match(PROACTIVE_PROTOCOL, /被纠正后也算/)
+	// Observed failure: three finished deliverables in a row, no card written,
+	// until the user asked. The trigger has to sit at the end of every reply,
+	// not at the end of a task — a turn that ends by asking the user to test
+	// something never feels like a task ending.
+	assert.match(PROACTIVE_PROTOCOL, /每轮答复前/)
 })
 
 test('工具集只有卡片与诊断工具，没有旧的 practice/memory 名称', () => {
