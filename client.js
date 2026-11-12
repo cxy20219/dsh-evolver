@@ -29,6 +29,26 @@ window.__ModuleLoader__.load({
 			'试错': '#9b6b6b',
 		};
 
+		/**
+		 * The legend order of the card graph, and the locale key of each branch
+		 * name. The branch itself is data (it comes from the tag path), so it is
+		 * matched by value and only its label is translated.
+		 */
+		var LINK_BRANCHES = [
+			{ branch: '践行', label: 'cards.filter.execution' },
+			{ branch: '见闻', label: 'cards.filter.input' },
+			{ branch: '即兴', label: 'cards.filter.improvise' },
+			{ branch: '复盘', label: 'cards.filter.review' },
+			{ branch: '觉察', label: 'cards.filter.awareness' },
+			{ branch: '试错', label: 'cards.filter.experiment' },
+		];
+
+		/** A card read inside this window counts as recent activity on the graph. */
+		var LINK_RECENT_MS = 12 * 60 * 60 * 1000;
+
+		/** A card written inside this window gets the gold ring (reads get the pulse). */
+		var LINK_RECENT_WRITE_MS = 2 * 60 * 60 * 1000;
+
 		var NS = 'dsh-evolver';
 		var PANEL_ID = 'evolver';
 		var PANEL_ORDER = 30;
@@ -137,7 +157,18 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.label': '卡片链接关系图',
 			'overview.linkGraph.empty': '还没有卡片之间的链接。',
 			'overview.linkGraph.links': '条链接',
-			'overview.linkGraph.truncated': '仅显示前 {shown} 张（共 {total} 张）。',
+			'overview.linkGraph.search': '搜索卡片…',
+			'overview.linkGraph.noMatch': '没有匹配的卡片',
+			'overview.linkGraph.weakToggle': '弱关系',
+			'overview.linkGraph.reset': '重置视角',
+			'overview.linkGraph.export': '导出 PNG',
+			'overview.linkGraph.cards': '{n} 张卡',
+			'overview.linkGraph.explicit': '{n} 条显式关系',
+			'overview.linkGraph.weak': '{n} 条弱关系',
+			'overview.linkGraph.shown': '显示 {n} 个节点',
+			'overview.linkGraph.hidden': '其余 {n} 张未入图',
+			'overview.linkGraph.activity': '最近读取 {n} 张',
+			'overview.linkGraph.activityWrite': '最近写入 {n} 张',
 			'overview.tree.graphLabel': '标签关系图',
 			'overview.tree.empty': '还没有标签。',
 			'overview.descriptions': '标签描述',
@@ -350,7 +381,18 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.label': 'Card link graph',
 			'overview.linkGraph.empty': 'No links between cards yet.',
 			'overview.linkGraph.links': 'links',
-			'overview.linkGraph.truncated': 'Showing the first {shown} of {total} cards.',
+			'overview.linkGraph.search': 'Search cards…',
+			'overview.linkGraph.noMatch': 'No matching cards',
+			'overview.linkGraph.weakToggle': 'Weak ties',
+			'overview.linkGraph.reset': 'Reset view',
+			'overview.linkGraph.export': 'Export PNG',
+			'overview.linkGraph.cards': '{n} cards',
+			'overview.linkGraph.explicit': '{n} explicit links',
+			'overview.linkGraph.weak': '{n} weak ties',
+			'overview.linkGraph.shown': '{n} nodes shown',
+			'overview.linkGraph.hidden': '{n} more cards not drawn',
+			'overview.linkGraph.activity': '{n} read recently',
+			'overview.linkGraph.activityWrite': '{n} written recently',
 			'overview.tree.graphLabel': 'Tag relationship graph',
 			'overview.tree.empty': 'No tags yet.',
 			'overview.descriptions': 'Tag descriptions',
@@ -583,6 +625,26 @@ window.__ModuleLoader__.load({
 			'.evrLinkEdgeMutual{stroke-opacity:.85;stroke-width:1.4}',
 			'.evrLinkArrow{fill:var(--dsw-alias-label-tertiary);fill-opacity:.6}',
 			'.evrLinkNode circle{stroke:var(--dsw-alias-bg-base);stroke-width:1}',
+			'.evrLinkNodeFresh circle{stroke:#d4a72c;stroke-width:1.8}',
+			'.evrLinkNodeRecent circle{stroke:#e8d44d;stroke-width:1.8;animation:evrLinkPulse 2.4s ease-in-out infinite}',
+			'@keyframes evrLinkPulse{0%,100%{opacity:1}50%{opacity:.45}}',
+			'@media (prefers-reduced-motion:reduce){.evrLinkNodeRecent circle{animation:none}}',
+			'.evrLinkEdgeWeak{stroke-dasharray:3 3;stroke-width:.8;stroke-opacity:.28}',
+			'.evrLinkPane{display:flex;flex-direction:column;min-width:0}',
+			'.evrLinkTools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px}',
+			'.evrLinkSearch{flex:1 1 150px;min-width:120px;height:28px;font-size:12px}',
+			'.evrLinkToggle[aria-pressed="true"]{border-color:var(--dsw-alias-state-business-primary);color:var(--dsw-alias-state-business-primary)}',
+			'.evrLinkStat{font-size:11.5px;line-height:1.7;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
+			'.evrLinkActivity{color:#b8860b}',
+			'.evrLinkLegend{display:flex;flex-wrap:wrap;gap:4px;margin:3px 0 6px}',
+			'.evrLinkLegendBtn{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border:1px solid var(--dsw-alias-border-l2);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:10.5px;cursor:pointer}',
+			'.evrLinkLegendBtn:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+			'.evrLinkLegendBtn:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}',
+			'.evrLinkLegendBtn[aria-pressed="false"]{opacity:.4}',
+			'.evrLinkLegendDot{width:7px;height:7px;border-radius:50%;flex:none}',
+			'.evrLinkResults{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 6px}',
+			'.evrLinkResult{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;height:22px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:11px;cursor:pointer}',
+			'.evrLinkResult:hover{background:var(--dsw-alias-interactive-bg-hover)}',
 			'.evrGraphWrap{position:relative}',
 			'.evrGraph{width:100%;height:auto;max-width:460px;display:block;margin:0 auto;cursor:grab;touch-action:none}',
 			'.evrGraph:active{cursor:grabbing}',
@@ -1516,48 +1578,168 @@ window.__ModuleLoader__.load({
 
 
 		/**
+		 * The top-level branch of one tag path.
+		 *
+		 * @param {string | undefined} tag - The first tag of a card.
+		 * @returns {string} The branch, or '' when untagged.
+		 */
+		function branchOfTag(tag) {
+			return typeof tag === 'string' ? tag.split('/')[0] : '';
+		}
+
+		/**
 		 * The colour of one card, by its top-level branch.
 		 *
-		 * @param {object} card - The card view.
+		 * @param {object} card - A graph node or a card view.
 		 * @returns {string} The colour.
 		 */
 		function linkColorOf(card) {
-			var root = (card.tags ?? [])[0];
-			var branch = root === undefined ? '' : root.split('/')[0];
+			var branch = typeof card.branch === 'string' ? card.branch : branchOfTag((card.tags ?? [])[0]);
 			return LINK_BRANCH_COLORS[branch] ?? '#8a8f98';
 		}
 
 		/**
-		 * Layouts already computed, keyed by the card array they came from.
+		 * Whether a card was read recently enough to pulse on the graph.
 		 *
-		 * The panel replaces that array only when the library is reloaded, so a
-		 * cache hit means "same library". It outlives the component, which
-		 * matters because leaving the sub-tab unmounts the graph and coming
-		 * back would otherwise pay for the simulation again.
+		 * @param {string} lastReadAt - ISO timestamp from the access log, or ''.
+		 * @param {number} now - The current epoch milliseconds.
+		 * @returns {boolean} True inside the 12-hour window.
+		 */
+		function isRecentRead(lastReadAt, now) {
+			return isRecentAt(lastReadAt, now, LINK_RECENT_MS);
+		}
+
+		/**
+		 * Whether a card was written recently enough to get the gold ring.
 		 *
-		 * @type {WeakMap<object[], object | null>}
+		 * @param {string} updated - ISO timestamp from the card record, or ''.
+		 * @param {number} now - The current epoch milliseconds.
+		 * @returns {boolean} True inside the write window.
+		 */
+		function isRecentWrite(updated, now) {
+			return isRecentAt(updated, now, LINK_RECENT_WRITE_MS);
+		}
+
+		/**
+		 * Whether an ISO timestamp falls inside a recent-time window.
+		 *
+		 * @param {string} value - ISO timestamp, or ''.
+		 * @param {number} now - The current epoch milliseconds.
+		 * @param {number} windowMs - The window size.
+		 * @returns {boolean} True inside the window.
+		 */
+		function isRecentAt(value, now, windowMs) {
+			if (typeof value !== 'string' || value === '') return false;
+			var at = Date.parse(value);
+			if (!Number.isFinite(at)) return false;
+			// A tiny allowance for clock skew keeps a just-written entry visible
+			// instead of hiding it as "in the future".
+			return now - at < windowMs && now - at > -60000;
+		}
+
+		/**
+		 * Layouts already computed, keyed by the graph payload they came from.
+		 *
+		 * The panel replaces that payload only when the graph is reloaded, so a
+		 * cache hit means "same picture". It outlives the component, which
+		 * matters because leaving the sub-tab unmounts the graph and coming back
+		 * would otherwise pay for the simulation again.
+		 *
+		 * @type {WeakMap<object, object | null>}
 		 */
 		var linkLayoutCache = new WeakMap();
 
 		/**
 		 * Lay the card graph out once.
 		 *
-		 * This is the expensive half: a force simulation over the linked cards,
-		 * O(n²) per step and 220 steps. It belongs behind a memo, because the
-		 * overview re-renders whenever a sub-tab, the heatmap range or a tag
-		 * description changes — none of which move a node.
-		 *
-		 * The simulation is deterministic (no random seeding), so the picture is
-		 * identical between runs and needs no animation.
-		 *
-		 * @param {object[]} cards - Every card in the library.
-		 * @returns {object | null} The laid-out graph, or null when nothing links.
+		 * @param {object | null | undefined} graph - The `graph` endpoint payload.
+		 * @returns {object | null} The laid-out graph, or null when nothing is drawn.
 		 */
-		function linkLayout(cards) {
-			if (Array.isArray(cards) && linkLayoutCache.has(cards)) return linkLayoutCache.get(cards);
-			var layout = computeLinkLayout(cards);
-			if (Array.isArray(cards)) linkLayoutCache.set(cards, layout);
+		function linkLayout(graph) {
+			if (graph === null || graph === undefined || typeof graph !== 'object') return null;
+			if (linkLayoutCache.has(graph)) return linkLayoutCache.get(graph);
+			var layout = computeLinkLayout(graph.nodes, graph.edges);
+			linkLayoutCache.set(graph, layout);
 			return layout;
+		}
+
+		/**
+		 * Estimate the rendered width of a label in graph units.
+		 *
+		 * CJK glyphs are square at this font size and Latin ones roughly half as
+		 * wide; the estimate only has to be close enough to keep boxes apart.
+		 *
+		 * @param {string} text - The label text.
+		 * @returns {number} The estimated width.
+		 */
+		function linkLabelWidth(text) {
+			var width = 0;
+			for (var i = 0; i < text.length; i += 1) {
+				width += text.charCodeAt(i) >= 0x2e80 ? 9 : 5;
+			}
+			return width;
+		}
+
+		/**
+		 * Place a label next to every node of `ordered`, in that priority.
+		 *
+		 * Four candidate sides per node (right, left, above, below), rejected
+		 * when they leave the viewBox or collide with a label already placed: a
+		 * dense graph then spends its labels on the cards that matter most
+		 * instead of drawing them on top of each other.
+		 *
+		 * @param {object[]} ordered - Nodes, highest priority first.
+		 * @param {number} width - ViewBox width.
+		 * @param {number} height - ViewBox height.
+		 * @returns {object} Map of node id to {x, y, anchor, text}.
+		 */
+		function placeLinkLabels(ordered, width, height) {
+			var placed = {};
+			var boxes = [];
+			/**
+			 * Whether a box fits in the viewBox without touching a placed one.
+			 *
+			 * @param {number} left - Box left edge.
+			 * @param {number} top - Box top edge.
+			 * @param {number} boxWidth - Box width.
+			 * @returns {boolean} True when the position is free.
+			 */
+			function fits(left, top, boxWidth) {
+				if (left < 1 || top < 1 || left + boxWidth > width - 1 || top + 11 > height - 1) return false;
+				for (var i = 0; i < boxes.length; i += 1) {
+					var box = boxes[i];
+					var apartX = left + boxWidth + 1 <= box.left || box.left + box.width + 1 <= left;
+					var apartY = top + 11 + 1 <= box.top || box.top + box.height + 1 <= top;
+					if (!apartX && !apartY) return false;
+				}
+				return true;
+			}
+			ordered.forEach(function (node) {
+				var label = node.label.length > 16 ? node.label.slice(0, 16) + '…' : node.label;
+				if (label === '') return;
+				var boxWidth = linkLabelWidth(label) + 4;
+				var candidates = [
+					{ left: node.x + node.r + 4, top: node.y - 5.5, anchor: 'start' },
+					{ left: node.x - node.r - 4 - boxWidth, top: node.y - 5.5, anchor: 'end' },
+					{ left: node.x - boxWidth / 2, top: node.y - node.r - 16, anchor: 'middle' },
+					{ left: node.x - boxWidth / 2, top: node.y + node.r + 5, anchor: 'middle' },
+				];
+				for (var i = 0; i < candidates.length; i += 1) {
+					var candidate = candidates[i];
+					if (!fits(candidate.left, candidate.top, boxWidth)) continue;
+					boxes.push({ left: candidate.left, top: candidate.top, width: boxWidth, height: 11 });
+					placed[node.id] = {
+						x: candidate.anchor === 'start'
+							? candidate.left
+							: (candidate.anchor === 'end' ? candidate.left + boxWidth : node.x),
+						y: candidate.top + 8,
+						anchor: candidate.anchor,
+						text: label,
+					};
+					return;
+				}
+			});
+			return placed;
 		}
 
 		/**
@@ -1575,41 +1757,94 @@ window.__ModuleLoader__.load({
 		 *   local centre instead of another dot in the pile.
 		 * - Centring is degree weighted too: hubs are held near the middle and
 		 *   leaves are allowed to drift outwards — the core and the periphery.
+		 * - Weak ties (the tag and branch edges the host derives) are softer and
+		 *   longer springs: they pull isolated cards into the picture without
+		 *   tearing the explicit-link core apart.
 		 * - A collision pass resolves what the soft repulsion leaves behind, so
 		 *   a big circle is never buried under small ones.
 		 *
 		 * The simulation is deterministic (no random seeding), so the picture
 		 * is identical between runs and needs no animation.
 		 *
-		 * @param {object[]} cards - Every card in the library.
-		 * @returns {object | null} The laid-out graph, or null when nothing links.
+		 * Called with one argument it keeps the old contract: `cards` is a raw
+		 * card list, links are derived from `card.links`, and cards without any
+		 * link are left out. Called with `edges` it lays out every node it is
+		 * given, isolated cards included.
+		 *
+		 * @param {object[]} cards - Graph nodes, or raw cards in the one-argument form.
+		 * @param {object[]} [edges] - Graph edges, `{source, target, kind, mutual}`.
+		 * @returns {object | null} The laid-out graph, or null when nothing is drawn.
 		 */
-		function computeLinkLayout(cards) {
+		function computeLinkLayout(cards, edges) {
 			var list = Array.isArray(cards) ? cards : [];
+			var explicit = Array.isArray(edges);
 			var byId = {};
-			list.forEach(function (card) { byId[card.id] = card; });
-			var seen = {};
-			var edges = [];
+			var seenId = {};
+			var unique = [];
 			list.forEach(function (card) {
-				(card.links ?? []).forEach(function (target) {
-					if (byId[target] === undefined) return;
-					var key = card.id + '>' + target;
-					if (seen[key] === true) return;
-					seen[key] = true;
-					edges.push({
-						source: card.id,
-						target: target,
-						mutual: seen[target + '>' + card.id] === true,
+				if (card === null || card === undefined || typeof card.id !== 'string') return;
+				if (seenId[card.id] === true) return;
+				seenId[card.id] = true;
+				byId[card.id] = card;
+				unique.push(card);
+			});
+
+			// One undirected pair per unordered pair: the host already dedupes,
+			// but the browser must not draw a doubled line if it ever does not.
+			var pairs = [];
+			var seenPair = {};
+			/**
+			 * Record one edge when both ends are in the picture.
+			 *
+			 * @param {string} source - One end.
+			 * @param {string} target - The other end.
+			 * @param {string} [kind] - 'link', 'tag' or 'branch'.
+			 * @param {boolean} [mutual] - Both cards link to each other.
+			 * @param {number} [weight] - The host-provided weight.
+			 * @returns {void}
+			 */
+			function addPair(source, target, kind, mutual, weight) {
+				if (typeof source !== 'string' || typeof target !== 'string') return;
+				if (source === target) return;
+				if (byId[source] === undefined || byId[target] === undefined) return;
+				var key = source < target ? source + '\u0000' + target : target + '\u0000' + source;
+				if (seenPair[key] === true) return;
+				seenPair[key] = true;
+				var weak = kind === 'tag' || kind === 'branch';
+				pairs.push({
+					source: source,
+					target: target,
+					kind: weak ? kind : 'link',
+					weight: typeof weight === 'number' && Number.isFinite(weight) ? weight : (weak ? 0.25 : 1),
+					mutual: mutual === true,
+				});
+			}
+			if (explicit) {
+				edges.forEach(function (edge) {
+					if (edge === null || edge === undefined) return;
+					addPair(edge.source, edge.target, edge.kind, edge.mutual, edge.weight);
+				});
+			} else {
+				list.forEach(function (card) {
+					if (card === null || card === undefined || typeof card.id !== 'string') return;
+					(card.links ?? []).forEach(function (target) {
+						if (byId[target] === undefined) return;
+						var mutual = Array.isArray(byId[target].links) && byId[target].links.indexOf(card.id) > -1;
+						addPair(card.id, target, 'link', mutual, 1);
 					});
 				});
-			});
+			}
+
 			var involved = {};
-			edges.forEach(function (edge) {
+			pairs.forEach(function (edge) {
 				involved[edge.source] = true;
 				involved[edge.target] = true;
 			});
-			var linked = list.filter(function (card) { return involved[card.id] === true; });
-			if (linked.length === 0) return null;
+			var active = explicit
+				? unique
+				// Old one-argument form: only cards that carry or receive a link.
+				: unique.filter(function (card) { return involved[card.id] === true; });
+			if (active.length === 0) return null;
 
 			var width = 320;
 			var height = 300;
@@ -1625,22 +1860,30 @@ window.__ModuleLoader__.load({
 			var restBase = 18;    // rest length of a link between two hubs
 			var restSpan = 44;    // length a link gains as both its ends weaken
 
+			var edgeDegree = {};
+			pairs.forEach(function (edge) {
+				edgeDegree[edge.source] = (edgeDegree[edge.source] ?? 0) + 1;
+				edgeDegree[edge.target] = (edgeDegree[edge.target] ?? 0) + 1;
+			});
 			var degree = {};
-			edges.forEach(function (edge) {
-				degree[edge.source] = (degree[edge.source] ?? 0) + 1;
-				degree[edge.target] = (degree[edge.target] ?? 0) + 1;
+			active.forEach(function (card) {
+				// The graph payload already ranks nodes by explicit links; a raw
+				// card list has no degree and falls back to the edge count.
+				degree[card.id] = typeof card.degree === 'number' && Number.isFinite(card.degree)
+					? card.degree
+					: (edgeDegree[card.id] ?? 0);
 			});
 			// Degree centrality, normalised against the busiest card in this
 			// library but never against a two-card graph: with a single link both
 			// ends would otherwise be "the maximum" and look like hubs.
 			var top = 2;
-			linked.forEach(function (card) { top = Math.max(top, degree[card.id] ?? 0); });
+			active.forEach(function (card) { top = Math.max(top, degree[card.id] ?? 0); });
 			var weightOf = function (id) { return (degree[id] ?? 0) / top; };
 
 			// A 320-wide canvas cannot hold a thousand readable dots, so past a
 			// few hundred cards the dots and their gaps shrink together: the
 			// picture gets finer instead of collapsing into a pile of overlaps.
-			var density = Math.min(1, Math.sqrt(300 / Math.max(300, linked.length)));
+			var density = Math.min(1, Math.sqrt(300 / Math.max(300, active.length)));
 
 			// One number, one shape: the dot, the collision gap and the arrow trim
 			// all read this, so a card cannot be heavy in one place and light in
@@ -1653,7 +1896,7 @@ window.__ModuleLoader__.load({
 			// Seed on a spiral ordered by degree: hubs inside, leaves outside.
 			// Starting everyone on one ring, as the old code did, made the first
 			// steps a symmetric tug of war and the result barer.
-			var ordered = linked.slice().sort(function (a, b) {
+			var ordered = active.slice().sort(function (a, b) {
 				return (degree[b.id] ?? 0) - (degree[a.id] ?? 0) || (a.id < b.id ? -1 : 1);
 			});
 			var placed = ordered.map(function (card, index) {
@@ -1674,13 +1917,17 @@ window.__ModuleLoader__.load({
 			placed.forEach(function (node) { index[node.card.id] = node; });
 			// A link with a hub on either end is short (the hub holds its leaves
 			// close, that is the compact halo); a link between two leaves is long,
-			// so the loose chains end up on the rim as the periphery.
-			var springs = edges.map(function (edge) {
+			// so the loose chains end up on the rim as the periphery. A weak tie
+			// is longer and softer, or it would drag the explicit-link core about.
+			var springs = pairs.map(function (edge) {
 				var average = (weightOf(edge.source) + weightOf(edge.target)) / 2;
+				var rest = restBase + restSpan * (1 - average);
+				var weak = edge.kind !== 'link';
 				return {
 					source: index[edge.source],
 					target: index[edge.target],
-					rest: restBase + restSpan * (1 - average),
+					rest: weak ? rest * 1.35 + 12 : rest,
+					stiffness: weak ? stiffness * 0.35 : stiffness,
 				};
 			});
 
@@ -1751,7 +1998,7 @@ window.__ModuleLoader__.load({
 					var dx = target.x - source.x;
 					var dy = target.y - source.y;
 					var distance = Math.max(0.5, Math.sqrt(dx * dx + dy * dy));
-					var pull = (distance - spring.rest) * stiffness * alpha;
+					var pull = (distance - spring.rest) * spring.stiffness * alpha;
 					source.vx += (dx / distance) * pull;
 					source.vy += (dy / distance) * pull;
 					target.vx -= (dx / distance) * pull;
@@ -1814,31 +2061,46 @@ window.__ModuleLoader__.load({
 				width: width,
 				height: height,
 				nodes: placed.map(function (node) {
+					var card = node.card;
+					// Inlined instead of calling a helper: this function is
+					// extracted verbatim by harness/tool/link-layout-metrics.mjs
+					// and may only depend on its own scope plus linkColorOf.
+					var branch = card.branch;
+					if (typeof branch !== 'string') {
+						var root = (card.tags ?? [])[0];
+						branch = typeof root === 'string' ? root.split('/')[0] : '';
+					}
 					return {
-						id: node.card.id,
-						label: node.card.label,
-						color: linkColorOf(node.card),
+						id: card.id,
+						label: typeof card.label === 'string' ? card.label : '',
+						color: linkColorOf(card),
 						x: node.x,
 						y: node.y,
 						r: node.r,
-						degree: degree[node.card.id] ?? 0,
+						degree: degree[card.id] ?? 0,
+						branch: branch,
+						updated: card.updated ?? '',
+						readCount: card.readCount ?? 0,
+						lastReadAt: card.lastReadAt ?? '',
 					};
 				}),
-				edges: edges.map(function (edge) {
+				edges: pairs.map(function (edge) {
 					var source = index[edge.source];
 					var target = index[edge.target];
 					var dx = target.x - source.x;
 					var dy = target.y - source.y;
 					var length = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-					var bend = edge.mutual === true ? 14 : 6;
+					var weak = edge.kind !== 'link';
+					var bend = weak ? 4 : (edge.mutual === true ? 14 : 6);
 					var qx = (source.x + target.x) / 2 - (dy / length) * bend;
 					var qy = (source.y + target.y) / 2 + (dx / length) * bend;
 					// Stop short of the target's circle, or the arrowhead sits
 					// under the dot and the direction stays invisible. The
 					// tangent at the end of a quadratic curve points from the
 					// control point to the end point, so that is the direction
-					// to back off along.
-					var trim = target.r + 3;
+					// to back off along. A weak tie has no arrow, so it may run
+					// all the way to the dot.
+					var trim = weak ? target.r : target.r + 3;
 					var ux = target.x - qx;
 					var uy = target.y - qy;
 					var span = Math.max(0.001, Math.sqrt(ux * ux + uy * uy));
@@ -1847,13 +2109,14 @@ window.__ModuleLoader__.load({
 					return {
 						source: edge.source,
 						target: edge.target,
+						kind: edge.kind,
 						mutual: edge.mutual === true,
 						d: 'M ' + source.x.toFixed(1) + ' ' + source.y.toFixed(1)
 							+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
 							+ ' ' + endX.toFixed(1) + ' ' + endY.toFixed(1),
 					};
 				}),
-				neighbours: edges.reduce(function (map, edge) {
+				neighbours: pairs.reduce(function (map, edge) {
 					(map[edge.source] ?? (map[edge.source] = [])).push(edge.target);
 					(map[edge.target] ?? (map[edge.target] = [])).push(edge.source);
 					return map;
@@ -1865,30 +2128,47 @@ window.__ModuleLoader__.load({
 		 * A graph of the cards and the links between them.
 		 *
 		 * Layered the way Obsidian draws its graph: faint edges, a dot per card
-		 * sized by how many links it has, colour by branch, and no permanent
-		 * labels — hovering or clicking a card names it and its neighbours and
-		 * fades everything else, so a dense picture stays readable. The canvas
-		 * pans and zooms like Obsidian's does.
+		 * sized by how many links it has, colour by branch, labels on the
+		 * busiest cards, and hovering or clicking a card names it and its
+		 * neighbours and fades everything else. Explicit links are solid and
+		 * carry an arrowhead; the tag and branch ties the host derives are
+		 * dashed and quiet, and can be switched off. The canvas pans and zooms
+		 * like Obsidian's does.
 		 *
-		 * @param {object} props - Component props.
+		 * @param {object} props - Component props: `t` and the graph payload.
 		 * @returns {object} The element tree.
 		 */
 		function LinkGraph(props) {
 			var t = props.t;
-			var layout = useMemo(function () { return linkLayout(props.cards); }, [props.cards]);
+			var graph = props.graph;
+			var layout = useMemo(function () { return linkLayout(graph); }, [graph]);
 			var [camera, setCamera] = useState(null);
 			var [hovered, setHovered] = useState(null);
 			var [pinned, setPinned] = useState(null);
+			var [query, setQuery] = useState('');
+			var [weakOn, setWeakOn] = useState(true);
+			var [hiddenBranches, setHiddenBranches] = useState({});
 			var svgRef = useRef(null);
 			var dragRef = useRef(null);
 			var movedRef = useRef(false);
-			useEffect(function () { setCamera(null); setHovered(null); setPinned(null); }, [layout]);
+			useEffect(function () {
+				setCamera(null);
+				setHovered(null);
+				setPinned(null);
+			}, [layout]);
 			var view = camera === null ? { s: 1, x: 0, y: 0 } : camera;
+			var focus = hovered ?? pinned;
 
 			useEffect(function () {
 				if (layout === null) return undefined;
 				var node = svgRef.current;
-				if (node === null || node === undefined) return undefined;
+				if (node === null || node === undefined || typeof node.addEventListener !== 'function') return undefined;
+				/**
+				 * Zoom around the pointer, so the picture grows where the eye is.
+				 *
+				 * @param {object} event - The wheel event.
+				 * @returns {void}
+				 */
 				function onWheel(event) {
 					event.preventDefault();
 					var box = node.getBoundingClientRect();
@@ -1906,43 +2186,164 @@ window.__ModuleLoader__.load({
 				return function () { node.removeEventListener('wheel', onWheel); };
 			}, [layout]);
 
-			var focus = hovered ?? pinned;
+			// Everything the picture depends on besides the camera, in one memo:
+			// the visible subgraph, the search matches and the label placement all
+			// derive from the same few inputs.
+			var scene = useMemo(function () {
+				if (layout === null) {
+					return {
+						nodes: [], edges: [], matches: [], matchNodes: [], labels: {}, related: {},
+						byId: {}, branchCount: {}, searching: false, recent: 0, recentWrites: 0,
+						cards: 0, links: 0, weak: 0, hidden: 0,
+					};
+				}
+				var totals = graph.totals ?? {};
+				var all = Array.isArray(graph.nodes) ? graph.nodes : [];
+				var layoutById = {};
+				layout.nodes.forEach(function (node) { layoutById[node.id] = node; });
 
-			// The element tree depends on the layout and the focus, not on the
-			// camera: a drag only moves the <g> transform. Rebuilding every node
-			// on each pointermove is what makes a large graph drag badly.
-			var parts = useMemo(function () {
-				if (layout === null) return { edges: [], nodes: [] };
+				// Search reads the cards, not the picture: a card whose label
+				// matched must be findable even while its branch is hidden.
+				var needle = query.trim().toLowerCase();
+				var searching = needle !== '';
+				var matches = [];
+				var matchedNodes = [];
+				if (searching) {
+					all.forEach(function (node) {
+						if (node === null || node === undefined || typeof node.id !== 'string') return;
+						var haystack = [node.label ?? '', node.description ?? '', (node.tags ?? []).join(' ')]
+							.join('\n')
+							.toLowerCase();
+						if (haystack.indexOf(needle) > -1 && layoutById[node.id] !== undefined) matches.push(node.id);
+					});
+					matchedNodes = matches.map(function (id) { return layoutById[id]; });
+					matchedNodes.sort(function (left, right) {
+						return right.degree - left.degree || (left.id < right.id ? -1 : 1);
+					});
+				}
 				var related = {};
-				if (focus !== null) {
+				if (searching) {
+					matches.forEach(function (id) {
+						related[id] = true;
+						(layout.neighbours[id] ?? []).forEach(function (other) { related[other] = true; });
+					});
+				} else if (focus !== null) {
 					related[focus] = true;
-					(layout.neighbours[focus] ?? []).forEach(function (id) { related[id] = true; });
+					(layout.neighbours[focus] ?? []).forEach(function (other) { related[other] = true; });
 				}
 
-				var edgeEls = layout.edges.map(function (edge, index) {
-					var lit = focus === null || (related[edge.source] === true && related[edge.target] === true);
+				var visible = layout.nodes.filter(function (node) { return hiddenBranches[node.branch] !== true; });
+				var visibleIds = {};
+				visible.forEach(function (node) { visibleIds[node.id] = true; });
+				var edges = layout.edges.filter(function (edge) {
+					if (edge.kind !== 'link' && !weakOn) return false;
+					return visibleIds[edge.source] === true && visibleIds[edge.target] === true;
+				});
+
+				// Labels: the search hits (or the focused card) come first, then
+				// the busiest cards; the placement pass drops whatever cannot be
+				// drawn without overlapping.
+				var ordered = [];
+				var picked = {};
+				/**
+				 * Queue one label, in priority order.
+				 *
+				 * @param {object | undefined} node - The node.
+				 * @returns {void}
+				 */
+				function want(node) {
+					if (node === undefined || node === null) return;
+					if (picked[node.id] === true || visibleIds[node.id] !== true) return;
+					picked[node.id] = true;
+					ordered.push(node);
+				}
+				if (searching) {
+					matchedNodes.forEach(want);
+					matchedNodes.forEach(function (node) {
+						(layout.neighbours[node.id] ?? []).forEach(function (other) { want(layoutById[other]); });
+					});
+				} else {
+					if (focus !== null) {
+						want(layoutById[focus]);
+						(layout.neighbours[focus] ?? []).forEach(function (other) { want(layoutById[other]); });
+					}
+					var limit = Math.min(12, Math.max(4, Math.round(2 + Math.sqrt(visible.length))));
+					visible.slice().sort(function (left, right) {
+						return right.degree - left.degree || (left.id < right.id ? -1 : 1);
+					}).slice(0, limit).forEach(want);
+				}
+				var labels = placeLinkLabels(ordered, layout.width, layout.height);
+
+				var now = Date.now();
+				var recent = visible.filter(function (node) { return isRecentRead(node.lastReadAt, now); }).length;
+				var recentWrites = visible.filter(function (node) { return isRecentWrite(node.updated, now); }).length;
+				var branchCount = {};
+				layout.nodes.forEach(function (node) {
+					branchCount[node.branch] = (branchCount[node.branch] ?? 0) + 1;
+				});
+				var linkEdges = 0;
+				var weakEdges = 0;
+				layout.edges.forEach(function (edge) {
+					if (edge.kind === 'link') linkEdges += 1;
+					else weakEdges += 1;
+				});
+				var cards = typeof totals.cards === 'number' ? totals.cards : all.length;
+				return {
+					nodes: visible,
+					edges: edges,
+					matches: matches,
+					matchNodes: matchedNodes.slice(0, 12),
+					labels: labels,
+					related: related,
+					byId: layoutById,
+					branchCount: branchCount,
+					searching: searching,
+					recent: recent,
+					recentWrites: recentWrites,
+					cards: cards,
+					links: typeof totals.links === 'number' ? totals.links : linkEdges,
+					weak: typeof totals.weak === 'number' ? totals.weak : weakEdges,
+					hidden: typeof totals.hiddenCards === 'number'
+						? totals.hiddenCards
+						: Math.max(0, cards - layout.nodes.length),
+				};
+			}, [layout, graph, focus, query, weakOn, hiddenBranches]);
+
+			// The element tree depends on the layout, the scene and the focus, not
+			// on the camera: a drag only moves the <g> transform. Rebuilding every
+			// node on each pointermove is what makes a large graph drag badly.
+			var parts = useMemo(function () {
+				if (layout === null) return { edges: [], nodes: [] };
+				var edgeEls = scene.edges.map(function (edge, index) {
+					var weak = edge.kind !== 'link';
+					var both = scene.related[edge.source] === true && scene.related[edge.target] === true;
+					var lit = scene.searching ? both : (focus === null || both);
 					return h('path', {
 						key: 'e-' + index,
 						d: edge.d,
-						className: 'evrLinkEdge' + (edge.mutual === true ? ' evrLinkEdgeMutual' : ''),
-						markerEnd: 'url(#evrLinkArrow)',
-						opacity: lit ? (focus === null ? 1 : 0.9) : 0.12,
+						className: 'evrLinkEdge'
+							+ (weak ? ' evrLinkEdgeWeak' : (edge.mutual === true ? ' evrLinkEdgeMutual' : '')),
+						markerEnd: weak ? undefined : 'url(#evrLinkArrow)',
+						opacity: lit ? (weak ? 0.8 : (focus === null && !scene.searching ? 1 : 0.95)) : 0.1,
 					});
 				});
-
-				var nodeEls = layout.nodes.map(function (node) {
-					var lit = focus === null || related[node.id] === true;
-					var neighbour = focus !== null && node.id !== focus && related[node.id] === true;
-					// Obsidian's labels are short note names; a card label is a whole
-					// sentence, so it is cut and the full text stays in the tooltip.
-					var label = node.label.length > 16 ? node.label.slice(0, 16) + '…' : node.label;
-					var labelRight = node.x + 8 + label.length * 9 <= layout.width;
+				var nodeEls = scene.nodes.map(function (node) {
+					var lit = scene.searching
+						? scene.related[node.id] === true
+						: (focus === null || scene.related[node.id] === true);
+					var neighbour = !scene.searching && focus !== null && node.id !== focus && scene.related[node.id] === true;
+					var recent = isRecentRead(node.lastReadAt, Date.now());
+					var label = scene.labels[node.id];
+					var name = node.label === '' ? node.id : node.label;
 					return h('g', {
 						key: node.id,
-						className: 'evrLinkNode' + (focus === node.id ? ' evrLinkNodeOn' : ''),
+						className: 'evrLinkNode'
+							+ (focus === node.id ? ' evrLinkNodeOn' : '')
+							+ (isRecentWrite(node.updated, Date.now()) ? ' evrLinkNodeFresh' : '')
+							+ (recent ? ' evrLinkNodeRecent' : ''),
 						role: 'button',
 						tabIndex: 0,
-						'aria-label': label + ' · ' + node.degree,
+						'aria-label': name + ' · ' + node.degree,
 						opacity: lit ? 1 : 0.16,
 						onMouseEnter: function () { setHovered(node.id); },
 						onMouseLeave: function () { setHovered(null); },
@@ -1960,77 +2361,252 @@ window.__ModuleLoader__.load({
 						},
 					},
 						h('circle', { cx: node.x, cy: node.y, r: node.r, fill: node.color }),
-						focus !== null && related[node.id] === true
-							? h('text', {
-								x: node.x + (labelRight ? node.r + 4 : -node.r - 4),
-								y: node.y + 3,
-								textAnchor: labelRight ? 'start' : 'end',
+						label === undefined
+							? null
+							: h('text', {
+								x: label.x,
+								y: label.y,
+								textAnchor: label.anchor,
 								className: 'evrLinkLabel' + (neighbour ? ' evrLinkLabelQuiet' : ''),
-							}, label)
-							: null,
-						h('title', null, label + ' · ' + node.degree + ' ' + t('overview.linkGraph.links')));
+							}, label.text),
+						h('title', null,
+							name + ' · ' + node.degree + ' ' + t('overview.linkGraph.links')
+							+ (node.readCount > 0 ? ' · ' + String(node.readCount) : '')
+							+ (node.lastReadAt === '' ? '' : ' · ' + node.lastReadAt.slice(0, 10))));
 				});
 				return { edges: edgeEls, nodes: nodeEls };
-			}, [layout, focus, t]);
+			}, [layout, scene, focus, t]);
+
+			/**
+			 * Centre the camera on one card and pin it.
+			 *
+			 * @param {string} id - The card id.
+			 * @returns {void}
+			 */
+			function focusNode(id) {
+				var node = scene.byId[id];
+				if (node === undefined) return;
+				// A hidden branch would otherwise be focused into an empty spot:
+				// make the card visible before the camera moves.
+				if (hiddenBranches[node.branch] === true) {
+					setHiddenBranches(function (previous) {
+						var next = { ...previous };
+						delete next[node.branch];
+						return next;
+					});
+				}
+				var scale = 2.4;
+				setHovered(null);
+				setPinned(id);
+				setCamera({
+					s: scale,
+					x: layout.width / 2 - scale * node.x,
+					y: layout.height / 2 - scale * node.y,
+				});
+			}
+
+			/** Drop the camera and any pinned card: back to the whole picture. */
+			function resetView() {
+				setCamera(null);
+				setHovered(null);
+				setPinned(null);
+			}
+
+			/**
+			 * Save the current picture as a PNG.
+			 *
+			 * Canvas and object URLs are browser features the test shell does not
+			 * have; there the export is simply a no-op instead of a crash.
+			 */
+			function exportPng() {
+				try {
+					if (typeof XMLSerializer === 'undefined' || typeof Blob === 'undefined') return;
+					var svg = svgRef.current;
+					if (svg === null || svg === undefined || typeof svg.cloneNode !== 'function') return;
+					var clone = svg.cloneNode(true);
+					clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+					// The panel's class rules live in the page, not in the file, so the
+					// standalone SVG would lose every colour. A small literal copy of
+					// the graph rules rides along instead of a link to the theme.
+					var owner = typeof svg.ownerDocument === 'object' && svg.ownerDocument !== null ? svg.ownerDocument : document;
+					var styleNode = owner.createElementNS('http://www.w3.org/2000/svg', 'style');
+					styleNode.textContent = '.evrLinkEdge{fill:none;stroke:#8a8f98;stroke-width:1;stroke-opacity:.5}'
+						+ '.evrLinkEdgeMutual{stroke-opacity:.85;stroke-width:1.4}'
+						+ '.evrLinkEdgeWeak{stroke-dasharray:3 3}'
+						+ '.evrLinkArrow{fill:#8a8f98;fill-opacity:.6}'
+						+ '.evrLinkNode circle{stroke:#ffffff;stroke-width:1}'
+						+ '.evrLinkNodeFresh circle{stroke:#d4a72c;stroke-width:1.8}'
+						+ '.evrLinkNodeRecent circle{stroke:#e8d44d;stroke-width:1.8}'
+						+ '.evrLinkLabel{fill:#333333;font-size:9px;font-family:sans-serif;paint-order:stroke;stroke:#ffffff;stroke-width:2.5px;stroke-linejoin:round}'
+						+ '.evrLinkLabelQuiet{fill:#666666;font-size:8.5px}';
+					var backdrop = owner.createElementNS('http://www.w3.org/2000/svg', 'rect');
+					backdrop.setAttribute('width', '100%');
+					backdrop.setAttribute('height', '100%');
+					backdrop.setAttribute('fill', '#ffffff');
+					clone.insertBefore(styleNode, clone.firstChild);
+					clone.insertBefore(backdrop, clone.firstChild);
+					var source = new XMLSerializer().serializeToString(clone);
+					var href = URL.createObjectURL(new Blob([source], { type: 'image/svg+xml;charset=utf-8' }));
+					var image = new Image();
+					image.onload = function () {
+						try {
+							var canvas = document.createElement('canvas');
+							var scale = 2;
+							canvas.width = layout.width * scale;
+							canvas.height = layout.height * scale;
+							var context = canvas.getContext('2d');
+							if (context === null || context === undefined) return;
+							context.fillStyle = '#ffffff';
+							context.fillRect(0, 0, canvas.width, canvas.height);
+							context.drawImage(image, 0, 0, canvas.width, canvas.height);
+							var anchor = document.createElement('a');
+							anchor.href = canvas.toDataURL('image/png');
+							anchor.download = 'evr-link-graph.png';
+							anchor.click();
+						} finally {
+							URL.revokeObjectURL(href);
+						}
+					};
+					image.onerror = function () { URL.revokeObjectURL(href); };
+					image.src = href;
+				} catch (error) {
+					// An environment without canvas keeps the on-screen picture and
+					// loses the download; that is the whole failure mode.
+				}
+			}
 
 			if (layout === null) return h('div', { className: 'evrHint' }, t('overview.linkGraph.empty'));
 
-			return h('div', { className: 'evrGraphWrap' },
-				h('svg', {
-					ref: svgRef,
-					className: 'evrLinkGraph',
-					viewBox: '0 0 ' + layout.width + ' ' + layout.height,
-					role: 'img',
-					'aria-label': t('overview.linkGraph.label'),
-					onPointerDown: function (event) {
-						movedRef.current = false;
-						dragRef.current = { x: event.clientX, y: event.clientY, camera: view, box: event.currentTarget.getBoundingClientRect() };
-					},
-					onPointerMove: function (event) {
-						var drag = dragRef.current;
-						if (drag === null || drag === undefined) return;
-						var dx = event.clientX - drag.x;
-						var dy = event.clientY - drag.y;
-						if (Math.abs(dx) + Math.abs(dy) > 3) movedRef.current = true;
-						if (drag.box.width === 0 || drag.box.height === 0) return;
-						setCamera({
-							s: drag.camera.s,
-							x: drag.camera.x + dx * (layout.width / drag.box.width),
-							y: drag.camera.y + dy * (layout.height / drag.box.height),
-						});
-					},
-					onPointerUp: function (event) {
-						var dragged = movedRef.current;
-						dragRef.current = null;
-						if (dragged) return;
-						if (event.target === event.currentTarget) { setCamera(null); setPinned(null); }
-					},
-					onPointerLeave: function () { dragRef.current = null; },
-				},
-					// The arrowhead is a marker so it follows the curve's own
-					// direction: a link is a statement about who cites whom, and
-					// a plain line cannot say that. `userSpaceOnUse` keeps the
-					// head the same size whatever the stroke width is.
-					h('defs', null,
-						h('marker', {
-							id: 'evrLinkArrow',
-							viewBox: '0 0 10 10',
-							refX: 8.5,
-							refY: 5,
-							markerWidth: 7,
-							markerHeight: 7,
-							markerUnits: 'userSpaceOnUse',
-							orient: 'auto',
+			var counts = [
+				t('overview.linkGraph.cards').replace('{n}', String(scene.cards)),
+				t('overview.linkGraph.explicit').replace('{n}', String(scene.links)),
+				t('overview.linkGraph.weak').replace('{n}', String(scene.weak)),
+				t('overview.linkGraph.shown').replace('{n}', String(scene.nodes.length)),
+			];
+			if (scene.hidden > 0) counts.push(t('overview.linkGraph.hidden').replace('{n}', String(scene.hidden)));
+
+			return h('div', { className: 'evrLinkPane' },
+				h('div', { className: 'evrLinkTools' },
+					h('input', {
+						type: 'search',
+						className: 'evrInput evrLinkSearch',
+						value: query,
+						placeholder: t('overview.linkGraph.search'),
+						'aria-label': t('overview.linkGraph.search'),
+						onChange: function (event) { setQuery(event.target.value); },
+					}),
+					h('button', {
+						type: 'button',
+						className: 'evrBtn evrLinkToggle',
+						'aria-pressed': weakOn,
+						onClick: function () { setWeakOn(!weakOn); },
+					}, t('overview.linkGraph.weakToggle')),
+					h('button', { type: 'button', className: 'evrBtn', onClick: resetView }, t('overview.linkGraph.reset')),
+					h('button', { type: 'button', className: 'evrBtn', onClick: exportPng }, t('overview.linkGraph.export'))),
+				h('div', { className: 'evrLinkStat', role: 'status' }, counts.join(' · ')),
+				scene.recent > 0 || scene.recentWrites > 0
+					? h('div', { className: 'evrLinkStat evrLinkActivity' },
+						[
+							scene.recentWrites > 0
+								? t('overview.linkGraph.activityWrite').replace('{n}', String(scene.recentWrites))
+								: null,
+							scene.recent > 0
+								? t('overview.linkGraph.activity').replace('{n}', String(scene.recent))
+								: null,
+						].filter(function (part) { return part !== null; }).join(' · '))
+					: null,
+				h('div', { className: 'evrLinkLegend', role: 'group', 'aria-label': t('overview.linkGraph') },
+					LINK_BRANCHES.map(function (item) {
+						var on = hiddenBranches[item.branch] !== true;
+						return h('button', {
+							key: item.branch,
+							type: 'button',
+							className: 'evrLinkLegendBtn',
+							title: t(item.label),
+							'aria-pressed': on,
+							onClick: function () {
+								setHiddenBranches(function (previous) {
+									var next = { ...previous };
+									if (next[item.branch] === true) delete next[item.branch];
+									else next[item.branch] = true;
+									return next;
+								});
+							},
 						},
-							h('path', { d: 'M 0 1 L 9 5 L 0 9 z', className: 'evrLinkArrow' }))),
-					h('g', {
-						style: {
-							transform: 'translate(' + view.x.toFixed(1) + 'px,' + view.y.toFixed(1) + 'px) scale(' + view.s.toFixed(3) + ')',
-							transition: 'transform 200ms ease',
+							h('span', { className: 'evrLinkLegendDot', style: { background: LINK_BRANCH_COLORS[item.branch] } }),
+							h('span', null, t(item.label) + ' ' + String(scene.branchCount[item.branch] ?? 0)));
+					})),
+				scene.searching && scene.matchNodes.length > 0
+					? h('div', { className: 'evrLinkResults' }, scene.matchNodes.map(function (node) {
+						return h('button', {
+							key: node.id,
+							type: 'button',
+							className: 'evrLinkResult',
+							title: node.label,
+							onClick: function () { focusNode(node.id); },
+						}, node.label === '' ? node.id : node.label);
+					}))
+					: null,
+				scene.searching && scene.matchNodes.length === 0
+					? h('div', { className: 'evrLinkStat' }, t('overview.linkGraph.noMatch'))
+					: null,
+				h('div', { className: 'evrGraphWrap' },
+					h('svg', {
+						ref: svgRef,
+						className: 'evrLinkGraph',
+						xmlns: 'http://www.w3.org/2000/svg',
+						viewBox: '0 0 ' + layout.width + ' ' + layout.height,
+						role: 'img',
+						'aria-label': t('overview.linkGraph.label'),
+						onPointerDown: function (event) {
+							movedRef.current = false;
+							dragRef.current = { x: event.clientX, y: event.clientY, camera: view, box: event.currentTarget.getBoundingClientRect() };
 						},
+						onPointerMove: function (event) {
+							var drag = dragRef.current;
+							if (drag === null || drag === undefined) return;
+							var dx = event.clientX - drag.x;
+							var dy = event.clientY - drag.y;
+							if (Math.abs(dx) + Math.abs(dy) > 3) movedRef.current = true;
+							if (drag.box.width === 0 || drag.box.height === 0) return;
+							setCamera({
+								s: drag.camera.s,
+								x: drag.camera.x + dx * (layout.width / drag.box.width),
+								y: drag.camera.y + dy * (layout.height / drag.box.height),
+							});
+						},
+						onPointerUp: function (event) {
+							var dragged = movedRef.current;
+							dragRef.current = null;
+							if (dragged) return;
+							if (event.target === event.currentTarget) resetView();
+						},
+						onPointerLeave: function () { dragRef.current = null; },
 					},
-						h('g', null, parts.edges),
-						h('g', null, parts.nodes))));
+						// The arrowhead is a marker so it follows the curve's own
+						// direction: a link is a statement about who cites whom, and
+						// a plain line cannot say that. `userSpaceOnUse` keeps the
+						// head the same size whatever the stroke width is.
+						h('defs', null,
+							h('marker', {
+								id: 'evrLinkArrow',
+								viewBox: '0 0 10 10',
+								refX: 8.5,
+								refY: 5,
+								markerWidth: 7,
+								markerHeight: 7,
+								markerUnits: 'userSpaceOnUse',
+								orient: 'auto',
+							},
+								h('path', { d: 'M 0 1 L 9 5 L 0 9 z', className: 'evrLinkArrow' }))),
+						h('g', {
+							style: {
+								transform: 'translate(' + view.x.toFixed(1) + 'px,' + view.y.toFixed(1) + 'px) scale(' + view.s.toFixed(3) + ')',
+								transition: 'transform 200ms ease',
+							},
+						},
+							h('g', null, parts.edges),
+							h('g', null, parts.nodes)))));
 		}
 
 		/**
@@ -2207,13 +2783,7 @@ window.__ModuleLoader__.load({
 							h(TagGraph, { t: t, nodes: tree })),
 						h('div', { className: 'evrOverviewPane evrOverviewTree' },
 							h('div', { className: 'evrSection' }, t('overview.linkGraph')),
-							h(LinkGraph, { t: t, cards: props.graph?.cards }),
-							props.graph !== null && props.graph !== undefined
-								&& Number(props.graph.total) > (props.graph.cards ?? []).length
-								? h('div', { className: 'evrHint' }, t('overview.linkGraph.truncated')
-									.replace('{shown}', String((props.graph.cards ?? []).length))
-									.replace('{total}', String(props.graph.total)))
-								: null)));
+							h(LinkGraph, { t: t, graph: props.graph }))));
 			}
 
 			return h('div', null,
@@ -3239,9 +3809,11 @@ window.__ModuleLoader__.load({
 			var [consolidate, setConsolidate] = useState(null);
 			var [consolidateDraft, setConsolidateDraft] = useState(null);
 			var [cards, setCards] = useState(null);
-			// The overview link graph reads its own page of the library: the cards
-			// tab narrows its list, and the graph must not inherit that filter.
-			var [graphCards, setGraphCards] = useState(null);
+			// The overview link graph reads its own whole-library payload: the
+			// cards tab narrows its list, and the graph must not inherit that
+			// filter. The host caps it at `limit` and reports the rest as
+			// `totals.hiddenCards`.
+			var [graph, setGraph] = useState(null);
 			var [descriptions, setDescriptions] = useState(null);
 			var [cardFilter, setCardFilter] = useState({ tag: '', anyTags: [], archivedOnly: false, query: '' });
 			var [cardDetail, setCardDetail] = useState(null);
@@ -3291,7 +3863,7 @@ window.__ModuleLoader__.load({
 					// A host from before this feature answers with an unknown-endpoint
 					// error; the panel then simply has no descriptions to edit.
 					{ name: 'tag-descriptions', request: call('tag-descriptions') },
-					{ name: 'link-graph', request: call('card-list', { limit: 200 }) },
+					{ name: 'link-graph', request: call('graph', { limit: 300 }) },
 				];
 				return Promise.allSettled(requests.map(function (entry) { return entry.request; })).then(function (results) {
 					if (requestSeq.current.load !== token) return;
@@ -3324,7 +3896,7 @@ window.__ModuleLoader__.load({
 						setConsolidateDraft(function (current) { return current === null || current === undefined ? consolidateFormOf(nextConsolidate) : current; });
 					}
 					if (nextCards !== undefined) setCards(nextCards);
-					if (nextGraph !== undefined) setGraphCards(nextGraph);
+					if (nextGraph !== undefined) setGraph(nextGraph);
 					if (nextDescriptions !== undefined) setDescriptions(nextDescriptions?.descriptions ?? null);
 					var fatal = failures.filter(function (failure) { return failure.name === 'overview' || failure.name === 'injection'; });
 					if (fatal.length > 0) {
@@ -3569,7 +4141,7 @@ window.__ModuleLoader__.load({
 						call('consolidate-status').catch(function () { return null; }),
 						call('card-list', {}).catch(function () { return null; }),
 						call('overview').catch(function () { return null; }),
-						call('card-list', { limit: 200 }).catch(function () { return null; }),
+						call('graph', { limit: 300 }).catch(function () { return null; }),
 					]).then(function (results) {
 						if (results[0] !== null) {
 							setConsolidate(results[0]);
@@ -3577,7 +4149,7 @@ window.__ModuleLoader__.load({
 						}
 						if (results[1] !== null) setCards(results[1]);
 						if (results[2] !== null) setOverview(results[2]);
-						if (results[3] !== null) setGraphCards(results[3]);
+						if (results[3] !== null) setGraph(results[3]);
 					}).catch(function () {});
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
@@ -3604,15 +4176,15 @@ window.__ModuleLoader__.load({
 			}, [call, cardFilter, notify]);
 
 			/**
-			 * Reload the page the overview link graph draws.
+			 * Reload the whole-library payload the overview link graph draws.
 			 *
-			 * @returns {Promise<object | null>} The fresh page.
+			 * @returns {Promise<object | null>} The fresh payload.
 			 */
 			var refreshGraph = useCallback(function () {
 				var token = requestSeq.current.graph + 1;
 				requestSeq.current.graph = token;
-				return call('card-list', { limit: 200 }).then(function (value) {
-					if (requestSeq.current.graph === token) setGraphCards(value);
+				return call('graph', { limit: 300 }).then(function (value) {
+					if (requestSeq.current.graph === token) setGraph(value);
 					return value;
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
@@ -3641,7 +4213,7 @@ window.__ModuleLoader__.load({
 			}, [call, notify]);
 
 			/**
-			 * Reload both the card list and the link-graph page.
+			 * Reload both the card list and the graph the overview draws.
 			 *
 			 * Mutations use this instead of `refreshCards`: the graph lives off its
 			 * own request and would otherwise keep the pre-mutation picture.
@@ -3782,7 +4354,7 @@ window.__ModuleLoader__.load({
 					t: t,
 					injection: injection,
 					overview: overview,
-					graph: graphCards,
+					graph: graph,
 					descriptions: descriptions,
 					busy: busy,
 					onSaveDescriptions: saveTagDescriptions,

@@ -39,6 +39,7 @@ export const ENDPOINTS = [
 	'card-archive',
 	'card-remove',
 	'card-attach',
+	'graph',
 	'tag-descriptions',
 	'tag-descriptions-save',
 ]
@@ -182,6 +183,9 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 				}
 				case 'card-attach': {
 					return { ok: true, value: await cards.attach(payload ?? {}) }
+				}
+				case 'graph': {
+					return { ok: true, value: await cards.graph(payload ?? {}) }
 				}
 				case 'tag-descriptions': {
 					return { ok: true, value: await cards.tagDescriptionsView() }

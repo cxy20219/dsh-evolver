@@ -462,6 +462,74 @@ test('卡片接口：列表、写入、读取、提升、附件、标签、归�
 	})
 })
 
+test('关系图接口：返回节点、边与总数，limit 越界被夹取', async () => {
+	await withHome(async (home) => {
+		const { ctx, routes, effects } = fakeContext()
+		await apply(ctx, { dataDir: join(home, 'evolver') })
+		try {
+			const first = await (await post(routes, 'card-write', {
+				card: { body: '图一', tags: ['践行/工作流'] },
+			})).json()
+			const second = await (await post(routes, 'card-write', {
+				card: { body: '图二', tags: ['践行/工作流'], links: [first.id] },
+			})).json()
+
+			const graph = await (await post(routes, 'graph', { limit: 10 })).json()
+			assert.ok(Array.isArray(graph.nodes))
+			assert.ok(Array.isArray(graph.edges))
+			assert.deepEqual(
+				Object.keys(graph.totals).sort(),
+				['cards', 'edges', 'hiddenCards', 'limit', 'links', 'nodes', 'weak'],
+			)
+			assert.equal(graph.totals.nodes, graph.nodes.length)
+			assert.equal(graph.totals.edges, graph.edges.length)
+			assert.equal(graph.totals.links + graph.totals.weak, graph.edges.length)
+			assert.equal(graph.totals.nodes + graph.totals.hiddenCards, graph.totals.cards)
+			assert.equal(graph.totals.limit, 50, '低于 50 的 limit 被夹到 50')
+			assert.equal((await (await post(routes, 'graph', { limit: 10_000 })).json()).totals.limit, 500, '高于 500 的 limit 被夹到 500')
+			assert.equal((await (await post(routes, 'graph', { limit: 'abc' })).json()).totals.limit, 300, '非法 limit 用默认 300')
+			assert.equal((await (await post(routes, 'graph', {})).json()).totals.limit, 300, '未给 limit 用默认 300')
+
+			// 新写的卡在图上，节点形状是面板要的那一份。
+			const node = graph.nodes.find((item) => item.id === second.id)
+			assert.ok(node !== undefined, '新写的卡必须入图')
+			assert.equal(node.label, '图二')
+			assert.equal(node.branch, '践行')
+			assert.equal(node.degree, 1)
+			assert.equal(Array.isArray(node.tags), true)
+			assert.equal(typeof node.readCount, 'number')
+			assert.equal(typeof node.lastReadAt, 'string')
+			assert.equal(typeof node.updated, 'string')
+
+			// 单向链接只出一条无向 link 边，mutual 为假。
+			const link = graph.edges.find((edge) => edge.kind === 'link')
+			assert.ok(link !== undefined)
+			assert.deepEqual([link.source, link.target].sort(), [first.id, second.id].sort())
+			assert.equal(link.weight, 1)
+			assert.equal(link.mutual, false)
+
+			// 访问账在数据目录里，接口要真的读它：漏掉这一步，面板上永远是「没读过」。
+			await writeFile(join(home, 'evolver', 'knowledge', 'access.json'), JSON.stringify({
+				version: 1,
+				ids: { [second.id]: { count: 7, lastAt: '2026-01-02T03:04:05.000Z' } },
+			}), 'utf8')
+			const withAccess = await (await post(routes, 'graph', {})).json()
+			const read = withAccess.nodes.find((item) => item.id === second.id)
+			assert.equal(read.readCount, 7)
+			assert.equal(read.lastReadAt, '2026-01-02T03:04:05.000Z')
+
+			// 归档是状态不是分类：归档后立即从图中消失，总数也不含它。
+			const beforeArchive = withAccess.totals.cards
+			await post(routes, 'card-archive', { id: second.id })
+			const afterArchive = await (await post(routes, 'graph', {})).json()
+			assert.equal(afterArchive.nodes.some((item) => item.id === second.id), false, '归档卡不进图')
+			assert.equal(afterArchive.totals.cards, beforeArchive - 1, '归档卡不计入 totals.cards')
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
+})
+
 test('会话整理：宿主能力缺失时状态如实报告', async () => {
 	await withHome(async (home) => {
 		const { ctx, routes, effects } = fakeContext()

@@ -69,7 +69,7 @@ function extractFunction(source, signature) {
 const flags = parseArgs(process.argv.slice(2))
 const root = path.resolve(import.meta.dirname, '../..')
 const source = fs.readFileSync(path.join(root, 'client.js'), 'utf8')
-const body = extractFunction(source, 'function computeLinkLayout(cards) {')
+const body = extractFunction(source, 'function computeLinkLayout(cards, edges) {')
 const linkColorOf = () => '#8a8f98'
 const computeLinkLayout = new Function('linkColorOf', `${body}; return computeLinkLayout`)(linkColorOf)
 

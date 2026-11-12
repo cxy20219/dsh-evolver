@@ -39,6 +39,29 @@ summary: 链接关系图力导向的四个力各管什么、旧版为何堆积�
 
 耗时（一次性，按卡片数组身份 memo）：44 张 5 ms、200 张 34 ms、400 张 78 ms。
 
+## 关系面：弱关系从哪来、为什么值得画
+
+显式 `links` 太少：真实库 99 张卡只有 80 条链接、39 张卡零链接，光靠它图画不满。宿主 `src/cards/graph.js` 的 `graph` 接口额外派生两类弱关系（面板只渲染，不在浏览器里重新推断）：
+
+- **共享二级标签**（如 `践行/经验`）：≤8 张卡的组内全连接 weight 0.5；更大的组按 rank 只连相邻 window 2（weight 0.25）——只做 O(n) 条，不建全团。
+- **枝干链**：只给上面两类边之后仍零度的卡，按枝干把 rank 相邻的两张连成链（weight 0.15），把孤岛接进图。
+
+边带 `kind/weight`：`link` 实线 + 箭头，`tag/branch` 虚线、无箭头、`stroke-opacity .28`，可一键关掉。实测真实库 **99 节点 / 265 边（80 link + 185 tag）、布局 20.9 ms**；合成 300 节点 / 576 边 92 ms、overlaps 0。孤立卡因此进入图但视觉上让位于实线关系——这是这张图从「61 个点的稀疏链」变成「整库结构」的关键，不是装饰。
+
+## 视觉层级与交互
+
+- **默认标签**：按度数取 top N（≤12，随节点数收敛），四方位候选 + 视口边界 + 已放标签碰撞检测；hover/pin/搜索命中优先，不再只有聚焦时才显示名字。
+- **搜索**：匹配 label/description/tags；命中节点 + 1 跳邻居高亮，其余 opacity 0.16；结果列表（≤12 条）点击把相机居中到该卡（2.4x）。
+- **图例**：六大枝干色标 + 计数，点击显隐；隐藏枝干后从搜索结果聚焦该枝干的卡会自动恢复该枝干。
+- **活动**：近 2 小时 `updated` 的卡加金色实环、`lastReadAt` 12 小时内的卡加柠檬黄脉冲环，状态行分别报「最近写入 N 张」「最近读取 N 张」；数据来自卡片记录与访问账，不改拓扑（表示被访问/写入，不表示结论被采纳）。
+- **计数行**：`N 张卡 · L 条显式关系 · W 条弱关系 · 显示 K 个节点`，超 limit 时补「其余 N 张未入图」。
+- 导出 PNG（克隆 SVG + 内联样式，白底 2x）、重置视角、`prefers-reduced-motion` 下关脉冲；布局确定性不变（WeakMap 按 payload 身份缓存，同一份数据两次结果一致）。
+
+## 数据接口
+
+`POST /api/evolver/graph {limit}`（宿主 `src/cards/graph.js`）返回 `{nodes, edges, totals}`：
+节点按「显式度数 → updated → readCount → id」排序取前 limit（50–500，默认 300），归档卡不入图；节点带 `degree/updated/readCount/lastReadAt/branch`。面板与宿主解耦后，布局函数 `computeLinkLayout(cards, edges)` 的单参形式仍保留给 `harness/tool/link-layout-metrics.mjs` 做纯链接布局回归（该工具输出不受弱边影响，用于守四个力学边界）。
+
 ## 验证
 
 ```bash
@@ -48,7 +71,7 @@ node harness/tool/link-layout-metrics.mjs
 
 探针从 `client.js` 里直接抽出 `computeLinkLayout` 跑真实卡片库（不复制代码，不会漂移），输出 `overlaps / minGap / radiiByDegree / hubRadial / leafRadial / layoutMs`；`--svg` 另存一张图。判据：`overlaps: 0`、`minGap > 0`、`radiiByDegree` 随度数单调不减、`hubRadial < leafRadial`。
 
-`test/client.test.mjs` 里新增的用例已经把「度数越大圆越大、节点互不重叠、不出画布、枢纽比叶子更靠中心」钉成断言；拿旧实现跑这条用例会红。
+`test/client.test.mjs` 里新增的用例已经把「度数越大圆越大、节点互不重叠、不出画布、枢纽比叶子更靠中心」钉成断言；拿旧实现跑这条用例会红。搜索淡化/图例切换/弱关系开关/活动环/计数行/默认标签/重置与导出另有一组用例（`test/client.test.mjs` 20 条）。
 
 ## 已知边界
 

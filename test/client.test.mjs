@@ -505,6 +505,64 @@ function apiPayload(endpoint, payload) {
 				lastQuoted: 2,
 				ledger: { processed: 0, lastCommitAt: '' },
 			}
+		case 'graph':
+			return {
+				nodes: [{
+					id: 'card-01HF7YAT00S37S1ZGTH35DPPXW',
+					label: '卡片标题',
+					description: '第一张卡',
+					tags: ['践行/验证/浏览器'],
+					branch: '践行',
+					degree: 1,
+					updated: '2026-11-10T00:00:00.000Z',
+					readCount: 4,
+					lastReadAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+				}, {
+					id: 'card-01HF7YAT00S37S1ZGTH35DPPW2',
+					label: '被引用的卡片',
+					description: '第二张卡',
+					tags: ['见闻/git'],
+					branch: '见闻',
+					degree: 1,
+					updated: '2026-11-09T00:00:00.000Z',
+					readCount: 0,
+					lastReadAt: '',
+				}, {
+					id: 'card-01HF7YAT00S37S1ZGTH35DPPW3',
+					label: '复盘随记',
+					description: '第三张卡',
+					tags: ['复盘'],
+					branch: '复盘',
+					degree: 1,
+					updated: '2026-11-08T00:00:00.000Z',
+					readCount: 0,
+					lastReadAt: '',
+				}, {
+					id: 'card-01HF7YAT00S37S1ZGTH35DPPW4',
+					label: '孤岛卡片',
+					description: '没有显式链接',
+					tags: ['觉察'],
+					branch: '觉察',
+					degree: 0,
+					updated: '2026-11-07T00:00:00.000Z',
+					readCount: 0,
+					lastReadAt: '',
+				}],
+				edges: [{
+					source: 'card-01HF7YAT00S37S1ZGTH35DPPXW',
+					target: 'card-01HF7YAT00S37S1ZGTH35DPPW2',
+					kind: 'link',
+					weight: 1,
+					mutual: false,
+				}, {
+					source: 'card-01HF7YAT00S37S1ZGTH35DPPW2',
+					target: 'card-01HF7YAT00S37S1ZGTH35DPPW3',
+					kind: 'tag',
+					weight: 0.5,
+					mutual: false,
+				}],
+				totals: { cards: 7, nodes: 4, edges: 2, links: 1, weak: 1, hiddenCards: 3, limit: 300 },
+			}
 		case 'data-archives':
 			return {
 				dir: payload.dir,
@@ -640,10 +698,19 @@ test('卡片和偏好是独立标签，卡片页有筛选、列表和新建入�
 		assert.ok(findAll(tree, (node) => textOf(node).includes('overview.heatmap.section')).length >= 1)
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.graph').length >= 1)
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.linkGraph').length >= 1)
-		// The link graph draws one node per linked card and one edge per link.
+		// The link graph draws every node of the graph payload: one dot per card,
+		// the explicit link as a solid edge and the derived tag tie as a weak one.
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkGraph').length, 1)
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkEdge').length, 1)
-		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkNode').length, 2)
+		const graphNodeGroups = () => findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkNode'))
+		assert.equal(graphNodeGroups().length, 4, '孤立卡也要画出来')
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkNode evrLinkNodeRecent').length, 1,
+			'最近读取的卡片带活动环')
+		// Labels are on by default: the top-degree cards are named without hover.
+		const graphLabelTexts = () => findAll(tree, (node) => node.type === 'text'
+			&& node.props?.className === 'evrLinkLabel').map((node) => textOf(node))
+		assert.ok(graphLabelTexts().includes('卡片标题'), '默认标签应包含高度数卡片')
 
 		// The layout is memoised: an unrelated re-render must reproduce it
 		// exactly rather than drifting on a fresh simulation.
@@ -977,8 +1044,42 @@ test('链接关系图：连线越多的圆越大、枢纽居中，节点互不�
 		} catch {
 			payload = {}
 		}
-		if (endpoint === 'card-list') {
-			return { ok: true, status: 200, json: async () => ({ cards, total: cards.length }) }
+		if (endpoint === 'graph') {
+			// What the Host derives from these cards: one node per card, one edge
+			// per explicit link, degree from the links.
+			const degree = new Map(cards.map((card) => [card.id, 0]))
+			const edges = []
+			const seen = new Set()
+			for (const card of cards) {
+				for (const target of card.links) {
+					degree.set(card.id, degree.get(card.id) + 1)
+					degree.set(target, (degree.get(target) ?? 0) + 1)
+					const key = card.id < target ? `${card.id}|${target}` : `${target}|${card.id}`
+					if (seen.has(key)) continue
+					seen.add(key)
+					edges.push({ source: card.id, target, kind: 'link', weight: 1, mutual: false })
+				}
+			}
+			const nodes = cards.map((card) => ({
+				id: card.id,
+				label: card.label,
+				description: '',
+				tags: card.tags,
+				branch: card.tags[0].split('/')[0],
+				degree: degree.get(card.id),
+				updated: '2026-11-10T00:00:00.000Z',
+				readCount: 0,
+				lastReadAt: '',
+			}))
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({
+					nodes,
+					edges,
+					totals: { cards: cards.length, nodes: nodes.length, edges: edges.length, links: edges.length, weak: 0, hiddenCards: 0, limit: 300 },
+				}),
+			}
 		}
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
@@ -1151,12 +1252,23 @@ test('链接图的 Hook 数量不随布局有无翻转（真实 React 白屏回�
 		} catch {
 			payload = {}
 		}
-		if (endpoint === 'card-list') {
-			const cards = [
-				{ id: 'c1', label: '第一张', body: '正文', tags: ['践行'], links: linked ? ['c2'] : [], resources: [], updated: '2026-11-10T00:00:00.000Z' },
-				{ id: 'c2', label: '第二张', body: '正文', tags: ['见闻'], links: [], resources: [], updated: '2026-11-09T00:00:00.000Z' },
-			]
-			return { ok: true, status: 200, json: async () => ({ cards, total: cards.length, tree: [], status: {}, cardMaxChars: 1000 }) }
+		if (endpoint === 'graph') {
+			const nodes = linked
+				? [
+					{ id: 'c1', label: '第一张', description: '', tags: ['践行'], branch: '践行', degree: 1, updated: '2026-11-10T00:00:00.000Z', readCount: 0, lastReadAt: '' },
+					{ id: 'c2', label: '第二张', description: '', tags: ['见闻'], branch: '见闻', degree: 1, updated: '2026-11-09T00:00:00.000Z', readCount: 0, lastReadAt: '' },
+				]
+				: []
+			const edges = linked ? [{ source: 'c1', target: 'c2', kind: 'link', weight: 1, mutual: false }] : []
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({
+					nodes,
+					edges,
+					totals: { cards: 2, nodes: nodes.length, edges: edges.length, links: edges.length, weak: 0, hiddenCards: 0, limit: 300 },
+				}),
+			}
 		}
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
@@ -1165,13 +1277,16 @@ test('链接图的 Hook 数量不随布局有无翻转（真实 React 白屏回�
 		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
 		let tree = await runtime.settle(render)
 		const refresh = () => findAll(tree, (node) => node.type === 'button' && textOf(node) === 'action.refresh')[0]
-		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkGraph').length, 0, '无链接时只有空态')
-		// 无链接 → 有链接：Hook 数量若翻转，mini React 的守卫会直接抛错。
+		const graphNodeCount = () => findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkNode')).length
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkGraph').length, 0, '空图时只有空态')
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.linkGraph.empty').length >= 1, '空图要有提示')
+		// 空图 → 有图：Hook 数量若翻转，mini React 的守卫会直接抛错。
 		linked = true
 		refresh().props.onClick()
 		tree = await runtime.settle(render)
 		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkGraph').length, 1)
-		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkNode').length, 2)
+		assert.equal(graphNodeCount(), 2)
 		// 有链接 → 无链接：反向也要通过。
 		linked = false
 		refresh().props.onClick()
@@ -1261,7 +1376,7 @@ test('220ms 内点标签筛选时，搜索防抖不会丢掉标签条件', async
 	}
 })
 
-test('概览链接图与卡片页筛选解耦，并在截断时注明', async () => {
+test('概览链接图与卡片页筛选解耦，未入图的卡片要注明', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
 	const all = [
@@ -1289,9 +1404,11 @@ test('概览链接图与卡片页筛选解耦，并在截断时注明', async ()
 		const { Panel, ctx } = await loadPanel(runtime)
 		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
 		let tree = await runtime.settle(render)
-		const nodesBefore = findAll(tree, (node) => node.props?.className === 'evrLinkNode').length
-		assert.equal(nodesBefore, 2)
-		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.linkGraph.truncated').length >= 1, '截断时要注明')
+		const graphNodeCount = () => findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkNode')).length
+		assert.equal(graphNodeCount(), 4)
+		assert.ok(findAll(tree, (node) => textOf(node).includes('overview.linkGraph.hidden')).length >= 1,
+			'totals.hiddenCards > 0 时要注明未入图')
 		// Narrow the cards tab, then go back: the graph must keep the whole library.
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -1299,7 +1416,7 @@ test('概览链接图与卡片页筛选解耦，并在截断时注明', async ()
 		tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.overview')[0].props.onClick()
 		tree = await runtime.settle(render)
-		assert.equal(findAll(tree, (node) => node.props?.className === 'evrLinkNode').length, 2, '概览图不能继承卡片页的筛选')
+		assert.equal(graphNodeCount(), 4, '概览图不能继承卡片页的筛选')
 	} finally {
 		globalThis.fetch = previousFetch
 	}
@@ -1372,6 +1489,224 @@ test('Markdown 预览不把 //host 变成可点的站外链接', async () => {
 		assert.equal(hrefs.includes('//evil.example/phish'), false, '协议相对 URL 不能渲染成链接')
 		assert.ok(hrefs.includes('https://example.com/ok'), '正常外链仍要渲染')
 		assert.equal(anchors.find((node) => node.props.href === 'https://example.com/ok').props.rel, 'noopener noreferrer')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('关系图工具栏：计数行、弱关系开关、枝干图例与重置/导出', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		const svgOf = () => findAll(tree, (node) => node.props?.className === 'evrLinkGraph')[0]
+		const weakEdges = () => findAll(svgOf(), (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkEdgeWeak'))
+		const nodesOf = () => findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkNode')).length
+
+		// 计数行：库里有 7 张卡、1 条显式关系、1 条弱关系，画了 4 个节点，3 张没入图。
+		const stat = findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkStat')
+			&& textOf(node).includes('overview.linkGraph.cards'))
+		assert.equal(stat.length, 1, '计数行没有渲染')
+		const statText = textOf(stat[0])
+		for (const key of ['overview.linkGraph.cards', 'overview.linkGraph.explicit', 'overview.linkGraph.weak', 'overview.linkGraph.shown', 'overview.linkGraph.hidden']) {
+			assert.ok(statText.includes(key), `计数行缺少 ${key}`)
+		}
+
+		// 显式关系保留箭头，弱关系是虚线且没有方向。
+		const linkEdge = findAll(svgOf(), (node) => node.props?.className === 'evrLinkEdge')[0]
+		assert.equal(linkEdge.props.markerEnd, 'url(#evrLinkArrow)')
+		assert.equal(weakEdges()[0].props.markerEnd, undefined)
+
+		// 弱关系默认显示；关掉后只剩显式关系。
+		assert.equal(weakEdges().length, 1)
+		const weakToggle = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.linkGraph.weakToggle')[0]
+		assert.equal(weakToggle.props['aria-pressed'], true)
+		weakToggle.props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(weakEdges().length, 0, '关掉弱关系后不应再画 tag/branch 边')
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.linkGraph.weakToggle')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(weakEdges().length, 1, '再打开弱关系要恢复')
+
+		// 六个枝干图例按钮，默认都可见；点掉践行后它的节点不再绘制。
+		const legend = findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkLegendBtn'))
+		assert.equal(legend.length, 6)
+		assert.equal(nodesOf(), 4)
+		const execution = findAll(tree, (node) => node.type === 'button' && node.props?.title === 'cards.filter.execution')[0]
+		assert.equal(execution.props['aria-pressed'], true)
+		execution.props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(nodesOf(), 3, '隐藏枝干后节点不再绘制')
+		assert.equal(findAll(tree, (node) => node.type === 'button' && node.props?.title === 'cards.filter.execution')[0].props['aria-pressed'], false)
+
+		// 重置视角与导出按钮都在；没有 canvas 的测试环境里导出只能静默。
+		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.linkGraph.reset').length, 1)
+		const exportButton = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.linkGraph.export')
+		assert.equal(exportButton.length, 1)
+		exportButton[0].props.onClick()
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('关系图搜索：命中与 1 跳邻居高亮、命中显示标签、点结果聚焦并可重置', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		const svgOf = () => findAll(tree, (node) => node.props?.className === 'evrLinkGraph')[0]
+		const groupOf = (prefix) => findAll(svgOf(), (node) => node.type === 'g'
+			&& typeof node.props?.['aria-label'] === 'string' && node.props['aria-label'].startsWith(prefix))[0]
+		const labelTexts = () => findAll(tree, (node) => node.type === 'text'
+			&& typeof node.props?.className === 'string' && node.props.className.split(' ').includes('evrLinkLabel'))
+			.map((node) => textOf(node))
+		const cameraScale = () => {
+			const group = findAll(svgOf(), (node) => node.type === 'g'
+				&& typeof node.props?.style?.transform === 'string' && node.props.style.transform.includes('scale('))[0]
+			return Number(/scale\(([\d.]+)\)/.exec(group.props.style.transform)[1])
+		}
+		assert.equal(cameraScale(), 1)
+		assert.ok(labelTexts().includes('卡片标题'), '默认标签里有排在前面的卡片')
+
+		const input = findAll(tree, (node) => node.type === 'input' && node.props?.type === 'search'
+			&& typeof node.props?.className === 'string' && node.props.className.includes('evrLinkSearch'))[0]
+		assert.ok(input !== undefined, '关系图没有搜索框')
+		input.props.onChange({ target: { value: '孤岛' } })
+		tree = await runtime.settle(render)
+
+		assert.equal(groupOf('孤岛卡片').props.opacity, 1, '命中节点保持高亮')
+		assert.equal(groupOf('卡片标题').props.opacity, 0.16, '非命中节点淡化')
+		assert.ok(labelTexts().includes('孤岛卡片'), '命中卡片显示标签')
+		assert.equal(labelTexts().includes('卡片标题'), false, '非命中卡片不显示标签')
+
+		const results = findAll(tree, (node) => node.type === 'button' && node.props?.className === 'evrLinkResult')
+		assert.equal(results.length, 1, '搜索结果列表应有一条')
+		results[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(cameraScale() > 1, '点搜索结果后相机放大到该节点')
+		// The camera centres the card: screen position = scale * node + translate
+		// lands on the middle of the 320x300 viewBox.
+		const camera = findAll(svgOf(), (node) => node.type === 'g'
+			&& typeof node.props?.style?.transform === 'string' && node.props.style.transform.includes('scale('))[0]
+		const [, tx, ty, scale] = /translate\(([-\d.]+)px,([-\d.]+)px\) scale\(([\d.]+)\)/.exec(camera.props.style.transform)
+		const circle = findAll(groupOf('孤岛卡片'), (node) => node.type === 'circle')[0]
+		assert.ok(Math.abs(Number(tx) + circle.props.cx * Number(scale) - 160) < 1, '聚焦后卡片应水平居中')
+		assert.ok(Math.abs(Number(ty) + circle.props.cy * Number(scale) - 150) < 1, '聚焦后卡片应垂直居中')
+
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'overview.linkGraph.reset')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(cameraScale(), 1, '重置视角回到全图')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('关系图写入活动：近 2 小时写过的卡片带金色环，状态行分开写/读', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		const body = apiPayload(endpoint, payload)
+		if (endpoint === 'graph') {
+			// The fixture cards were written days ago; make one freshly written so
+			// the write window has something to mark.
+			body.nodes[1].updated = new Date(Date.now() - 20 * 60 * 1000).toISOString()
+		}
+		return { ok: true, status: 200, json: async () => body }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const tree = await runtime.settle(render)
+		const freshOf = () => findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkNodeFresh'))
+		const activityOf = () => findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkActivity'))
+		assert.equal(freshOf().length, 1, '近 2 小时写过的卡片要有金色环')
+		assert.ok(freshOf()[0].props['aria-label'].startsWith('被引用的卡片'), '金色环应挂在刚写过的卡片上')
+		assert.equal(activityOf().length, 1, '顶部要显示活动状态行')
+		const status = textOf(activityOf()[0])
+		assert.ok(status.includes('overview.linkGraph.activityWrite'), '状态行要报告最近写入数')
+		assert.ok(status.includes('overview.linkGraph.activity'), '状态行要报告最近读取数')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('关系图活动高亮：近 12 小时读过的卡片带环，缺数据时不显示', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	let withActivity = true
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		const body = apiPayload(endpoint, payload)
+		if (endpoint === 'graph' && !withActivity) {
+			for (const node of body.nodes) {
+				delete node.lastReadAt
+				delete node.readCount
+			}
+		}
+		return { ok: true, status: 200, json: async () => body }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		let tree = await runtime.settle(render)
+		const recentOf = () => findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkNodeRecent'))
+		const activityOf = () => findAll(tree, (node) => typeof node.props?.className === 'string'
+			&& node.props.className.split(' ').includes('evrLinkActivity'))
+		assert.equal(recentOf().length, 1, '最近读过的卡片要有活动环')
+		assert.ok(recentOf()[0].props['aria-label'].startsWith('卡片标题'), '活动环应挂在最近读过的卡片上')
+		assert.equal(activityOf().length, 1, '顶部要显示最近读取数')
+		assert.ok(textOf(activityOf()[0]).includes('overview.linkGraph.activity'))
+
+		// 数据缺省时不显示活动环，也不显示状态行。
+		withActivity = false
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'action.refresh')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(recentOf().length, 0)
+		assert.equal(activityOf().length, 0)
 	} finally {
 		globalThis.fetch = previousFetch
 	}
