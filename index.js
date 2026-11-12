@@ -579,8 +579,9 @@ export async function apply(ctx, config) {
 			if (query === undefined) throw new Error('这个宿主没有提供会话读取能力（sessionQuery）。')
 			const snapshot = await query.readSession(id)
 			if (snapshot === undefined || snapshot === null) throw new Error(`读不到会话：${id}`)
-			const events = assistantEvents(snapshot)
-			return { session: String(id), ...summarizeUsage(events) }
+			const events = snapshot.events ?? []
+			// The messages decide the numbers; the whole timeline decides why.
+			return { session: String(id), ...summarizeUsage(assistantEvents(snapshot), events) }
 		},
 	}
 	const ingestLedger = {

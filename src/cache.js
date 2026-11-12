@@ -13,12 +13,56 @@
  */
 
 /**
+ * Why one step had to re-read its whole prompt.
+ *
+ * A miss has a small set of causes, and they point at different owners: the
+ * model changed (routing), the host rewrote a system section (host), the
+ * session resumed after a restart (host), or nothing happened for long enough
+ * that the provider dropped the cache (time). Guessing which one it was is how
+ * a plugin ends up optimizing the wrong thing.
+ *
+ * @param {object[]} between - Events between the previous reply and this one.
+ * @param {number} gapMs - Milliseconds since the previous reply.
+ * @param {boolean} switched - A different model named itself in that gap.
+ * @returns {string} One of `model-switch`, `system-section`, `resume`,
+ *   `expired`, `tools`, `unknown`.
+ */
+export function missCause(between, gapMs, switched) {
+	const kinds = new Set((between ?? []).map((event) => event?.type))
+	if (switched === true) return 'model-switch'
+	const system = kinds.has('system/message')
+	// A resume re-emits the same system prompt; a section change replaces it
+	// with something else. The seed event is what tells them apart.
+	if (system) return kinds.has('session/end-seed') ? 'resume' : 'system-section'
+	if (kinds.has('session/end-seed')) return 'resume'
+	if (kinds.has('model/selection')) return 'model-switch'
+	if ([...kinds].some((kind) => kind.startsWith('tool/') && kind.includes('update'))) return 'tools'
+	if (gapMs >= 5 * 60_000) return 'expired'
+	return 'unknown'
+}
+
+/**
+ * The model a rewritten system prompt says it is running.
+ *
+ * @param {object} event - A `system/message` event.
+ * @returns {string} The model name, or empty when the text does not say.
+ */
+function modelOfSystem(event) {
+	const content = event?.data?.message?.content ?? event?.data?.content
+	const text = Array.isArray(content)
+		? content.map((block) => block?.text ?? '').join('')
+		: String(content ?? '')
+	const match = text.match(/powered by the ([\w.\-]+) model/)
+	return match === null ? '' : match[1]
+}
+
+/**
  * Turn token usage into cache numbers.
  *
  * @param {object[]} messages - Assistant events with `data.usage`.
  * @returns {object} The report.
  */
-export function summarizeUsage(messages) {
+export function summarizeUsage(messages, events) {
 	const steps = []
 	let totals = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 }
 	for (const message of messages ?? []) {
@@ -46,12 +90,22 @@ export function summarizeUsage(messages) {
 
 	const prompt = totals.input + totals.cacheRead + totals.cacheWrite
 	const hitRate = prompt === 0 ? null : totals.cacheRead / prompt
+	const causes = attribute(events)
 	// The first message has nothing to read from, so it does not count as a
 	// miss. Every later message that read nothing had its prefix rebuilt.
 	const misses = steps
 		.map((row, index) => ({ ...row, index }))
 		.filter((row) => row.index > 0 && row.cacheRead === 0 && row.prompt > 0)
-		.map((row) => ({ index: row.index, turn: row.turn, step: row.step, prompt: row.prompt, time: row.time }))
+		.map((row) => ({
+			index: row.index,
+			turn: row.turn,
+			step: row.step,
+			prompt: row.prompt,
+			time: row.time,
+			cause: causes[row.index] ?? 'unknown',
+		}))
+	const byCause = {}
+	for (const row of misses) byCause[row.cause] = (byCause[row.cause] ?? 0) + 1
 
 	// What the misses actually cost: every one of them is a full prompt read.
 	const missCost = misses.reduce((sum, row) => sum + row.prompt, 0)
@@ -70,12 +124,59 @@ export function summarizeUsage(messages) {
 		missCost,
 		missShare: prompt === 0 ? null : missCost / prompt,
 		misses,
+		byCause,
 		// The last 50 steps, and the steps after the most recent rebuild.
 		recent,
 		sinceMiss,
 		reads: steps.filter((row) => row.cacheRead > 0).length,
 		largest: steps.reduce((max, row) => (row.prompt > (max?.prompt ?? 0) ? row : max), undefined) ?? null,
 	}
+}
+
+/**
+ * Work out the cause of every step, from the timeline.
+ *
+ * Steps and events are the same list seen twice: a step is an assistant
+ * message that carries usage. So walking the events and counting them keeps
+ * the two aligned without a second filter that could drift.
+ *
+ * The model has to be tracked from the very first system message, not from
+ * the previous reply: a provider fallback writes one system message naming the
+ * new model, and that message is the whole evidence.
+ *
+ * @param {object[]} events - The full event list, oldest first.
+ * @returns {Record<number, string>} Step index to cause.
+ */
+function attribute(events) {
+	const causes = {}
+	if (!Array.isArray(events) || events.length === 0) return causes
+	let step = -1
+	let lastPos = -1
+	let lastTime = 0
+	let lastModel = ''
+	let switched = false
+	for (let pos = 0; pos < events.length; pos += 1) {
+		const event = events[pos]
+		if (event?.type === 'system/message') {
+			const model = modelOfSystem(event)
+			if (model !== '') {
+				if (lastModel !== '' && model !== lastModel) switched = true
+				lastModel = model
+			}
+			continue
+		}
+		if (event?.type !== 'assistant/message') continue
+		if ((event?.data?.usage ?? event?.usage) === undefined) continue
+		step += 1
+		const time = Number(event?.time ?? 0)
+		if (step > 0) {
+			causes[step] = missCause(events.slice(lastPos + 1, pos), time - lastTime, switched)
+			switched = false
+		}
+		lastPos = pos
+		lastTime = time
+	}
+	return causes
 }
 
 /**

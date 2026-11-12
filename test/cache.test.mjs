@@ -84,3 +84,29 @@ test('只挑出 assistant/message 事件', () => {
 	assert.equal(assistantEvents({ events }).length, 1)
 	assert.deepEqual(assistantEvents(undefined), [])
 })
+
+test('未命中归因：换模型、重启、系统段重写分得开', async () => {
+	const { missCause } = await import('../src/cache.js')
+	const system = (model) => ({ type: 'system/message', data: { message: { content: [{ text: `You are powered by the ${model} model.` }] } } })
+	assert.equal(missCause([system('MiniMax-M3.1-Flash')], 1000, true), 'model-switch')
+	assert.equal(missCause([system('deepseek-v4.1-flash')], 1000, false), 'system-section')
+	assert.equal(missCause([{ type: 'session/end-seed' }, system('deepseek-v4.1-flash')], 1000, false), 'resume')
+	assert.equal(missCause([{ type: 'session/end-seed' }], 1000, false), 'resume')
+	assert.equal(missCause([], 10 * 60_000, false), 'expired')
+	assert.equal(missCause([{ type: 'tool/update' }], 1000, false), 'tools')
+	assert.equal(missCause([{ type: 'foo' }], 1000, false), 'unknown')
+})
+
+test('归因沿着整条时间线追踪模型名，不只看单个间隔', () => {
+	// 回退把模型换过去时，间隔里只有一条系统消息，它自己说不出「我换了」。
+	const events = [
+		{ type: 'system/message', time: 0, data: { message: { content: [{ text: 'powered by the MiniMax-M3.1-Flash model' }] } } },
+		{ type: 'assistant/message', time: 10, data: { usage: { inputTokens: 100, cacheReadTokens: 900 } } },
+		{ type: 'system/message', time: 20, data: { message: { content: [{ text: 'powered by the deepseek-v4.1-flash model' }] } } },
+		{ type: 'assistant/message', time: 30, data: { usage: { inputTokens: 1000, cacheReadTokens: 0 } } },
+	]
+	const report = summarizeUsage(events.filter((e) => e.type === 'assistant/message'), events)
+	assert.equal(report.misses.length, 1)
+	assert.equal(report.misses[0].cause, 'model-switch')
+	assert.deepEqual(report.byCause, { 'model-switch': 1 })
+})
