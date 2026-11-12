@@ -1,5 +1,5 @@
 /**
- * The proactivity protocol injected right after the soul.
+ * The proactivity protocol injected right after the tag tree.
  *
  * The tag map says what exists; this block says when to act on it
  * without being asked. It is deliberately short: it is injected on every

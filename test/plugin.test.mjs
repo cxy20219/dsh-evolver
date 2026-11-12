@@ -118,10 +118,10 @@ test('apply 注册工具、注入与接口，写操作后注入立刻更新', as
 				tools.map((tool) => tool.name).filter((name) => name.startsWith('harness_')),
 				['harness_catalog', 'harness_write', 'harness_validate'],
 			)
-			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:cards', 'dsh-evolver:soul', 'dsh-evolver:proactive'])
+			assert.deepEqual(sections.map((section) => section.name), ['dsh-evolver:cards', 'dsh-evolver:proactive'])
 			assert.equal(routes.size, ENDPOINTS.length)
 			assert.match(sections[0].text(), /\[卡片\]/)
-			assert.match(sections[2].text(), /\[主动性\]/)
+			assert.match(sections[1].text(), /\[主动性\]/)
 
 			const overview = await (await post(routes, 'overview', {})).json()
 			assert.ok(overview.projection.entries >= 2)
@@ -170,7 +170,7 @@ test('接口拒绝超大请求体', async () => {
 		const { ctx, routes, effects } = fakeContext()
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
-			const response = await post(routes, 'soul', {}, { 'content-length': String(9 * 1024 * 1024) })
+			const response = await post(routes, 'preferences', {}, { 'content-length': String(9 * 1024 * 1024) })
 			assert.equal(response.status, 413)
 			const payload = await response.json()
 			assert.match(payload.error.message, /超过/)

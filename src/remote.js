@@ -14,8 +14,6 @@
 export const ENDPOINTS = [
 	'overview',
 	'injection',
-	'soul',
-	'soul-save',
 	'preferences',
 	'preferences-save',
 	'preferences-link',
@@ -84,12 +82,6 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 				}
 				case 'injection': {
 					return { ok: true, value: await cards.injection() }
-				}
-				case 'soul': {
-					return { ok: true, value: await evolver.soulRead() }
-				}
-				case 'soul-save': {
-					return { ok: true, value: await evolver.soulWrite(text(payload, 'content')) }
 				}
 				case 'preferences': {
 					return { ok: true, value: await evolver.preferencesRead() }

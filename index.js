@@ -4,9 +4,8 @@
  * The plugin owns four things:
  *
  *   1. **the data** — one folder (`~/.dsh/evolver` by default) with the card
- *      log and resources, the soul and the global preferences;
- *   2. **the injection** — the 2 KB tag tree, the soul and the
- *      proactive protocol;
+ *      log and resources and the global preferences;
+ *   2. **the injection** — the 2 KB tag tree and the proactive protocol;
  *   3. **the tools** — card-native query/read/write/index/promote/archive/
  *      remove, plus `evolve_review` and `session_digest`;
  *   4. **the settings** — where the data folder lives, its card budget, and
@@ -46,9 +45,6 @@ export const name = 'dsh-evolver'
 
 /** The API prefix the browser calls. */
 export const API_PREFIX = '/api/evolver'
-
-/** How often the injected text is refreshed, in milliseconds. */
-const REFRESH_MS = 60_000
 
 /** How large a request body the panel API accepts. */
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024
@@ -901,18 +897,11 @@ export async function apply(ctx, config) {
 
 	// The two injected blocks. Their text is served from a cache so the
 	// assembled prompt stays byte-stable between changes.
-	await evolver.refresh()
 	disposers.push(ctx.systemPrompt.section({
 		name: 'dsh-evolver:cards',
 		order: 900,
 		interpolate: false,
 		text: () => (cardStoreRef.current === undefined ? '' : cardPrompt(cardStoreRef.current, DEFAULT_PROMPT_BUDGET, tagDescriptionsRef.current)),
-	}))
-	disposers.push(ctx.systemPrompt.section({
-		name: 'dsh-evolver:soul',
-		order: 910,
-		interpolate: false,
-		text: () => evolver.cache.soul,
 	}))
 	// The data is already injected; this tells the model when to act on it
 	// without being asked. Kept small: it rides on every request.
@@ -922,16 +911,6 @@ export async function apply(ctx, config) {
 		interpolate: false,
 		text: () => PROACTIVE_PROTOCOL,
 	}))
-
-	// The panel edits the same data, so the injected text has to follow it.
-	// The refresh itself is cheap: unchanged entries are not re-parsed.
-	ctx.effect(() => {
-		const timer = setInterval(() => {
-			void evolver.refresh().catch(() => {})
-		}, REFRESH_MS)
-		timer.unref?.()
-		return () => clearInterval(timer)
-	}, 'dsh-evolver: index refresh')
 
 	const view = () => settings.publicView(workspace.state())
 	const ingestApi = {

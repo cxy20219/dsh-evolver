@@ -2,12 +2,10 @@
  * The evolver's document layer.
  *
  * The live knowledge store is the card log (`src/cards/store.js`). This class
- * keeps the two documents that are not cards — the soul and the global
- * preferences.
+ * keeps the one document that is not a card — the global preferences.
  *
  *   <root>/
  *     knowledge/          cards and resources (CardStore)
- *     sight/soul.md       persona and boundaries (injected)
  *     preferences/AGENTS.md
  *
  * The folder is the unit of migration and backup: copy it and everything moves.
@@ -16,8 +14,6 @@
 import { lstat, mkdir, open, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-
-import { isStarterSoul, STARTER_SOUL } from './soul-template.js'
 
 /** The global preferences, seeded when the folder is new. */
 const STARTER_PREFS = `# 个人偏好
@@ -36,9 +32,6 @@ export function resolveDshHome(env = process.env) {
 	if (typeof configured === 'string' && configured.trim() !== '') return configured.trim()
 	return join(homedir(), '.dsh')
 }
-
-/** The largest soul document the plugin injects. */
-export const MAX_SOUL_BYTES = 16 * 1024
 
 /** The largest global preferences file (matches the loader's 64 KB cap). */
 export const MAX_PREFERENCES_BYTES = 64 * 1024
@@ -59,31 +52,6 @@ export class Evolver {
 		this.version = typeof version === 'string' ? version : ''
 		/** Counts temp files so two writes in one millisecond cannot collide. */
 		this.writeSequence = 0
-		/**
-		 * The injected soul text, cached. The prompt section is synchronous,
-		 * so the latest read lives here and is refreshed after every write.
-		 */
-		this.cache = { soul: '' }
-	}
-
-	/**
-	 * Refresh the cached injection text.
-	 *
-	 * @returns {Promise<{soul: string}>} The cached text.
-	 */
-	async refresh() {
-		try {
-			const soul = await this.soulRead()
-			this.cache.soul = soul.content
-		} catch (error) {
-			this.logger?.warn?.(`dsh-evolver: soul refresh failed: ${error instanceof Error ? error.message : String(error)}`)
-		}
-		return { soul: this.cache.soul }
-	}
-
-	/** The soul document's path. */
-	get soulPath() {
-		return join(this.root, 'sight', 'soul.md')
 	}
 
 	/** The global preferences file's path. */
@@ -99,39 +67,14 @@ export class Evolver {
 	/**
 	 * Create the folder skeleton and the seed documents.
 	 *
-	 * The preferences are never overwritten; the soul is upgraded in place
-	 * when it is still an untouched auto-seeded template.
+	 * The preferences are never overwritten.
 	 *
 	 * @returns {Promise<void>} Resolves once the folder is ready.
 	 */
 	async ensure() {
 		await mkdir(this.root, { recursive: true, mode: 0o700 })
-		await mkdir(join(this.root, 'sight'), { recursive: true, mode: 0o700 })
 		await mkdir(join(this.root, 'preferences'), { recursive: true, mode: 0o700 })
-		await this.seedSoul()
 		await this.writeIfMissing(this.preferencesPath, STARTER_PREFS)
-	}
-
-	/**
-	 * Seed the soul, upgrading a template nobody has edited.
-	 *
-	 * A file that still matches one of the shipped templates byte for byte
-	 * carries no user intent, so the current one replaces it; anything else is
-	 * the user's own writing and is never touched. Without this the soul could
-	 * only ever be seeded once, and a better template would strand every
-	 * existing installation on the old one.
-	 *
-	 * @returns {Promise<void>} Resolves when the folder holds a soul.
-	 */
-	async seedSoul() {
-		const existing = await readFile(this.soulPath, 'utf8').catch(() => undefined)
-		if (existing === undefined) {
-			await this.writeIfMissing(this.soulPath, STARTER_SOUL)
-			return
-		}
-		if (!isStarterSoul(existing)) return
-		await this.writeDocument(this.soulPath, STARTER_SOUL)
-		this.logger?.info?.('dsh-evolver: souled the agent with the current starter template')
 	}
 
 	/**
@@ -145,10 +88,8 @@ export class Evolver {
 		this.root = root
 		try {
 			await this.ensure()
-			await this.refresh()
 		} catch (error) {
 			this.root = previous
-			await this.refresh().catch(() => {})
 			throw error
 		}
 		await this.relinkAfterMove(previous)
@@ -221,53 +162,6 @@ export class Evolver {
 			await rm(temp, { force: true }).catch(() => {})
 			throw error
 		}
-	}
-
-	/**
-	 * Read the soul document.
-	 *
-	 * @returns {Promise<object>} The document's content and metadata.
-	 */
-	async soulRead() {
-		let content = ''
-		let updatedAt = null
-		let truncated = false
-		let fullBytes = 0
-		try {
-			const info = await lstat(this.soulPath)
-			fullBytes = info.size
-			updatedAt = info.mtime.toISOString()
-			truncated = info.size > MAX_SOUL_BYTES
-			content = truncated ? await readHead(this.soulPath, MAX_SOUL_BYTES) : await readFile(this.soulPath, 'utf8')
-		} catch {
-			content = ''
-		}
-		return {
-			path: 'sight/soul.md',
-			content,
-			bytes: Buffer.byteLength(content, 'utf8'),
-			fullBytes,
-			truncated: truncated || undefined,
-			updatedAt,
-		}
-	}
-
-	/**
-	 * Write the soul document.
-	 *
-	 * @param {string} content - The new content.
-	 * @returns {Promise<object>} The document's metadata.
-	 */
-	async soulWrite(content) {
-		const text = String(content ?? '')
-		if (Buffer.byteLength(text, 'utf8') > MAX_SOUL_BYTES) {
-			throw new Error(`灵魂超过 ${MAX_SOUL_BYTES} 字节：它每次请求都会被注入，请精简或把细节写进卡片。`)
-		}
-		await mkdir(dirname(this.soulPath), { recursive: true, mode: 0o700 })
-		await this.writeDocument(this.soulPath, text)
-		this.cache.soul = text
-		const info = await lstat(this.soulPath)
-		return { path: 'sight/soul.md', bytes: info.size, updatedAt: info.mtime.toISOString() }
 	}
 
 	/**
@@ -379,23 +273,16 @@ export class Evolver {
 	}
 
 	/**
-	 * The soul and preferences blocks, exactly as they are injected.
+	 * The preferences block, exactly as it is injected.
 	 *
 	 * The card projection is supplied by the card API; this method only owns
-	 * the two documents.
+	 * the global preferences.
 	 *
 	 * @returns {Promise<object>} The injection preview.
 	 */
 	async injectionPreview() {
-		const soul = await this.soulRead()
 		const preferences = await this.preferencesRead()
 		return {
-			soul: {
-				text: soul.content,
-				bytes: soul.bytes,
-				budget: MAX_SOUL_BYTES,
-				truncated: soul.truncated === true ? true : undefined,
-			},
 			preferences: {
 				path: preferences.path,
 				globalPath: preferences.globalPath,
@@ -405,22 +292,20 @@ export class Evolver {
 				truncated: preferences.truncated === true ? true : undefined,
 				note: '全局偏好由 DSH 的 AGENTS.md 加载器注入，不占用演化器自己的预算。',
 			},
-			totalBytes: soul.bytes + preferences.bytes,
+			totalBytes: preferences.bytes,
 		}
 	}
 
 	/**
 	 * The document part of the panel overview.
 	 *
-	 * @returns {Promise<object>} Version, root, soul and preferences.
+	 * @returns {Promise<object>} Version, root and preferences.
 	 */
 	async overview() {
-		const soul = await this.soulRead()
 		const preferences = await this.preferencesRead()
 		return {
 			version: this.version,
 			root: this.root,
-			soul: { bytes: soul.bytes, updatedAt: soul.updatedAt },
 			preferences: {
 				bytes: preferences.bytes,
 				globalPath: preferences.globalPath,

@@ -36,9 +36,9 @@ dsh plugin --profile web add https://github.com/cxy20219/dsh-evolver.git
 
 ## 首次启动会发生什么
 
-1. 创建数据目录 `~/.dsh/evolver/`（`knowledge/`、`sight/`、`preferences/`）：
-   写入灵魂与偏好种子，并在空卡片库中种下三张 #践行/#复盘 种子卡（长文进资源附件）。只创建
-   卡片目录，不再有旧的 `practice/` 或 `sight/memory/`。
+1. 创建数据目录 `~/.dsh/evolver/`：写入偏好种子，并在空卡片库中种下三张 #践行/#复盘 种子卡
+   （长文进资源附件）。`knowledge/` 由卡片库创建，`sight/` 在会话整理第一次写游标时出现。
+   只创建卡片目录，不再有旧的 `practice/` 或 `sight/memory/`。
 2. 把 `~/.dsh/AGENTS.md` 链接到 `~/.dsh/evolver/preferences/AGENTS.md`。
    如果原来是真实文件，内容会先备份为 `preferences/AGENTS.md.imported`。
    **如果它已经被别的工具链接到别处，插件不会自动接管**：面板「偏好」会显示
@@ -59,7 +59,7 @@ dsh plugin --profile web add https://github.com/cxy20219/dsh-evolver.git
 
 ## 迁移到另一台机器
 
-整个 `~/.dsh/evolver/` 就是迁移单位：复制过去即可，卡片、偏好、灵魂都在里面。
+整个 `~/.dsh/evolver/` 就是迁移单位：复制过去即可，卡片和偏好都在里面。
 `~/.dsh/AGENTS.md` 是符号链接，目标机器上让插件重新建立即可（首次启动会自动做）。
 
 ## 卸载

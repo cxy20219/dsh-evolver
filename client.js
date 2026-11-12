@@ -1,11 +1,11 @@
 /*
  * dsh-evolver — browser half.
  *
- * One sidebar entry opens one panel with five tabs:
- * 概览 / 卡片 / 灵魂 / 偏好 / 设置.
+ * One sidebar entry opens one panel with four tabs:
+ * 概览 / 卡片 / 偏好 / 设置.
  *
- * The panel shows the same three things the agent gets: the card projection,
- * the soul and the global preferences — plus the health of the folder.
+ * The panel shows the same two things the agent gets: the card projection
+ * and the global preferences — plus the health of the folder.
  */
 window.__ModuleLoader__.load({
 	id: 'dsh-evolver',
@@ -40,7 +40,6 @@ window.__ModuleLoader__.load({
 			'panel': '演化器',
 			'tab.overview': '概览',
 			'tab.cards': '卡片',
-			'tab.soul': '灵魂',
 			'cards.new': '新建卡片',
 			'cards.search': '搜索卡片…',
 			'cards.filter.all': '全部',
@@ -92,6 +91,7 @@ window.__ModuleLoader__.load({
 			'sight.ingest.sessionsUnit': '个会话',
 			'sight.ingest.memoriesUnit': '条记忆',
 			'tab.preferences': '偏好',
+			'tab.organize': '整理',
 			'tab.settings': '设置',
 			'state.migrated': '已迁移到新目录',
 			'state.exported': '已导出',
@@ -142,13 +142,10 @@ window.__ModuleLoader__.load({
 			'overview.truncated': '已截断',
 			'overview.link': '链接',
 			'overview.cards': '标签树',
-			'overview.soul': '灵魂',
 			'overview.preferences': '偏好',
 			'overview.budget': '预算',
 			'overview.dropped': '未进索引',
 			'overview.projection': '注入的标签树',
-			'soul.hint': '灵魂是 Agent 的人格与边界，每个会话都会被读到；一次性的经历属于见闻。',
-			'soul.content': '灵魂（Markdown）',
 			'prefs.hint': '这里是全局偏好。保存后由 DSH 的 AGENTS.md 加载器注入给每个会话。',
 			'prefs.content': '全局偏好（Markdown）',
 			'prefs.global': '全局加载',
@@ -159,7 +156,7 @@ window.__ModuleLoader__.load({
 			'time.minutes': '{n} 分钟前',
 			'time.hours': '{n} 小时前',
 			'time.days': '{n} 天前',
-			'settings.hint': '数据目录决定卡片、灵魂与偏好放在哪里；云端备份把整个目录打包上传。',
+			'settings.hint': '数据目录决定卡片与偏好放在哪里；云端备份把整个目录打包上传。',
 			'settings.data': '数据目录',
 			'settings.data.current': '当前目录',
 			'settings.data.new': '新目录（绝对路径）',
@@ -177,7 +174,7 @@ window.__ModuleLoader__.load({
 			'settings.needArchive': '先选择或填写压缩包路径。',
 			'settings.needDataDir': '先选择或填写新的数据目录。',
 			'settings.transfer': '导入 / 导出',
-			'settings.transfer.hint': '导出会生成一个 .tar.gz 压缩包（整份数据目录）；导入支持 .tar.gz / .tgz / .tar，默认不覆盖同名文件。勾选覆盖后，压缩包里的灵魂、偏好和卡片会替换你现在的——包括写进每次会话的那部分指令，只导入自己生成的包。',
+			'settings.transfer.hint': '导出会生成一个 .tar.gz 压缩包（整份数据目录）；导入支持 .tar.gz / .tgz / .tar，默认不覆盖同名文件。勾选覆盖后，压缩包里的偏好和卡片会替换你现在的——包括写进每次会话的那部分指令，只导入自己生成的包。',
 			'settings.transfer.exportPath': '导出目录',
 			'settings.transfer.exportName': '文件名',
 			'settings.transfer.archives': '这个目录里的压缩包',
@@ -236,7 +233,6 @@ window.__ModuleLoader__.load({
 			'panel': 'Evolver',
 			'tab.overview': 'Overview',
 			'tab.cards': 'Cards',
-			'tab.soul': 'Soul',
 			'cards.new': 'New card',
 			'cards.search': 'Search cards…',
 			'cards.filter.all': 'All',
@@ -288,6 +284,7 @@ window.__ModuleLoader__.load({
 			'sight.ingest.sessionsUnit': 'sessions',
 			'sight.ingest.memoriesUnit': 'memories',
 			'tab.preferences': 'Preferences',
+			'tab.organize': 'Organise',
 			'tab.settings': 'Settings',
 			'state.migrated': 'Moved to the new folder',
 			'state.exported': 'Exported',
@@ -338,13 +335,10 @@ window.__ModuleLoader__.load({
 			'overview.truncated': 'Truncated',
 			'overview.link': 'Link',
 			'overview.cards': 'Tag tree',
-			'overview.soul': 'Soul',
 			'overview.preferences': 'Preferences',
 			'overview.budget': 'Budget',
 			'overview.dropped': 'Left out of the index',
 			'overview.projection': 'Injected tag tree',
-			'soul.hint': 'The soul is the agent’s persona and boundaries; it is read in every session.',
-			'soul.content': 'Soul (Markdown)',
 			'prefs.hint': 'Global preferences. DSH injects this file through its AGENTS.md loader.',
 			'prefs.content': 'Global preferences (Markdown)',
 			'prefs.global': 'Global load',
@@ -355,7 +349,7 @@ window.__ModuleLoader__.load({
 			'time.minutes': '{n} min ago',
 			'time.hours': '{n} h ago',
 			'time.days': '{n} d ago',
-			'settings.hint': 'The data folder holds the cards, the soul and the preferences; a cloud backup uploads the whole folder.',
+			'settings.hint': 'The data folder holds the cards and the preferences; a cloud backup uploads the whole folder.',
 			'settings.data': 'Data folder',
 			'settings.data.current': 'Current folder',
 			'settings.data.new': 'New folder (absolute path)',
@@ -373,7 +367,7 @@ window.__ModuleLoader__.load({
 			'settings.needArchive': 'Choose or type an archive path first.',
 			'settings.needDataDir': 'Choose or type the new data folder first.',
 			'settings.transfer': 'Import / export',
-			'settings.transfer.hint': 'Export writes one .tar.gz archive of the whole data folder; import accepts .tar.gz / .tgz / .tar and does not overwrite by default. With overwrite on, the archive replaces your soul, preferences and cards — including the text injected into every session. Only import archives you made yourself.',
+			'settings.transfer.hint': 'Export writes one .tar.gz archive of the whole data folder; import accepts .tar.gz / .tgz / .tar and does not overwrite by default. With overwrite on, the archive replaces your preferences and cards — including the text injected into every session. Only import archives you made yourself.',
 			'settings.transfer.exportPath': 'Export folder',
 			'settings.transfer.exportName': 'File name',
 			'settings.transfer.archives': 'Archives in that folder',
@@ -436,8 +430,8 @@ window.__ModuleLoader__.load({
 		var TABS = [
 			{ id: 'overview', label: 'tab.overview' },
 			{ id: 'cards', label: 'tab.cards' },
-			{ id: 'soul', label: 'tab.soul' },
 			{ id: 'preferences', label: 'tab.preferences' },
+			{ id: 'organize', label: 'tab.organize' },
 			{ id: 'settings', label: 'tab.settings' },
 		];
 
@@ -1885,7 +1879,6 @@ window.__ModuleLoader__.load({
 				// host gets no tab instead of a dead one.
 				props.descriptions === null ? null : { id: 'descriptions', label: t('overview.descriptions') },
 				{ id: 'cards', label: t('overview.cards') },
-				{ id: 'soul', label: t('overview.soul') },
 				{ id: 'preferences', label: t('overview.preferences') },
 			].filter(function (item) { return item !== null; });
 
@@ -1945,12 +1938,6 @@ window.__ModuleLoader__.load({
 						[t('overview.dropped'), String(injection.cards.dropped)],
 						[t('overview.entries'), String(injection.cards.entries)],
 					], injection.cards.text ?? '');
-				}
-				if (section === 'soul') {
-					return preview(t('overview.soul'), [
-						[t('overview.bytes'), formatBytes(injection.soul.bytes)],
-						[t('overview.budget'), formatBytes(injection.soul.budget)],
-					].concat(injection.soul.truncated === true ? [[t('overview.truncated'), '—']] : []), injection.soul.text ?? '');
 				}
 				if (section === 'preferences') {
 					return preview(t('overview.preferences'), [
@@ -2087,34 +2074,6 @@ window.__ModuleLoader__.load({
 						},
 					}, t('action.cancel')),
 					missing === 0 ? null : h('span', { className: 'evrHint' }, t('overview.descriptions.warn'))));
-		}
-
-		/**
-		 * The soul document, on its own tab.
-		 *
-		 * @param {object} props - Component props.
-		 * @returns {object} The element tree.
-		 */
-		function SoulTab(props) {
-			var t = props.t;
-			return h('div', { className: 'evrEditorPage' },
-				h('div', { className: 'evrSection' }, t('soul.content')),
-				h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('soul.hint')),
-				h('textarea', {
-					className: 'evrTextarea',
-					value: props.soul?.content ?? '',
-					onChange: function (event) { props.onSoulChange(event.target.value); },
-				}),
-				h('div', { className: 'evrEditorFoot' },
-					h('button', {
-						type: 'button',
-						className: 'evrBtn evrBtnPrimary',
-						disabled: props.busy,
-						onClick: props.onSoulSave,
-					}, t('action.save')),
-					props.status === undefined || props.status === null
-						? null
-						: h('span', { className: 'evrStatus' + (props.status.error ? ' evrStatusError' : ' evrStatusOk') }, props.status.message)));
 		}
 
 		/**
@@ -2645,7 +2604,6 @@ window.__ModuleLoader__.load({
 			var sectionBar = h('div', { className: 'evrToolbar', role: 'tablist' }, [
 				{ id: 'data', label: t('settings.data') },
 				{ id: 'transfer', label: t('settings.transfer') },
-				{ id: 'organize', label: t('settings.section.organize') },
 				{ id: 'backup', label: t('settings.section.backup') },
 			].map(function (item) {
 				return h('button', {
@@ -2658,114 +2616,6 @@ window.__ModuleLoader__.load({
 				}, item.label);
 			}));
 
-			/**
-			 * The two organisers, each with its own switch and schedule.
-			 *
-			 * They are kept apart because they do different work on different
-			 * material: the session ingest reads conversations and writes new
-			 * fleeting cards, while the card consolidation edits the library
-			 * that is already there.
-			 *
-			 * @returns {object[]} The section content.
-			 */
-			function renderOrganize() {
-				var ingestStatus = props.ingest;
-				var ingestForm = props.ingestDraft;
-				var consolidateStatus = props.consolidate;
-				var consolidateForm = props.consolidateDraft;
-				var ingestReady = ingestStatus !== null && ingestStatus !== undefined && ingestForm !== null && ingestForm !== undefined;
-				var consolidateReady = consolidateStatus !== null && consolidateStatus !== undefined && consolidateForm !== null && consolidateForm !== undefined;
-				return [
-					h('div', { className: 'evrSection' }, t('settings.section.organize')),
-					h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.organize.hint')),
-					ingestReady
-						? h('div', { className: 'evrCard', style: { marginBottom: '12px' } },
-							h('div', { className: 'evrCardHead' },
-								h('span', { className: 'evrCardTitle' }, t('sight.ingest.auto')),
-								h('span', { className: 'evrCardCount' }, ingestStatus.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
-							h('div', { className: 'evrCardHint', style: { marginBottom: '8px' } }, t('settings.organize.ingestHint')),
-							h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-								h('input', {
-									type: 'checkbox',
-									checked: ingestForm.enabled,
-									onChange: function (event) { props.onIngestDraft({ enabled: event.target.checked }); },
-								}),
-								t('sight.ingest.enable')),
-							h('div', { className: 'evrToolbar' },
-								h('input', {
-									className: 'evrInput evrInputNarrow',
-									type: 'number',
-									min: 5,
-									max: 240,
-									value: ingestForm.idleMinutes,
-									onChange: function (event) { props.onIngestDraft({ idleMinutes: Number(event.target.value) }); },
-								}),
-								h('span', { className: 'evrHint' }, t('sight.ingest.idleUnit')),
-								h('span', { style: { flex: '1' } }),
-								h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onIngestSave(ingestForm); } }, t('action.save')),
-								h('button', {
-									type: 'button',
-									className: 'evrBtn',
-									disabled: props.busy || !ingestStatus.available,
-									onClick: props.onIngestRun,
-								}, t('sight.ingest.run'))),
-							h('div', { className: 'evrHint' }, ingestStatus.available
-								? t('sight.ingest.pending') + ': ' + (ingestStatus.pending ?? 0) + ' · ' + t('sight.ingest.processed') + ': ' + (ingestStatus.ledger?.processed ?? 0)
-								: t('sight.ingest.unavailable')))
-						: null,
-					consolidateReady
-						? h('div', { className: 'evrCard' },
-							h('div', { className: 'evrCardHead' },
-								h('span', { className: 'evrCardTitle' }, t('settings.consolidate.title')),
-								h('span', { className: 'evrCardCount' }, consolidateStatus.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
-							h('div', { className: 'evrCardHint', style: { marginBottom: '8px' } }, t('settings.consolidate.hint')),
-							h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
-								h('input', {
-									type: 'checkbox',
-									checked: consolidateForm.enabled,
-									onChange: function (event) { props.onConsolidateDraft({ enabled: event.target.checked }); },
-								}),
-								t('sight.ingest.enable')),
-							h('div', { className: 'evrToolbar' },
-								h('span', { className: 'evrHint' }, t('settings.consolidate.cards')),
-								h('input', {
-									className: 'evrInput evrInputNarrow',
-									type: 'number',
-									min: 1,
-									max: 100,
-									value: consolidateForm.dailyCards,
-									onChange: function (event) { props.onConsolidateDraft({ dailyCards: Number(event.target.value) }); },
-								}),
-								h('span', { className: 'evrHint' }, t('settings.consolidate.at')),
-								h('input', {
-									className: 'evrInput evrInputNarrow',
-									type: 'number',
-									min: 0,
-									max: 23,
-									value: consolidateForm.hour,
-									onChange: function (event) { props.onConsolidateDraft({ hour: Number(event.target.value) }); },
-								}),
-								h('span', { className: 'evrHint' }, t('settings.consolidate.hourUnit')),
-								h('span', { style: { flex: '1' } }),
-								h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onConsolidateSave(consolidateForm); } }, t('action.save')),
-								h('button', {
-									type: 'button',
-									className: 'evrBtn',
-									disabled: props.busy || !consolidateStatus.available,
-									onClick: props.onConsolidateRun,
-								}, t('settings.consolidate.run'))),
-							h('div', { className: 'evrHint' }, consolidateStatus.available
-								? t('settings.consolidate.due') + ': ' + (consolidateStatus.due ?? 0) + ' / ' + (consolidateStatus.total ?? 0)
-									+ ' · ' + t('settings.consolidate.lastRun') + ': '
-									+ (consolidateStatus.lastRunAt === null || consolidateStatus.lastRunAt === undefined
-										? t('settings.consolidate.never')
-										: relativeTime(consolidateStatus.lastRunAt, t))
-									+ (consolidateStatus.lastError === '' ? '' : ' · ' + consolidateStatus.lastError)
-								: t('sight.ingest.unavailable')))
-						: null,
-					h('div', { className: 'evrHint evrMono', style: { marginTop: '10px' } }, t('settings.consolidate.trashHint'))
-				];
-			}
 
 			var sections = {
 				data: [
@@ -2954,10 +2804,120 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'evrHint evrMono', style: { marginTop: '8px' } },
 					t('settings.backup.settingsPath') + ': ' + (settings.settingsPath || '')),
 				],
-				organize: renderOrganize(),
 			};
 
 			return h.apply(null, ['div', null, sectionBar].concat(sections[section] ?? []));
+		}
+
+		/**
+		 * The two organisers, each with its own switch and schedule.
+		 *
+		 * They are kept apart because they do different work on different
+		 * material: the session ingest reads conversations and writes new
+		 * fleeting cards, while the card consolidation edits the library
+		 * that is already there.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function OrganiseTab(props) {
+			var t = props.t;
+			var ingestStatus = props.ingest;
+			var ingestForm = props.ingestDraft;
+			var consolidateStatus = props.consolidate;
+			var consolidateForm = props.consolidateDraft;
+			var ingestReady = ingestStatus !== null && ingestStatus !== undefined && ingestForm !== null && ingestForm !== undefined;
+			var consolidateReady = consolidateStatus !== null && consolidateStatus !== undefined && consolidateForm !== null && consolidateForm !== undefined;
+			return h.apply(null, ['div', null].concat([
+				h('div', { className: 'evrSection' }, t('settings.section.organize')),
+				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.organize.hint')),
+				ingestReady
+					? h('div', { className: 'evrCard', style: { marginBottom: '12px' } },
+						h('div', { className: 'evrCardHead' },
+							h('span', { className: 'evrCardTitle' }, t('sight.ingest.auto')),
+							h('span', { className: 'evrCardCount' }, ingestStatus.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
+						h('div', { className: 'evrCardHint', style: { marginBottom: '8px' } }, t('settings.organize.ingestHint')),
+						h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+							h('input', {
+								type: 'checkbox',
+								checked: ingestForm.enabled,
+								onChange: function (event) { props.onIngestDraft({ enabled: event.target.checked }); },
+							}),
+							t('sight.ingest.enable')),
+						h('div', { className: 'evrToolbar' },
+							h('input', {
+								className: 'evrInput evrInputNarrow',
+								type: 'number',
+								min: 5,
+								max: 240,
+								value: ingestForm.idleMinutes,
+								onChange: function (event) { props.onIngestDraft({ idleMinutes: Number(event.target.value) }); },
+							}),
+							h('span', { className: 'evrHint' }, t('sight.ingest.idleUnit')),
+							h('span', { style: { flex: '1' } }),
+							h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onIngestSave(ingestForm); } }, t('action.save')),
+							h('button', {
+								type: 'button',
+								className: 'evrBtn',
+								disabled: props.busy || !ingestStatus.available,
+								onClick: props.onIngestRun,
+							}, t('sight.ingest.run'))),
+						h('div', { className: 'evrHint' }, ingestStatus.available
+							? t('sight.ingest.pending') + ': ' + (ingestStatus.pending ?? 0) + ' · ' + t('sight.ingest.processed') + ': ' + (ingestStatus.ledger?.processed ?? 0)
+							: t('sight.ingest.unavailable')))
+					: null,
+				consolidateReady
+					? h('div', { className: 'evrCard' },
+						h('div', { className: 'evrCardHead' },
+							h('span', { className: 'evrCardTitle' }, t('settings.consolidate.title')),
+							h('span', { className: 'evrCardCount' }, consolidateStatus.enabled ? t('sight.ingest.on') : t('sight.ingest.off'))),
+						h('div', { className: 'evrCardHint', style: { marginBottom: '8px' } }, t('settings.consolidate.hint')),
+						h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px' } },
+							h('input', {
+								type: 'checkbox',
+								checked: consolidateForm.enabled,
+								onChange: function (event) { props.onConsolidateDraft({ enabled: event.target.checked }); },
+							}),
+							t('sight.ingest.enable')),
+						h('div', { className: 'evrToolbar' },
+							h('span', { className: 'evrHint' }, t('settings.consolidate.cards')),
+							h('input', {
+								className: 'evrInput evrInputNarrow',
+								type: 'number',
+								min: 1,
+								max: 100,
+								value: consolidateForm.dailyCards,
+								onChange: function (event) { props.onConsolidateDraft({ dailyCards: Number(event.target.value) }); },
+							}),
+							h('span', { className: 'evrHint' }, t('settings.consolidate.at')),
+							h('input', {
+								className: 'evrInput evrInputNarrow',
+								type: 'number',
+								min: 0,
+								max: 23,
+								value: consolidateForm.hour,
+								onChange: function (event) { props.onConsolidateDraft({ hour: Number(event.target.value) }); },
+							}),
+							h('span', { className: 'evrHint' }, t('settings.consolidate.hourUnit')),
+							h('span', { style: { flex: '1' } }),
+							h('button', { type: 'button', className: 'evrBtn', onClick: function () { props.onConsolidateSave(consolidateForm); } }, t('action.save')),
+							h('button', {
+								type: 'button',
+								className: 'evrBtn',
+								disabled: props.busy || !consolidateStatus.available,
+								onClick: props.onConsolidateRun,
+							}, t('settings.consolidate.run'))),
+						h('div', { className: 'evrHint' }, consolidateStatus.available
+							? t('settings.consolidate.due') + ': ' + (consolidateStatus.due ?? 0) + ' / ' + (consolidateStatus.total ?? 0)
+								+ ' · ' + t('settings.consolidate.lastRun') + ': '
+								+ (consolidateStatus.lastRunAt === null || consolidateStatus.lastRunAt === undefined
+									? t('settings.consolidate.never')
+									: relativeTime(consolidateStatus.lastRunAt, t))
+								+ (consolidateStatus.lastError === '' ? '' : ' · ' + consolidateStatus.lastError)
+							: t('sight.ingest.unavailable')))
+					: null,
+				h('div', { className: 'evrHint evrMono', style: { marginTop: '10px' } }, t('settings.consolidate.trashHint'))
+			]));
 		}
 
 		//#endregion
@@ -2978,7 +2938,6 @@ window.__ModuleLoader__.load({
 			var [tab, setTab] = useState('overview');
 			var [overview, setOverview] = useState(null);
 			var [injection, setInjection] = useState(null);
-			var [soul, setSoul] = useState(null);
 			var [preferences, setPreferences] = useState(null);
 			var [settings, setSettings] = useState(null);
 			var [settingsEpoch, setSettingsEpoch] = useState(0);
@@ -3014,7 +2973,6 @@ window.__ModuleLoader__.load({
 				return Promise.all([
 					call('overview'),
 					call('injection'),
-					call('soul'),
 					call('preferences'),
 					call('settings'),
 					call('ingest-status'),
@@ -3024,17 +2982,19 @@ window.__ModuleLoader__.load({
 					// error; the panel then simply has no descriptions to edit.
 					call('tag-descriptions').catch(function () { return null; }),
 				]).then(function (results) {
-					setOverview(results[0]);
-					setInjection(results[1]);
-					setSoul(results[2]);
-					setPreferences(results[3]);
-					setSettings(results[4]);
-					setIngest(results[5]);
-					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(results[5]) : current; });
-					setConsolidate(results[6]);
-					setConsolidateDraft(function (current) { return current === null || current === undefined ? consolidateFormOf(results[6]) : current; });
-					setCards(results[7]);
-					setDescriptions(results[8]?.descriptions ?? null);
+					// Named rather than indexed: a removed endpoint used to shift
+					// every setter below it by one, silently.
+					var [nextOverview, nextInjection, nextPreferences, nextSettings, nextIngest, nextConsolidate, nextCards, nextDescriptions] = results;
+					setOverview(nextOverview);
+					setInjection(nextInjection);
+					setPreferences(nextPreferences);
+					setSettings(nextSettings);
+					setIngest(nextIngest);
+					setIngestDraft(function (current) { return current === null || current === undefined ? ingestFormOf(nextIngest) : current; });
+					setConsolidate(nextConsolidate);
+					setConsolidateDraft(function (current) { return current === null || current === undefined ? consolidateFormOf(nextConsolidate) : current; });
+					setCards(nextCards);
+					setDescriptions(nextDescriptions?.descriptions ?? null);
 					setError(null);
 				}).catch(function (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
@@ -3061,19 +3021,6 @@ window.__ModuleLoader__.load({
 					setBusy(false);
 				});
 			}, [call, report, t]);
-
-			var saveSoul = useCallback(function () {
-				setBusy(true);
-				call('soul-save', { content: soul?.content ?? '' }).then(function () {
-					report(t('state.saved'), false);
-					return Promise.all([call('injection'), call('overview')]).then(function (results) {
-						setInjection(results[0]);
-						setOverview(results[1]);
-					});
-				}).catch(function (reason) {
-					report(reason instanceof Error ? reason.message : String(reason), true);
-				}).finally(function () { setBusy(false); });
-			}, [call, report, soul, t]);
 
 			var savePreferences = useCallback(function () {
 				setBusy(true);
@@ -3471,15 +3418,6 @@ window.__ModuleLoader__.load({
 					onDelete: deleteCard,
 					onAttach: attachCard,
 				});
-			} else if (tab === 'soul') {
-				body = h(SoulTab, {
-					t: t,
-					soul: soul,
-					onSoulChange: function (content) { setSoul(function (previous) { return { ...(previous ?? {}), content: content }; }); },
-					onSoulSave: saveSoul,
-					busy: busy,
-					status: status,
-				});
 			} else if (tab === 'preferences') {
 				body = h(PreferencesTab, {
 					t: t,
@@ -3490,6 +3428,21 @@ window.__ModuleLoader__.load({
 					onUnlink: unlinkGlobal,
 					busy: busy,
 					status: status,
+				});
+			} else if (tab === 'organize') {
+				body = h(OrganiseTab, {
+					t: t,
+					busy: busy,
+					ingest: ingest,
+					ingestDraft: ingestDraft,
+					onIngestDraft: patchIngestDraft,
+					onIngestSave: saveIngest,
+					onIngestRun: runIngest,
+					consolidate: consolidate,
+					consolidateDraft: consolidateDraft,
+					onConsolidateDraft: patchConsolidateDraft,
+					onConsolidateSave: saveConsolidate,
+					onConsolidateRun: runConsolidate,
 				});
 			} else if (tab === 'settings') {
 				body = h(SettingsTab, {
@@ -3508,16 +3461,6 @@ window.__ModuleLoader__.load({
 					onTestBackup: testBackup,
 					onPickDirectory: pickDirectory,
 					onBrowseArchives: browseArchives,
-					ingest: ingest,
-					ingestDraft: ingestDraft,
-					onIngestDraft: patchIngestDraft,
-					onIngestSave: saveIngest,
-					onIngestRun: runIngest,
-					consolidate: consolidate,
-					consolidateDraft: consolidateDraft,
-					onConsolidateDraft: patchConsolidateDraft,
-					onConsolidateSave: saveConsolidate,
-					onConsolidateRun: runConsolidate,
 				});
 			}
 

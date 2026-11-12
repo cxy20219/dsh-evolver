@@ -393,12 +393,9 @@ function apiPayload(endpoint, payload) {
 		case 'injection':
 			return {
 				cards: { text: '[卡片]', bytes: 10, budget: 2048, entries: 3, dropped: 0 },
-				soul: { text: '## 灵魂\n- 一条纪律\n- 另一条纪律\n\n> 引用一句', bytes: 4, budget: 1024 },
 				preferences: { text: 'prefs', bytes: 5, link: { kind: 'missing' } },
-				totalBytes: 19,
+				totalBytes: 15,
 			}
-		case 'soul':
-			return { content: '', bytes: 0 }
 		case 'preferences':
 			return { content: '', bytes: 0, link: { kind: 'missing' }, globalPath: '/home/AGENTS.md', path: '/data/evolver/preferences/AGENTS.md' }
 		case 'settings':
@@ -544,7 +541,7 @@ test('点击导出后面板显示可见的成功提示', async () => {
 	}
 })
 
-test('两个整理器都在设置里，卡片页不再自带整理块', async () => {
+test('两个整理器在独立整理页，卡片页与设置页都不再自带整理块', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
 	globalThis.fetch = async (url, options) => {
@@ -565,11 +562,7 @@ test('两个整理器都在设置里，卡片页不再自带整理块', async ()
 		// The cards tab no longer carries the organiser.
 		assert.equal(findAll(tree, (node) => textOf(node) === 'sight.ingest.auto').length, 0)
 
-		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
-		tree = await runtime.settle(render)
-		const organizeTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.section.organize')
-		assert.equal(organizeTab.length, 1)
-		organizeTab[0].props.onClick()
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.organize')[0].props.onClick()
 		tree = await runtime.settle(render)
 
 		// Both organisers live here: the session ingest and the daily cards.
@@ -585,12 +578,17 @@ test('两个整理器都在设置里，卡片页不再自带整理块', async ()
 		batch.props.onChange({ target: { value: '30' } })
 		tree = await runtime.settle(render)
 		assert.ok(findAll(tree, (node) => node.type === 'input' && node.props?.value === 30).length >= 1)
+
+		// Settings keeps only the three data tabs; the organiser is not one.
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.section.organize').length, 0)
 	} finally {
 		globalThis.fetch = previousFetch
 	}
 })
 
-test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入口', async () => {
+test('卡片和偏好是独立标签，卡片页有筛选、列表和新建入口', async () => {
 	const runtime = createRuntime()
 	const previousFetch = globalThis.fetch
 	globalThis.fetch = async (url, options) => {
@@ -646,7 +644,9 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.ok(findAll(tree, (node) => textOf(node) === '践行').length >= 1)
 		assert.equal(findAll(tree, (node) => textOf(node).includes('#践行')).length, 0)
 		assert.ok(tabs.includes('tab.cards'))
-		assert.ok(tabs.includes('tab.soul'))
+		assert.ok(tabs.includes('tab.preferences'))
+		assert.ok(tabs.includes('tab.organize'))
+		assert.equal(tabs.includes('tab.soul'), false)
 		assert.equal(tabs.includes('tab.sight'), false)
 
 		// One heatmap, always the whole year; no range switch.
@@ -686,9 +686,10 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 
 		// The overview splits into four sub-tabs; the injected blocks are read-only previews.
 		const subTabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
-		for (const label of ['overview.stats', 'overview.descriptions', 'overview.cards', 'overview.soul', 'overview.preferences']) {
+		for (const label of ['overview.stats', 'overview.descriptions', 'overview.cards', 'overview.preferences']) {
 			assert.ok(subTabs.includes(label), `missing sub-tab ${label}`)
 		}
+		assert.equal(subTabs.includes('overview.soul'), false)
 		// The tag tree sits next to the relationship graph, and the graph keeps the drill-down.
 		assert.ok(findAll(tree, (node) => typeof node.props?.className === 'string'
 			&& node.props.className.includes('evrOverviewGraph')).length === 1)
@@ -739,14 +740,6 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.equal(findAll(tree, (node) => typeof node.props?.className === 'string'
 			&& node.props.className.includes('evrDescRowMissing')).length, 0)
 
-		const soulSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.soul')
-		assert.equal(soulSubTab.length, 1)
-		soulSubTab[0].props.onClick()
-		tree = await runtime.settle(render)
-		assert.ok(findAll(tree, (node) => node.type === 'h2' && textOf(node) === '灵魂').length === 1)
-		assert.equal(findAll(tree, (node) => node.type === 'li').length, 2)
-		assert.ok(findAll(tree, (node) => node.type === 'blockquote').length === 1)
-
 		const prefsSubTab = findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.preferences')
 		assert.equal(prefsSubTab.length, 1)
 		prefsSubTab[0].props.onClick()
@@ -781,7 +774,7 @@ test('卡片和灵魂是独立标签，卡片页有筛选、列表和新建入�
 		assert.equal(findAll(tree, (node) => textOf(node) === '#部署').length, 0)
 		assert.ok(findAll(tree, (node) => textOf(node) === '卡片标题').length >= 1)
 
-		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.soul')[0].props.onClick()
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.preferences')[0].props.onClick()
 		tree = await runtime.settle(render)
 		assert.equal(findAll(tree, (node) => node.type === 'textarea').length, 1)
 	} finally {
