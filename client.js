@@ -235,6 +235,25 @@ window.__ModuleLoader__.load({
 			'settings.confirmImport': '覆盖模式会替换现有的偏好与卡片，确定继续导入？',
 			'settings.transfer': '导入 / 导出',
 			'settings.transfer.hint': '导出会生成一个 .tar.gz 压缩包（整份数据目录）；导入支持 .tar.gz / .tgz / .tar，默认不覆盖同名文件。勾选覆盖后，压缩包里的偏好和卡片会替换你现在的——包括写进每次会话的那部分指令，只导入自己生成的包。',
+			'settings.absorb': '吸收合并',
+			'settings.absorb.hint': '把另一台设备导出的压缩包并进当前知识库：只增不改，本地已有的卡保持原样。偏好、会话游标和整理台账属于设备状态，不会合并。',
+			'settings.absorb.file': '来自其他设备的归档',
+			'settings.absorb.placeholder': '/Users/you/Desktop/dsh-evolver-20260101-120000.tar.gz',
+			'settings.absorb.rules': '同 id 已存在 → 保留本地；正文完全相同 → 视为重复跳过；其余卡片连同附件、链接与枝干说明一起吸收。',
+			'settings.absorb.archives': '可吸收的归档',
+			'settings.absorb.noArchives': '这个目录里没有 .tar.gz / .tgz / .tar',
+			'settings.absorb.run': '开始吸收',
+			'settings.absorb.confirm': '确认把这台设备的卡片并进当前知识库？本地已有的同 id 卡片不会被覆盖。',
+			'settings.absorb.result': '上次吸收',
+			'settings.absorb.problems': '需要注意',
+			'settings.absorb.count.incoming': '归档卡片',
+			'settings.absorb.count.added': '新增',
+			'settings.absorb.count.duplicate': '重复跳过',
+			'settings.absorb.count.existing': '同 id 保留本地',
+			'settings.absorb.count.skipped': '跳过',
+			'settings.absorb.count.files': '附件',
+			'settings.absorb.count.branches': '枝干说明',
+			'state.absorbed': '吸收完成',
 			'settings.transfer.exportPath': '导出目录',
 			'settings.transfer.exportName': '文件名',
 			'settings.transfer.archives': '这个目录里的压缩包',
@@ -494,6 +513,25 @@ window.__ModuleLoader__.load({
 			'settings.confirmImport': 'Overwrite mode replaces the existing preferences and cards. Continue?',
 			'settings.transfer': 'Import / export',
 			'settings.transfer.hint': 'Export writes one .tar.gz archive of the whole data folder; import accepts .tar.gz / .tgz / .tar and does not overwrite by default. With overwrite on, the archive replaces your preferences and cards — including the text injected into every session. Only import archives you made yourself.',
+			'settings.absorb': 'Absorb',
+			'settings.absorb.hint': 'Merge an archive exported on another device into this library. It only adds: existing cards stay as they are. Preferences, session cursors and review ledgers are device state and are never merged.',
+			'settings.absorb.file': 'Archive from another device',
+			'settings.absorb.placeholder': '/Users/you/Desktop/dsh-evolver-20260101-120000.tar.gz',
+			'settings.absorb.rules': 'Same id → the local card wins; an identical body → duplicate, skipped; everything else is added with its attachments, links and branch descriptions.',
+			'settings.absorb.archives': 'Archives to absorb',
+			'settings.absorb.noArchives': 'No .tar.gz / .tgz / .tar in this folder',
+			'settings.absorb.run': 'Start absorbing',
+			'settings.absorb.confirm': 'Merge this device\'s cards into this library? Existing cards with the same id will not be overwritten.',
+			'settings.absorb.result': 'Last absorb',
+			'settings.absorb.problems': 'Needs attention',
+			'settings.absorb.count.incoming': 'Cards in archive',
+			'settings.absorb.count.added': 'Added',
+			'settings.absorb.count.duplicate': 'Duplicates skipped',
+			'settings.absorb.count.existing': 'Same id kept local',
+			'settings.absorb.count.skipped': 'Skipped',
+			'settings.absorb.count.files': 'Attachments',
+			'settings.absorb.count.branches': 'Branch descriptions',
+			'state.absorbed': 'Absorbed',
 			'settings.transfer.exportPath': 'Export folder',
 			'settings.transfer.exportName': 'File name',
 			'settings.transfer.archives': 'Archives in that folder',
@@ -3819,6 +3857,9 @@ window.__ModuleLoader__.load({
 			var [section, setSection] = useState('data');
 			var [importDir, setImportDir] = useState('');
 			var [transferForce, setTransferForce] = useState(false);
+			var [absorbDir, setAbsorbDir] = useState('');
+			var [absorbList, setAbsorbList] = useState(null);
+			var [absorbResult, setAbsorbResult] = useState(null);
 
 			useEffect(function () {
 				setForm(backupForm(settings));
@@ -3903,6 +3944,38 @@ window.__ModuleLoader__.load({
 				props.onImport(importDir.trim(), transferForce);
 			}
 
+			/**
+			 * Ask for a folder and list the archives inside it.
+			 *
+			 * @returns {void}
+			 */
+			function browseAbsorbArchives() {
+				if (typeof props.onBrowseArchives !== 'function') return;
+				props.onBrowseArchives().then(function (value) {
+					if (value && Array.isArray(value.files)) setAbsorbList(value);
+				});
+			}
+
+			/**
+			 * Merge the chosen archive into the live library.
+			 *
+			 * @returns {void}
+			 */
+			function absorbNow() {
+				if (absorbDir.trim() === '') {
+					props.onNotify(t('settings.needArchive'), true);
+					return;
+				}
+				if (typeof confirm === 'function' && confirm(t('settings.absorb.confirm')) !== true) return;
+				setAbsorbResult(null);
+				var pending = props.onAbsorb(absorbDir.trim());
+				if (pending && typeof pending.then === 'function') {
+					pending.then(function (value) {
+						if (value !== null && value !== undefined) setAbsorbResult(value);
+					});
+				}
+			}
+
 			function saveBackup() {
 				props.onSaveBackup({
 					enabled: form.enabled,
@@ -3929,24 +4002,28 @@ window.__ModuleLoader__.load({
 			}
 
 			/**
-			 * The archives the folder picker found.
+			 * One archive list, for whichever flow asked for it.
 			 *
+			 * @param {object | null} list - The `data-archives` answer.
+			 * @param {Function} onPick - What a row click fills.
+			 * @param {string} titleKey - The card title.
+			 * @param {string} emptyKey - The empty-folder text.
 			 * @returns {object | null} The list card.
 			 */
-			function renderArchiveList() {
-				if (archiveList === null) return null;
-				var files = Array.isArray(archiveList.files) ? archiveList.files : [];
+			function renderArchiveList(list, onPick, titleKey, emptyKey) {
+				if (list === null) return null;
+				var files = Array.isArray(list.files) ? list.files : [];
 				return h('div', { className: 'evrCard', style: { marginTop: '8px' } },
 					h('div', { className: 'evrCardHead' },
-						h('span', { className: 'evrCardTitle' }, t('settings.transfer.archives')),
+						h('span', { className: 'evrCardTitle' }, t(titleKey)),
 						h('span', { className: 'evrCardCount' }, String(files.length))),
 					files.length === 0
-						? h('div', { className: 'evrCardHint' }, t('settings.transfer.noArchives'))
+						? h('div', { className: 'evrCardHint' }, t(emptyKey))
 						: h('div', null, files.map(function (item) {
 							return h('div', {
 								key: item.path,
 								className: 'evrRow',
-								onClick: function () { setImportDir(item.path); },
+								onClick: function () { onPick(item.path); },
 							},
 								h('div', { className: 'evrRowMain' },
 									h('div', { className: 'evrRowTitle' }, item.name),
@@ -3994,6 +4071,7 @@ window.__ModuleLoader__.load({
 			var sectionBar = h('div', { className: 'evrToolbar', role: 'tablist' }, [
 				{ id: 'data', label: t('settings.data') },
 				{ id: 'transfer', label: t('settings.transfer') },
+				{ id: 'absorb', label: t('settings.absorb') },
 				{ id: 'backup', label: t('settings.section.backup') },
 			].map(function (item) {
 				return h('button', {
@@ -4098,7 +4176,7 @@ window.__ModuleLoader__.load({
 							disabled: busy,
 							onClick: browseArchives,
 						}, t('settings.action.pick')))),
-				renderArchiveList(),
+				renderArchiveList(archiveList, setImportDir, 'settings.transfer.archives', 'settings.transfer.noArchives'),
 				h('label', { className: 'evrHint', style: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px' } },
 					h('input', { type: 'checkbox', checked: transferForce, onChange: function (event) { setTransferForce(event.target.checked); } }),
 					t('settings.transfer.force')),
@@ -4115,6 +4193,56 @@ window.__ModuleLoader__.load({
 						disabled: busy,
 						onClick: importNow,
 					}, t('settings.action.import'))),
+
+				],
+				absorb: [
+				h('div', { className: 'evrSection' }, t('settings.absorb')),
+				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.absorb.hint')),
+				h(Field, { label: t('settings.absorb.file') },
+					h('div', { style: { display: 'flex', gap: '6px' } },
+						h('input', {
+							className: 'evrInput',
+							value: absorbDir,
+							placeholder: t('settings.absorb.placeholder'),
+							onChange: function (event) { setAbsorbDir(event.target.value); },
+						}),
+						h('button', {
+							type: 'button',
+							className: 'evrBtn',
+							disabled: busy,
+							onClick: browseAbsorbArchives,
+						}, t('settings.action.pick')))),
+				renderArchiveList(absorbList, setAbsorbDir, 'settings.absorb.archives', 'settings.absorb.noArchives'),
+				h('div', { className: 'evrHint', style: { marginTop: '8px' } }, t('settings.absorb.rules')),
+				h('div', { className: 'evrEditorFoot' },
+					h('button', {
+						type: 'button',
+						className: 'evrBtn evrBtnPrimary',
+						disabled: busy,
+						onClick: absorbNow,
+					}, t('settings.absorb.run'))),
+				absorbResult === null
+					? null
+					: h('div', { className: 'evrCard', style: { marginTop: '10px' } },
+						h('div', { className: 'evrCardHead' },
+							h('span', { className: 'evrCardTitle' }, t('settings.absorb.result')),
+							h('span', { className: 'evrCardCount' }, '+' + String(absorbResult.added ?? 0))),
+						h('div', { className: 'evrRowMain' },
+							[
+								['settings.absorb.count.incoming', absorbResult.incoming],
+								['settings.absorb.count.added', absorbResult.added],
+								['settings.absorb.count.duplicate', absorbResult.duplicate],
+								['settings.absorb.count.existing', absorbResult.existing],
+								['settings.absorb.count.skipped', absorbResult.skipped],
+								['settings.absorb.count.files', absorbResult.files],
+								['settings.absorb.count.branches', absorbResult.branches],
+							].filter(function (entry) { return typeof entry[1] === 'number'; }).map(function (entry) {
+								return h('div', { key: entry[0], className: 'evrRowMeta' }, t(entry[0]) + ': ' + String(entry[1]));
+							})),
+						Array.isArray(absorbResult.problems) && absorbResult.problems.length > 0
+							? h('div', { className: 'evrCardHint' }, t('settings.absorb.problems') + '：'
+								+ absorbResult.problems.slice(0, 5).map(function (item) { return String(item.reason ?? ''); }).join('；'))
+							: null),
 
 				],
 				backup: [
@@ -4915,6 +5043,17 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, loadAll, notify, t]);
 
+			var absorbData = useCallback(function (file) {
+				setBusy(true);
+				notify(t('state.working'), false);
+				return call('data-absorb', { file: file }, 600000).then(function (value) {
+					notify(t('state.absorbed') + ' · +' + String(value.added ?? 0), false);
+					return refreshLibrary().then(function () { return value; });
+				}).catch(function (reason) {
+					notify(messageOf(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, refreshLibrary, t]);
+
 			var backupNow = useCallback(function () {
 				setBusy(true);
 				notify(t('state.working'), false);
@@ -5384,6 +5523,7 @@ window.__ModuleLoader__.load({
 					onMigrate: migrateData,
 					onExport: exportData,
 					onImport: importData,
+					onAbsorb: absorbData,
 					onBackupNow: backupNow,
 					onTestBackup: testBackup,
 					onPickDirectory: pickDirectory,

@@ -23,6 +23,7 @@ export const ENDPOINTS = [
 	'data-migrate',
 	'data-export',
 	'data-import',
+	'data-absorb',
 	'data-archives',
 	'backup-now',
 	'backup-test',
@@ -152,6 +153,11 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 				case 'data-import': {
 					const imported = await workspace.importFrom(text(payload, 'file'), { force: payload?.force === true })
 					return { ok: true, value: { ...imported, settings: view() } }
+				}
+				case 'data-absorb': {
+					// Additive merge: the archive is read into a temporary folder and
+					// its cards are appended; the local library is never replaced.
+					return { ok: true, value: await workspace.absorbFrom(text(payload, 'file')) }
 				}
 				case 'backup-now': {
 					const backupResult = await backup.runNow({ force: payload?.force === true, reason: 'manual' })

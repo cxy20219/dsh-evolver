@@ -16,6 +16,7 @@ import { lstat, readdir } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { MAX_IMPORT_BYTES, extractArchiveFile, writeArchiveFile } from './backup/archive.js'
+import { absorbArchive } from './absorb.js'
 import { canonicalPath, copyTree, countEntries, isDirectory, isInsidePath, pathsOverlap } from './workspace.js'
 
 /** How many archives one folder listing may return. */
@@ -271,6 +272,39 @@ export function createWorkspaceJobs({
 		},
 
 		/**
+		 * Merge another evolver's export into this library.
+		 *
+		 * Unlike `importFrom`, nothing is replaced: the archive is unpacked to a
+		 * temporary folder, its cards are merged additively, and the live store
+		 * only ever grows. It still takes the folder gate, because a bulk write
+		 * racing a migrate/export would land in the wrong place.
+		 *
+		 * @param {unknown} file - The archive path.
+		 * @returns {Promise<object>} The merge summary.
+		 */
+		async absorbFrom(file) {
+			const source = requestPath(file)
+			const info = await lstat(source).catch(() => undefined)
+			if (info === undefined || !info.isFile()) throw new Error(`吸收文件不存在：${source}`)
+			if (info.size > MAX_IMPORT_BYTES) {
+				throw new Error(`压缩包超过 ${MAX_IMPORT_BYTES / 1024 / 1024 / 1024} GB，拒绝吸收。`)
+			}
+			const store = currentStore()
+			if (store === undefined || store === null) throw new Error('卡片库还没有打开。')
+			let summary
+			try {
+				summary = await absorbArchive(store, source, { logger })
+			} catch (error) {
+				// "tar 内容被截断" alone does not tell the user which field failed;
+				// keep the plugin's own explanation when it already says 压缩包.
+				const message = error instanceof Error ? error.message : String(error)
+				throw new Error(message.includes('压缩包') ? message : `不能读取压缩包：${message}`)
+			}
+			logger?.info?.(`dsh-evolver: absorbed ${source}: +${summary.added} card(s), ${summary.files} file(s)`)
+			return summary
+		},
+
+		/**
 		 * Extract one archive over the data folder and reopen the store.
 		 *
 		 * @param {unknown} file - The archive.
@@ -313,7 +347,7 @@ export function createWorkspaceJobs({
 
 	// Moving, exporting and importing all copy the folder and reopen the memory
 	// store, so they share the one gate.
-	for (const [method, label] of Object.entries({ migrate: '迁移', exportTo: '导出', importFrom: '导入' })) {
+	for (const [method, label] of Object.entries({ migrate: '迁移', exportTo: '导出', importFrom: '导入', absorbFrom: '吸收' })) {
 		const original = jobs[method]
 		jobs[method] = function runExclusively(...args) {
 			return exclusive(label, () => original.apply(jobs, args))

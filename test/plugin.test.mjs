@@ -6,6 +6,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { API_PREFIX, apply, openModeOf } from '../index.js'
+import { writeArchiveFile } from '../src/backup/archive.js'
+import { CardStore } from '../src/cards/store.js'
 import { ENDPOINTS } from '../src/remote.js'
 import { createTar, readTar } from './support/tar-fixture.mjs'
 import { fakeOss } from './support/fake-oss.mjs'
@@ -695,4 +697,53 @@ test('附件打开方式：文档交给系统程序，脚本与安装包只在�
 	assert.equal(openModeOf('/data/tool.sh'), 'revealed')
 	assert.equal(openModeOf('/data/app.exe'), 'revealed')
 	assert.equal(openModeOf('/data/noext'), 'revealed')
+})
+
+
+test('吸收接口：把另一份导出并进来，只增不改，重复吸收不再加卡', async () => {
+	await withHome(async (home) => {
+		const source = new CardStore({ dataDir: join(home, 'source') })
+		await source.init()
+		try {
+			await source.put({
+				body: '另一台设备上沉淀的卡片正文',
+				description: '来自另一台设备的卡片',
+				tags: ['见闻/异地'],
+			})
+		} finally {
+			await source.close()
+		}
+		const archive = join(home, 'other.tar.gz')
+		await writeArchiveFile(join(home, 'source'), archive)
+
+		const { ctx, routes, effects } = fakeContext()
+		await apply(ctx, { dataDir: join(home, 'evolver') })
+		try {
+			const first = await (await post(routes, 'data-absorb', { file: archive })).json()
+			assert.equal(first.incoming, 1)
+			assert.equal(first.added, 1)
+			assert.equal(first.existing, 0)
+			const found = await (await post(routes, 'card-list', { query: '另一台设备上沉淀' })).json()
+			assert.equal(found.cards.length, 1)
+
+			// A second absorb of the same archive is a no-op for cards.
+			const second = await (await post(routes, 'data-absorb', { file: archive })).json()
+			assert.equal(second.added, 0)
+			assert.equal(second.existing, 1)
+			const again = await (await post(routes, 'card-list', { query: '另一台设备上沉淀' })).json()
+			assert.equal(again.cards.length, 1)
+
+			const missing = await post(routes, 'data-absorb', { file: join(home, 'missing.tar.gz') })
+			assert.equal(missing.status, 400)
+			assert.match((await missing.json()).error.message, /不存在/)
+
+			const junk = join(home, 'junk.tar.gz')
+			await writeFile(junk, 'not an archive', 'utf8')
+			const bad = await post(routes, 'data-absorb', { file: junk })
+			assert.equal(bad.status, 400)
+			assert.match((await bad.json()).error.message, /压缩包/)
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
 })

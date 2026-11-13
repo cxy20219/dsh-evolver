@@ -2959,3 +2959,60 @@ test('computeLinkLayout 在固定图上真正结算：坐标有限、重跑逐�
 		'同一份输入必须得到同一张图',
 	)
 })
+
+test('设置页的吸收子标签：填归档、点开始，把结果计数显示出来', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const calls = []
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		calls.push({ endpoint, payload })
+		if (endpoint === 'data-absorb') {
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({
+					archive: '/tmp/other.tar.gz',
+					incoming: 3,
+					added: 2,
+					duplicate: 0,
+					existing: 1,
+					skipped: 0,
+					files: 1,
+					branches: 0,
+					problems: [],
+				}),
+			}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'settings.absorb')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const input = findAll(tree, (node) => node.type === 'input' && node.props?.placeholder === 'settings.absorb.placeholder')[0]
+		assert.ok(input !== undefined, '吸收页要有归档路径输入')
+		input.props.onChange({ target: { value: '/tmp/other.tar.gz' } })
+		tree = await runtime.settle(render)
+		const run = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'settings.absorb.run')[0]
+		assert.ok(run !== undefined, '吸收页要有开始按钮')
+		run.props.onClick()
+		tree = await runtime.settle(render)
+		const request = calls.find((call) => call.endpoint === 'data-absorb')
+		assert.deepEqual(request.payload, { file: '/tmp/other.tar.gz' })
+		assert.ok(textOf(tree).includes('settings.absorb.count.added'), '结果里要显示新增计数')
+		assert.ok(textOf(tree).includes('settings.absorb.count.existing'), '结果里要显示同 id 保留数')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})

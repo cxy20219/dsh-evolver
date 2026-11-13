@@ -34,6 +34,7 @@ DSH 的「演化器」插件：一个追加式卡片库 + 分层标签 + 双向�
 - 数据目录默认 `~/.dsh/evolver`，`cards.jsonl` 是追加日志，同 id 后写覆盖前写。
 - `knowledge/health.json` 是健康度序列（每天一行，最多 10 行）；同一行同时写进插件日志，**不再单独占用一张卡片**（2026-11-13 改：原来每天写一张「卡片库健康度」卡，会占掉注入索引的两个"最近写的"槽位，还要在统计时把自己排除）。面板的「日志 → 库健康」读这份序列。
 - `knowledge/logs/plugin.log` 是插件自己的日志（`src/logs.js`，按 256 KB 轮转、最多 3 个文件）；宿主 stdout 在桌面端重启后即丢，所以后台任务必须往上写，否则「点了没反应」无从定位。
+- `src/absorb.js` 是吸收合并：把别的演化器导出的归档读进临时目录再并进当前库，只增不改（同 id 保留本地、本地墓碑优先、正文精确重复跳过）；偏好/游标/台账不合并，结果写 `knowledge/absorb.jsonl` 并刷新注入快照。
 
 ## 共享原语
 
@@ -44,7 +45,7 @@ DSH 的「演化器」插件：一个追加式卡片库 + 分层标签 + 双向�
 ## 常用入口
 
 ```bash
-npm test                          # 353 个用例
+npm test                          # 362 个用例
 node --check src/xxx.js           # 单文件语法
 node harness/tool/link-layout-metrics.mjs --data-dir ~/.dsh/evolver   # 关系图布局实测
 ```
