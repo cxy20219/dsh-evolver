@@ -1,45 +1,50 @@
 ---
-title: 项目级沉淀怎么量：先看项目文档，再谈 harness_write
-summary: 项目级沉淀别只数 harness_write：当天 8/8 会话写卡、4/5 项目更新文档，jubao 13 次直接编辑 harness；无 harness 写卡不新建骨架，提示词只改落点措辞。
+title: 项目级知识必须进项目 harness，不能退化成全局卡
+summary: 项目级知识必须进项目 harness：manager/quant 当天未落 harness 是真缺口，jubao 13 次直接编辑算落点但绕过工具；提示词改为无 harness 先初始化、不要塞进全局卡。
 ---
-# 项目级沉淀怎么量：先看项目文档，再谈 harness_write
+# 项目级知识必须进项目 harness，不能退化成全局卡
 
-## 为什么量这个
+## 结论（第一版写错，已纠正）
 
-2026-11-13 用户问「项目级沉淀的主动性是不是不高」。如果只看 `harness_write` 次数，会得出「几乎为零」的结论；把当天所有用户会话拆开后，结论相反：**卡片沉淀 8/8，项目文档 4/5，低的是工具使用率，不是沉淀意愿。**
+只看 `harness_write` 次数会低估沉淀，但**不能因此把项目级知识塞进全局卡**。项目级 harness 存在的意义就是承载“只在本仓库成立”的约定、命令、流程和判断；没有 harness 时正确动作是**初始化一套**，不是把知识降级到全局卡。
 
-## 当天口径（用户会话，不含 subagent）
+2026-11-13 第一版提示词写成了“没有 harness 就写卡，不新建 harness”，用户当场指出：这正是项目级 harness 要解决的问题。该版本已撤回。
 
-| 项目 | 实质会话 | 成功卡片 | 项目文档动作 | harness_write |
+## 当天实际落点（用户会话，不含 subagent）
+
+| 项目 | 实质会话 | 成功写卡 | 项目级落点 | 判断 |
 | --- | --- | --- | --- | --- |
-| dsh-evolver | 3 | 17 | 3 次 harness_write + `harness.md` 编辑 | 3 |
-| dsh-manager | 2 | 8 | README 3 次编辑（18:55 已记录 10 个工具） | 0（无 harness/AGENTS.md） |
-| jubao | 1 | 6 | **13 次直接编辑 harness/**（0 次 harness_write，2 次 catalog） | 0 |
-| quant | 1 | 2 | 1 个 research README；harness 当天未改 | 0 |
-| temp | 1 | 3 | 无（草稿项目） | 0 |
+| dsh-evolver | 3 | 17 | 3 次 harness_write + `harness.md` 编辑 | ✅ 项目 harness |
+| dsh-manager | 2 | 8 | README 3 次编辑；**没有 harness，也没有初始化** | ❌ 项目级缺口 |
+| jubao | 1 | 6 | **13 次直接编辑 harness/** | ✅ 有落点（但绕过工具） |
+| quant | 1 | 2 | 1 个 research README；harness 当天未改 | ⚠️ 未落到 harness |
+| temp | 1 | 3 | 无 | 草稿项目，另说 |
 
-- 8 个实质会话全部至少写入 1 张卡；非插件项目的成功卡片共 17 张。
-- 5 个项目里 4 个当天动过项目级文档；唯一没动 harness 的 quant 是研究整理任务，产物是 research README。
-- 两个项目根本没有 `harness/` 或 `AGENTS.md`（dsh-manager、temp）；`harness_write` 对它们不是「没被使用」，而是没有落点。
-- jubao 有完整 harness，catalog 也调了，却用 13 次 `edit` 更新 harness 文件而不是 `harness_write`。这是工具形态问题：全量重写 + 先 catalog 对「在长文档里补一段」并不顺手。
+- 8/8 实质会话都写了卡，但其中 manager 的搜索架构、quant 的研究约定属于项目级知识；卡是全局索引，不能替代项目 harness。
+- manager 没有 `harness/` 或 `AGENTS.md`，`harness_write` 不是“没有落点”，而是**应该先 `harness_catalog({init:true})` 建骨架**。它最终把 10 个工具写进了 README，项目 harness 仍为空。
+- jubao 有完整 harness，`harness_catalog` 也调了，却用 13 次 `edit` 直接改 `harness/harness.md`、`experience/`、`workflow/`。这算项目级沉淀，但不会自动重建 AGENTS.md 索引，属于工具形态问题，不能反过来证明“卡就够了”。
 
-## 结论与提示词改动
+## 现在的规则
 
-- 不要把 `harness_write` 次数当成项目级沉淀的 KPI；先问项目有没有 harness，再看文档有没有被更新（工具或就地编辑都算）。
-- 无 harness 的项目不应该为了「沉淀」自动初始化一套骨架；写带项目名的卡片即可，全局检索和注入会覆盖。
-- 原主动性协议写「只在本仓库成立的写 harness_write」：在无 harness 的项目里会被跳过，在有 harness 的项目里又没有说明可以就地编辑。2026-11-13 改成：
+> 每轮答复前：跨项目、库里没有的判断 → card_write（先查重）；只在本仓库成立的判断/约定/命令/流程 → 写进本仓库 harness（没有 harness 就先 harness_catalog({init:true}) 建骨架，再 harness_write，不要塞进全局卡）。全局 AGENTS.md 只读。
 
-  > 每轮答复前：跨项目、库里没有的判断 → card_write（先查重）；本仓库的约定/命令/流程 → 仓库已有 harness/ 或 AGENTS.md 就更新（harness_write 或就地 edit），没有就写卡，不新建 harness。全局 AGENTS.md 只读。
+- **全局卡**：跨项目可复用、换一个仓库仍成立的判断。
+- **项目 harness**：只在本仓库成立的判断、约定、命令、流程；有骨架就更新，没有骨架就初始化。
+- 项目级知识写进全局卡会让其他项目误读，也丢掉了项目内的索引、校验和生命周期。
+- 已有 harness 的项目可以就地 `edit`，但优先 `harness_write`（自动重建 AGENTS.md 索引、自动校验）。
 
-- 体积：主动性协议 844 B → **916 B**（354→404 字），静态段 1276 B → **1348 B**（+72 B，约 +18 token/请求；静态段进前缀缓存，只在发版时失效一次）。
-- 守卫：`test/proactive.test.mjs` 断言 `harness/ 或 AGENTS.md` 与 `不新建 harness`，总字节仍 <1024。
+## 体积与守卫
+
+- 主动性协议 844 B → **951 B**（354→425 字）；静态段 1276 B → **1383 B**（+107 B，约 +26 token/请求；静态段进前缀缓存，只在发版时失效一次）。
+- `test/proactive.test.mjs` 断言 `/harness_catalog\(\{init:true\}\)/` 与 `/不要塞进全局卡/`，并保持总字节 <1024。
 
 ## 后续怎么量
 
-下一个观察窗口按「实质会话（≥10 次编辑）」统计三件事，而不是单看 harness_write：
+对每个「实质会话（≥10 次编辑）」统计：
 
-1. 项目文档是否被更新（`harness_write` 或 `edit`/`write` 到 `harness/`、`AGENTS.md`、README 均可）；
-2. 有没有在无 harness 的仓库里擅自初始化（目标 0）；
-3. 项目约定/命令/流程是否至少落到一处（项目文档或带项目名的卡片）。
+1. 是否产生只在本仓库成立的知识；
+2. 有则是否落到项目 harness（`harness_write`、就地编辑、或新建骨架都算）；
+3. 项目级知识被写进全局卡的次数，目标 **0**；
+4. 无项目知识时是否仍新建 harness，目标 **0**（避免草稿仓库被乱初始化）。
 
-只有第 1、3 项长期为 0 且用户明确要求项目沉淀时，才值得继续加重提示词；否则加压力只会制造重复文档。
+如果第 2 项持续为 0，先修 `harness_write` 的局部更新能力（目前全量重写），不要靠继续加提示词压力。

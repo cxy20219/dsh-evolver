@@ -111,7 +111,7 @@ export function createHarnessTools({ resolveProject }) {
 		{
 			name: 'harness_write',
 			description:
-				'写入或更新一条项目 harness 资源，并自动重建 AGENTS.md 索引、自动校验；校验不过会回滚并报错。必须先在本会话调用过 harness_catalog。summary 是索引里的一句话用途，必填。',
+				'写入或更新一条项目 harness 资源，并自动重建 AGENTS.md 索引、自动校验；校验不过会回滚并报错。必须先在本会话调用过 harness_catalog；项目没有 harness 时先传 init:true 建骨架。summary 是索引里的一句话用途，必填。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -131,7 +131,7 @@ export function createHarnessTools({ resolveProject }) {
 				const root = await rootFor(exec, input.project)
 				const session = String(exec?.agent?.id ?? 'anonymous')
 				if (scanned.get(session) !== root) {
-					throw new Error('先调用 harness_catalog 看现有资源，确认没有合适落点再写。')
+					throw new Error('先调用 harness_catalog 看现有资源；项目没有 harness 时传 init:true 建骨架，确认没有合适落点再写。')
 				}
 				const result = await writeResource({
 					root,
