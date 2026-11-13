@@ -17,6 +17,9 @@ test('链接、反链与度数', async () => {
 		assert.equal(readB.neighbors.in[0].id, a.id)
 		assert.deepEqual(readB.degree, { in: 1, out: 0 })
 
+		const seeded = store.graph([a.id, b.id], { hops: 1, limit: 2 })
+		assert.equal(seeded.edges.length, 1, '种子已占满上限时仍然收集种子之间的边')
+
 		const listed = await store.list()
 		const rowA = listed.files.find((file) => file.id === a.id)
 		const rowB = listed.files.find((file) => file.id === b.id)

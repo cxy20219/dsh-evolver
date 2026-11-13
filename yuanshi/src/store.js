@@ -578,9 +578,12 @@ export class FileStore {
 				})
 			return true
 		}
-		for (const seed of seeds) addNode(seed)
-		let frontier = [...seeds]
-		for (let step = 0; step < depth && frontier.length > 0 && nodes.size < cap; step += 1) {
+		for (const seed of seeds) {
+			if (nodes.size >= cap) break
+			addNode(seed)
+		}
+		let frontier = [...nodes.keys()]
+		for (let step = 0; step < depth && frontier.length > 0; step += 1) {
 			const next = []
 			for (const id of frontier) {
 				const meta = this.db.get(id)
@@ -590,17 +593,19 @@ export class FileStore {
 					...this.db.backlinks(id).map((from) => ({ from, to: id })),
 				]
 				for (const edge of related) {
+					const endpoints = [edge.from, edge.to]
+					if (nodes.size < cap) {
+						for (const endpoint of endpoints) {
+							if (addNode(endpoint)) next.push(endpoint)
+						}
+					}
+					if (!nodes.has(edge.from) || !nodes.has(edge.to)) continue
 					const key = `${edge.from}\u001f${edge.to}`
 					if (!edgeKeys.has(key)) {
 						edgeKeys.add(key)
 						edges.push(edge)
 					}
-					for (const endpoint of [edge.from, edge.to]) {
-						if (addNode(endpoint)) next.push(endpoint)
-					}
-					if (nodes.size >= cap) break
 				}
-				if (nodes.size >= cap) break
 			}
 			frontier = next
 		}

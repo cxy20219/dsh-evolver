@@ -219,7 +219,7 @@ export function createYuanshiHandler({ store, settings, logs, root, version = ''
 			}
 			case 'graph': {
 				const listed = await store.list({ limit: 500 })
-				const graph = store.graph(listed.files.map((file) => file.id), { hops: 1 })
+				const graph = store.graph(listed.files.map((file) => file.id), { hops: 1, limit: 500 })
 				const stats = store.stats()
 				return {
 					...graph,

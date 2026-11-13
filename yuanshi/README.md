@@ -40,6 +40,20 @@ Agent 工具：`file_query`、`file_read`、`file_write`、`file_import`、`file
 - **设置**：描述上限、单文件上限、读取上限、注入预算；保存后立即生效。
 - **日志**：`system/logs/plugin.log` 尾部。
 
+## 从 evolver 1.0 迁移
+
+```bash
+node scripts/migrate-from-evolver.mjs                 # 预演，不写盘
+node scripts/migrate-from-evolver.mjs --apply         # 正式写入 ~/.dsh/yuanshi
+node scripts/migrate-from-evolver.mjs --from ~/.dsh/evolver --to ~/.dsh/yuanshi --apply
+```
+
+- 默认 dry-run；`--apply` 才写。源目录只读，不会改动老库。
+- 读 `cards.jsonl` 的最后一条记录，跳过删除墓碑；旧 `card-` id 存进 `legacy_id`，重复执行不会重复建卡。
+- 附件变成独立文件实体，双向链接到卡片；卡片正文里的 `knowledge/resources/...` 改写成新的 `files/<id>/<name>`。
+- 旧归档标签（`…/归档`）转成 `archived` 标志；删除标记不迁入。
+- 本次真实库结果：**136 卡（135 活跃 + 1 归档）+ 10 附件**，145 个活跃文件、128 条链接；预演/正式写入/重复执行都验证过。
+
 ## 与 evolver 1.0.0 的量化对比
 
 ```bash
@@ -62,9 +76,10 @@ node scripts/compare.mjs       # 复制老库、迁移、分场景对比
 ## 开发
 
 ```bash
-npm test                       # 50 条
+npm test                       # 52 条
 node scripts/bench.mjs 500     # 500 文件基准
 node scripts/compare.mjs       # 与 evolver 1.0.0 分场景对比
+node scripts/migrate-from-evolver.mjs  # 老库迁移，默认预演
 ```
 
 安装到目标 profile（先不要动 desktop profile）：
