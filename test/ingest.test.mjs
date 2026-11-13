@@ -189,6 +189,37 @@ test('模型返回坏 JSON 时不推进游标', async () => {
 	assert.equal(commits.length, 0)
 })
 
+test('输出被 max-tokens 截断时说清楚是截断，不是「模型没返回 JSON」', async () => {
+	const { query, ledger, commits } = fakeSession()
+	const memory = fakeMemory()
+	const llm = {
+		async *stream() {
+			// 思考强度高时预算可能全烧在推理上：正文一个字都没有就到顶了。
+			yield { type: 'finish', reason: { kind: 'max-tokens' } }
+		},
+	}
+	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
+	const controller = createIngestController({ settings, query, ledger, save: memory.save, llm, modelSelection: fakeSelection(), now: () => NOW })
+	await assert.rejects(() => controller.run(), /截断/)
+	assert.equal(commits.length, 0, '截断的一轮不能推进游标')
+})
+
+test('被截断但 JSON 仍然完整时照常保存，不白扔一次调用', async () => {
+	const { query, ledger, commits } = fakeSession()
+	const memory = fakeMemory()
+	const llm = {
+		async *stream() {
+			yield { type: 'text-delta', text: JSON.stringify({ memories: [{ text: '提交前先跑 npm test。', kind: 'convention' }] }) }
+			yield { type: 'finish', reason: { kind: 'max-tokens' } }
+		},
+	}
+	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
+	const controller = createIngestController({ settings, query, ledger, save: memory.save, llm, modelSelection: fakeSelection(), now: () => NOW })
+	const result = await controller.run()
+	assert.equal(result.saved, 1)
+	assert.equal(commits.length, 1, '解析成功就该推进游标')
+})
+
 test('提取结果里的密钥和被丢弃，空数组也会推进游标', async () => {
 	const { query, ledger, commits } = fakeSession()
 	const memory = fakeMemory()

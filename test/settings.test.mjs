@@ -147,6 +147,22 @@ test('配置会被夹取到合理范围', async () => {
 	}
 })
 
+test('描述上限默认 80，被夹在 20–200，保存后读回', async () => {
+	const { store, dir } = await fixture()
+	try {
+		assert.equal(store.get().cardDescriptionMaxChars, 80, '默认 80 字')
+		await store.update({ cardDescriptionMaxChars: 5 })
+		assert.equal(store.get().cardDescriptionMaxChars, 20, '低于下限被夹到 20')
+		await store.update({ cardDescriptionMaxChars: 999 })
+		assert.equal(store.get().cardDescriptionMaxChars, 200, '高于上限被夹到 200')
+		await store.update({ cardDescriptionMaxChars: 96 })
+		assert.equal(store.get().cardDescriptionMaxChars, 96)
+		assert.equal(store.publicView({ root: dir, source: 'test' }).cardDescriptionMaxChars, 96, '面板能看到这个值')
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
 test('损坏的设置文件被保留为 .broken，回到默认值并给出 warning', async () => {
 	const { dir, path } = await fixture()
 	try {

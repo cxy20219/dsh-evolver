@@ -89,8 +89,30 @@ function normalizeIngest(value, fallback = defaultIngest()) {
 	}
 }
 
-/** The most cards one daily consolidation may take. */
+/** The most cards one consolidation batch may take. */
 const CONSOLIDATE_MAX = 100
+
+/**
+ * Normalise a stored model selection.
+ *
+ * `null` is the meaningful "follow whatever the session uses" value, so it is
+ * kept rather than replaced: a user who never picked a model must keep getting
+ * the default one when it changes.
+ *
+ * @param {unknown} value - The raw value.
+ * @param {object | null} fallback - What to use when the value is absent or broken.
+ * @returns {{provider: string, model: string, reasoningEffort?: string} | null} The selection.
+ */
+function normalizeModelSelection(value, fallback) {
+	if (value === null) return null
+	if (value === undefined) return fallback
+	if (typeof value !== 'object' || Array.isArray(value)) return fallback
+	const provider = typeof value.provider === 'string' ? value.provider.trim() : ''
+	const model = typeof value.model === 'string' ? value.model.trim() : ''
+	if (provider === '' || model === '') return fallback
+	const effort = typeof value.reasoningEffort === 'string' ? value.reasoningEffort.trim() : ''
+	return { provider, model, ...(effort === '' ? {} : { reasoningEffort: effort }) }
+}
 
 /**
  * The default daily card consolidation.
@@ -98,11 +120,43 @@ const CONSOLIDATE_MAX = 100
  * Off by default: it rewrites and deletes cards, so it is switched on
  * deliberately rather than as a surprise after an upgrade.
  *
+ * `dailyCards` is the size of one batch, and the floor of the day's quota: the
+ * daily total follows how fast the library grew, up to a few batches, so a
+ * burst of writes is reviewed at the pace it was written instead of waiting
+ * weeks behind a fixed trickle.
+ *
+ * The model it runs on lives in the `organize` block, next to the session
+ * ingest: both are unattended whole-library jobs, and one selector for the two
+ * is the one that cannot drift apart.
+ *
  * @returns {object} A fresh object.
  */
 /** @internal exported for tests */
 export function defaultConsolidate() {
 	return { enabled: false, dailyCards: 15, hour: 3 }
+}
+
+/**
+ * The default settings shared by the two unattended organisers.
+ *
+ * @returns {object} A fresh object.
+ */
+/** @internal exported for tests */
+export function defaultOrganize() {
+	return { model: null }
+}
+
+/**
+ * Normalise the organisers' shared settings.
+ *
+ * @param {unknown} value - The raw value.
+ * @param {object} [fallback] - What to use for missing fields.
+ * @returns {object} The normalised value.
+ */
+/** @internal exported for tests */
+export function normalizeOrganize(value, fallback = defaultOrganize()) {
+	const source = value !== null && typeof value === 'object' ? value : {}
+	return { model: normalizeModelSelection(source.model, fallback.model ?? null) }
 }
 
 /**
@@ -134,6 +188,26 @@ function defaultCardMaxChars() {
  * @param {unknown} value - The raw value.
  * @returns {number} A number between 200 and 4000.
  */
+function defaultCardDescriptionMaxChars() {
+	return 80
+}
+
+/**
+ * Normalise the card description budget.
+ *
+ * The description is what the injected index shows next to an id, so the range
+ * is narrow on purpose: below 20 characters a sentence cannot say anything,
+ * above 200 it is a summary rather than an index entry.
+ *
+ * @param {unknown} value - The raw value.
+ * @returns {number} The clamped budget.
+ */
+function normalizeCardDescriptionMaxChars(value) {
+	const size = Math.round(Number(value))
+	if (!Number.isFinite(size)) return defaultCardDescriptionMaxChars()
+	return Math.min(200, Math.max(20, size))
+}
+
 function normalizeCardMaxChars(value) {
 	const size = Math.round(Number(value))
 	if (!Number.isFinite(size)) return defaultCardMaxChars()
@@ -150,10 +224,12 @@ export function defaultSettings() {
 	return {
 		dataDir: '',
 		cardMaxChars: defaultCardMaxChars(),
+		cardDescriptionMaxChars: defaultCardDescriptionMaxChars(),
 		backup: defaultBackup(),
 		status: defaultStatus(),
 		ingest: defaultIngest(),
 		consolidate: defaultConsolidate(),
+		organize: defaultOrganize(),
 	}
 }
 
@@ -337,10 +413,12 @@ export class SettingsStore {
 			this.data = {
 				dataDir: typeof parsed?.dataDir === 'string' ? parsed.dataDir : '',
 				cardMaxChars: normalizeCardMaxChars(parsed?.cardMaxChars),
+				cardDescriptionMaxChars: normalizeCardDescriptionMaxChars(parsed?.cardDescriptionMaxChars),
 				backup: normalizeBackup(parsed?.backup),
 				status: normalizeStatus(parsed?.status),
 				ingest: normalizeIngest(parsed?.ingest),
 				consolidate: normalizeConsolidate(parsed?.consolidate),
+				organize: normalizeOrganize(parsed?.organize),
 			}
 		} catch (error) {
 			// Keep the broken file around: it explains what happened after a
@@ -376,6 +454,9 @@ export class SettingsStore {
 		if (typeof patch.dataDir === 'string') {
 			this.data.dataDir = patch.dataDir.trim()
 		}
+		if (patch.cardDescriptionMaxChars !== undefined) {
+			this.data.cardDescriptionMaxChars = normalizeCardDescriptionMaxChars(patch.cardDescriptionMaxChars)
+		}
 		if (patch.cardMaxChars !== undefined) {
 			this.data.cardMaxChars = normalizeCardMaxChars(patch.cardMaxChars)
 		}
@@ -386,6 +467,10 @@ export class SettingsStore {
 		const consolidate = patch.consolidate
 		if (consolidate !== null && typeof consolidate === 'object') {
 			this.data.consolidate = normalizeConsolidate({ ...this.data.consolidate, ...consolidate })
+		}
+		const organize = patch.organize
+		if (organize !== null && typeof organize === 'object') {
+			this.data.organize = normalizeOrganize({ ...this.data.organize, ...organize })
 		}
 		const backup = patch.backup
 		if (backup !== null && typeof backup === 'object') {
@@ -454,6 +539,7 @@ export class SettingsStore {
 		return {
 			dataDir: rootInfo.root,
 			cardMaxChars: this.data.cardMaxChars,
+			cardDescriptionMaxChars: this.data.cardDescriptionMaxChars,
 			dataDirSource: rootInfo.source,
 			dataDirWarning: rootInfo.warning ?? '',
 			defaultDataDir: rootInfo.defaultRoot,
@@ -479,7 +565,7 @@ export class SettingsStore {
 			status: { ...this.data.status },
 			ingest: { ...this.data.ingest },
 			consolidate: { ...this.data.consolidate },
-
+			organize: { ...this.data.organize },
 		}
 	}
 }

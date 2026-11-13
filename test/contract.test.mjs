@@ -196,7 +196,7 @@ test('客户端读取的 injection / overview 字段在宿主响应里真的存�
 			for (const field of overviewReads) {
 				assert.notEqual(overview?.[field], undefined, `overview 响应缺客户端读取的字段：${field}`)
 			}
-			for (const stat of ['cards', 'tags', 'days', 'indexRatio']) {
+			for (const stat of ['cards', 'tags', 'days', 'words']) {
 				assert.equal(typeof overview.stats?.[stat], 'number', `overview.stats.${stat} 不是数字`)
 			}
 			for (const block of ['section', 'index']) {

@@ -8,8 +8,8 @@ import { cardCreatedAt, cardId, isCardId } from '../src/cards/ids.js'
 import { normalizeCardTags, normalizeTag, normalizeTags, buildTagTree, archiveTags, settleTags, TAG_DESCRIPTIONS } from '../src/cards/tags.js'
 import { safeResourceName } from '../src/cards/resources.js'
 import { cardIndexText, cardPrompt, DEFAULT_PROMPT_BUDGET } from '../src/cards/prompt.js'
-import { refreshCardIndex } from '../src/cards/injection-index.js'
-import { CardStore, labelOf } from '../src/cards/store.js'
+import { MAX_TOP_CARDS, refreshCardIndex, topCardsOfRecords } from '../src/cards/injection-index.js'
+import { CardStore } from '../src/cards/store.js'
 import { hasResourceReference } from '../src/cards/store.js'
 import { seedStarterCards } from '../src/cards/seed.js'
 import { createCardAgent } from '../src/cards/agent.js'
@@ -63,8 +63,7 @@ test('层级标签归一化、白名单和多父树计数', () => {
 	assert.equal(tree.find((node) => node.path === '项目')?.children[0].count, 1)
 })
 
-test('资源引用链接的 label 可派生，引用格式可校验', () => {
-	assert.equal(labelOf('[run.sh](knowledge/resources/card-x/run.sh)：用途：跑测试'), 'run.sh')
+test('资源引用格式可校验', () => {
 	assert.equal(hasResourceReference('[run.sh](knowledge/resources/card-x/run.sh)：用途：跑测试', 'knowledge/resources/card-x/run.sh'), true)
 	assert.equal(hasResourceReference('[run.sh](knowledge/resources/card-x/run.sh)', 'knowledge/resources/card-x/run.sh'), false)
 })
@@ -77,20 +76,21 @@ test('资源文件名被压成一个安全段，路径无法逃出卡片目录',
 	assert.equal(safeResourceName(''), '')
 })
 
-test('卡片写入：六大枝干、label、上限、整理、归档、双链和标签树', async () => {
+test('卡片写入：六大枝干、上限、整理、归档、双链和标签树（卡片没有 label）', async () => {
 	const { dir, store } = await fixture()
 	try {
 		const memo = await store.put({
 			body: '# 部署方式\n\n本机部署走 SSH，不要用 HTTPS。',
 			tags: ['践行/验证/浏览器', '见闻/项目/dsh-evolver'],
 		})
-		assert.equal(memo.label, '部署方式')
+		// 卡片没有标题：视图里不再派生 label。
+		assert.equal('label' in memo, false)
 		assert.deepEqual(memo.tags, ['践行/验证/浏览器', '见闻/项目/dsh-evolver'])
 		assert.equal(memo.type, undefined)
 		assert.equal(memo.status, undefined)
 
 		const edited = await store.put({ id: memo.id, body: '换了一行\n正文也变了' })
-		assert.equal(edited.label, '换了一行')
+		assert.equal('label' in edited, false)
 		assert.ok(edited.tags.includes('践行/验证/浏览器'), '不带标签的更新保留原枝干')
 
 		assert.deepEqual(Object.keys(store.cards.db.get(memo.id)).sort(), ['body', 'id', 'tags', 'updated'])
@@ -121,11 +121,12 @@ test('卡片写入：六大枝干、label、上限、整理、归档、双链和
 		// The injected index names the most connected cards by id and label, so
 		// the model can `card_read` a hub in one call instead of searching first.
 		assert.match(prompt, /\[卡片索引\]/)
-		assert.match(prompt, /关系最多的卡片/)
+		assert.match(prompt, /按重要度排序/)
 		// 注入里用短 id（唯一后缀），完整 ULID 省下来；工具接受这个缩写。
 		assert.equal(prompt.includes(memo.id), false, '注入不再带完整 31 字符 id')
 		assert.equal(prompt.includes(memo.id.slice(-5)), true, '短 id 出现在索引里')
-		assert.equal(prompt.includes(edited.label), true, 'label 用最新正文的首行')
+		// 卡片没有标题：注入只带短 id（和描述，如果有），不带正文首行。
+		assert.equal(prompt.includes('换了一行'), false, '注入不拿正文首行当标题')
 		// Bodies stay out: the index points at content, it does not copy it.
 		assert.equal(prompt.includes('本机部署走 SSH'), false, '注入不出现卡片正文')
 		// The tree itself is no longer injected; the structure is one paragraph.
@@ -166,6 +167,7 @@ test('卡片 agent：资源正文、标签查询、提升/归档/删除闭环', 
 		const agent = createCardAgent(store)
 		const doc = await agent.write({
 			body: '[部署文档]({{resource}})：用途：说明部署步骤；入口：阅读附件；输入：无；输出：部署步骤；关联流程：#践行/工作流。',
+			description: '部署步骤的附件卡：先跑测试再上线',
 			tags: ['践行/工作流'],
 			resourceName: 'deploy.md',
 			resourceContent: '## 步骤\n1. 先跑测试',
@@ -178,6 +180,7 @@ test('卡片 agent：资源正文、标签查询、提升/归档/删除闭环', 
 
 		const script = await agent.write({
 			body: '[run.sh]({{resource}})：用途：跑测试；入口：bash {{resource}}；输入：无；输出：测试结果；关联流程：#践行/工具。',
+			description: '跑测试的脚本附件：bash 直接执行',
 			tags: ['践行/工具'],
 			resourceName: 'run.sh',
 			resourceContent: '#!/bin/sh\necho ok\n',
@@ -185,15 +188,15 @@ test('卡片 agent：资源正文、标签查询、提升/归档/删除闭环', 
 		const scriptRead = await agent.read(script.id)
 		assert.equal(scriptRead.resourceContents[0].executable, true)
 		await assert.rejects(
-			() => agent.write({ body: '没有引用', resourceName: 'bad.sh', resourceContent: '#!/bin/sh\n' }),
+			() => agent.write({ body: '没有引用', description: '没有引用附件的正文', resourceName: 'bad.sh', resourceContent: '#!/bin/sh\n' }),
 			/正文必须引用附件/,
 		)
 		await assert.rejects(
-			() => agent.write({ body: '没有附件内容', resourceName: 'bad.sh' }),
+			() => agent.write({ body: '没有附件内容', description: '有附件名却没有内容', resourceName: 'bad.sh' }),
 			/resourceContent/,
 		)
 
-		const memo = await agent.write({ body: '部署走 SSH。', tags: ['即兴'] })
+		const memo = await agent.write({ body: '部署走 SSH。', description: '部署走 SSH 而不是面板', tags: ['即兴'] })
 		assert.ok(memo.tags.includes('即兴'))
 		const found = await agent.query({ text: '部署', tags: ['即兴'] })
 		assert.ok(found.some((card) => card.id === memo.id))
@@ -205,7 +208,10 @@ test('卡片 agent：资源正文、标签查询、提升/归档/删除闭环', 
 		const removed = await agent.remove(memo.id)
 		assert.equal(removed.removed, true)
 		assert.equal(store.get(memo.id), undefined)
-		await assert.rejects(() => agent.write({ body: 'API key 是 sk-abcdefghijklmnopqrstuvwx' }), /密钥/)
+		await assert.rejects(
+			() => agent.write({ body: 'API key 是 sk-abcdefghijklmnopqrstuvwx', description: '正文里带密钥的卡' }),
+			/密钥/,
+		)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
@@ -221,7 +227,7 @@ test('新数据目录直接种下三张种子卡', async () => {
 		assert.equal(cards.length, 3)
 		assert.equal(cards.every((card) => ['践行', '见闻', '即兴', '复盘', '觉察', '试错'].includes(card.tags[0].split('/')[0])), true)
 		assert.equal(store.status().roots.践行 + store.status().roots.复盘, 3)
-		const effective = cards.find((card) => card.label === '确认插件改动是否生效')
+		const effective = cards.find((card) => card.description === '装完插件后用槽查询确认它真的注册上了')
 		assert.ok(effective)
 		assert.match(effective.body, /knowledge\/resources\/.*\/plugin-effective\.md/)
 		const read = await store.read(effective.id)
@@ -245,7 +251,7 @@ test('短 id：唯一后缀可读可写，冲突时明确报错而不是猜', as
 		assert.equal(store.resolveId(`card-${short}`), first.id)
 		assert.equal((await agent.read(short)).id, first.id)
 		// 写入时把缩写解析成完整 id：links 落库后仍是可图遍历的完整 id。
-		const written = await agent.write({ body: '第三张卡', tags: ['践行/经验'], links: [short] })
+		const written = await agent.write({ body: '第三张卡', description: '链到第一张卡的第三张', tags: ['践行/经验'], links: [short] })
 		assert.deepEqual(written.links, [first.id])
 		// 未知缩写 / 歧义缩写：报错，不静默读错卡。
 		assert.equal(store.resolveId('ZZZZZ'), undefined)
@@ -273,10 +279,14 @@ test('卡片描述：可写可改、单行截断、保留旧值并参与检索',
 		})
 		assert.equal(card.description, '说明部署为什么走 SSH，以及 HTTPS 的边界')
 
-		// 描述渲染进列表/索引，所以必须是单行且不超过 120 字。
-		const messy = await store.put({ body: '第二张', description: `多行\n描述${'长'.repeat(200)}`, tags: ['践行/经验'] })
+		// 描述渲染进列表/索引：必须是单行，且超过上限直接拒绝，不再静默截断
+		// （截断出来的半句话就是旧索引难读的原因）。
+		const messy = await store.put({ body: '第二张', description: '多行\n描述会被压成一行', tags: ['践行/经验'] })
 		assert.equal(messy.description.includes('\n'), false)
-		assert.equal([...messy.description].length, 120)
+		await assert.rejects(
+			() => store.put({ body: '第三张', description: '长'.repeat(200), tags: ['践行/经验'] }),
+			/超过 80 字上限/,
+		)
 
 		// 更新不带 description 时保留旧值，不会被清空。
 		const updated = await store.put({ id: card.id, body: '# 部署\n\n新正文' })
@@ -290,6 +300,152 @@ test('卡片描述：可写可改、单行截断、保留旧值并参与检索',
 		const agent = createCardAgent(store)
 		const written = await agent.write({ body: '第三张卡', tags: ['践行/经验'], description: '一句话说明' })
 		assert.equal(written.description, '一句话说明')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('附件索引：按卡片聚合，agent 查询能直接看到文件名', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const agent = createCardAgent(store)
+		const card = await agent.write({
+			body: '[run.sh]({{resource}})：用途：跑测试；入口：bash {{resource}}；输入：无；输出：结果；关联流程：#践行/工具。',
+			description: '跑测试的脚本',
+			tags: ['践行/工具'],
+			resourceName: 'run.sh',
+			resourceContent: '#!/bin/sh\necho ok\n',
+		})
+		const index = await store.resourcesIndex()
+		assert.equal(index.length, 1)
+		assert.equal(index[0].id, card.id)
+		assert.equal(index[0].files[0].name, 'run.sh')
+		assert.equal(index[0].files[0].executable, true, '脚本附件要标可执行')
+		assert.ok(index[0].files[0].bytes > 0)
+
+		// 查询结果带附件名：模型不用先 read 才知道这张卡挂脚本。
+		const hit = (await agent.query({ text: '跑测试' })).find((item) => item.id === card.id)
+		assert.deepEqual(hit.resources, [{ name: 'run.sh', executable: true }])
+
+		// 没有附件的卡不带这个字段，省的每条结果都多一个空数组。
+		const plain = await store.put({ body: '没有附件的卡', description: '一条普通记录', tags: ['践行/经验'] })
+		const after = (await agent.query({ text: '没有附件的卡' })).find((item) => item.id === plain.id)
+		assert.equal(Object.hasOwn(after, 'resources'), false)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('资源预览：按类型分流成文本、图片、二进制，从不把大文件塞给面板', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const agent = createCardAgent(store)
+		const card = await agent.write({
+			body: '[doc.md]({{resource}})：用途：文档；入口：阅读附件；输入：无；输出：步骤；关联流程：#践行/资源。',
+			description: '带附件的演示卡',
+			tags: ['践行/资源'],
+			resourceName: 'doc.md',
+			resourceContent: '# 标题\n\n正文一段。\n',
+		})
+		const text = await store.resourcePreview(card.id, 'doc.md')
+		assert.equal(text.kind, 'text')
+		assert.equal(text.mime, 'text/markdown')
+		assert.match(text.text, /正文一段/)
+
+		// 图片走 base64，面板直接塞进 <img>。
+		const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489', 'hex')
+		await store.attach(card.id, 'dot.png', png)
+		const image = await store.resourcePreview(card.id, 'dot.png')
+		assert.equal(image.kind, 'image')
+		assert.equal(image.mime, 'image/png')
+		assert.ok(typeof image.base64 === 'string' && image.base64.length > 0)
+
+		// 认不出的二进制：说清楚，让面板给「用系统程序打开」。
+		await store.attach(card.id, 'blob.bin', Buffer.from([0, 1, 2, 3]))
+		const binary = await store.resourcePreview(card.id, 'blob.bin')
+		assert.equal(binary.kind, 'binary')
+
+		// 超长文本截断并标记，而不是整份返回。
+		await store.attach(card.id, 'big.txt', 'x'.repeat(300 * 1024))
+		const big = await store.resourcePreview(card.id, 'big.txt')
+		assert.equal(big.kind, 'text')
+		assert.equal(big.truncated, true)
+		assert.equal(big.text.length, 200 * 1024)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('资源引用过滤：按正文里出现的附件路径筛出引用它的卡片', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const agent = createCardAgent(store)
+		const owner = await agent.write({
+			body: '[run.sh]({{resource}})：用途：跑测试；入口：bash {{resource}}；输入：无；输出：结果；关联流程：#践行/工具。',
+			description: '跑测试的脚本',
+			tags: ['践行/工具'],
+			resourceName: 'run.sh',
+			resourceContent: '#!/bin/sh\necho ok\n',
+		})
+		const path = `knowledge/resources/${owner.id}/run.sh`
+		// 另一张卡在正文里引用了同一个路径：它也算引用者。
+		const user = await agent.write({
+			body: `提交前先跑 ${path}，再读结果。`,
+			description: '提交前跑一遍测试脚本',
+			tags: ['践行/约定'],
+		})
+		await agent.write({ body: '和这个脚本无关的卡。', description: '无关的卡', tags: ['见闻/事实'] })
+
+		const referenced = store.list({ resourcePath: path, limit: 10 }).map((card) => card.id).sort()
+		assert.deepEqual(referenced, [owner.id, user.id].sort(), '只挑正文里出现该路径的卡')
+		// 带关键词时同样生效。
+		const both = await store.query({ text: '提交前', resourcePath: path, limit: 10 })
+		assert.deepEqual(both.map((card) => card.id), [user.id])
+		// 路径没人引用时是空集，而不是退化成全库。
+		assert.equal(store.list({ resourcePath: 'knowledge/resources/none/none.md' }).length, 0)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('写卡必须带真描述：空、占位词、太短、超上限都被拒绝', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const agent = createCardAgent(store)
+		await assert.rejects(
+			() => agent.write({ body: '部署走 SSH。', tags: ['践行/经验'] }),
+			/必须写 description/,
+		)
+		await assert.rejects(
+			() => agent.write({ body: '部署走 SSH。', description: '暂无', tags: ['践行/经验'] }),
+			/占位词/,
+		)
+		await assert.rejects(
+			() => agent.write({ body: '部署走 SSH。', description: 'TODO', tags: ['践行/经验'] }),
+			/占位词/,
+		)
+		await assert.rejects(
+			() => agent.write({ body: '部署走 SSH。', description: '跑测试', tags: ['践行/经验'] }),
+			/至少 4 字/,
+		)
+		await assert.rejects(
+			() => agent.write({ body: '部署走 SSH。', description: '长'.repeat(81), tags: ['践行/经验'] }),
+			/最多 80 字/,
+		)
+		// 上限跟着设置走：改小之后，原来的长度就不合格了。
+		store.descriptionMaxChars = 40
+		await assert.rejects(
+			() => agent.write({ body: '部署走 SSH。', description: '一句话'.repeat(15), tags: ['践行/经验'] }),
+			/最多 40 字/,
+		)
+		store.descriptionMaxChars = 80
+		const saved = await agent.write({ body: '部署走 SSH。', description: '部署走 SSH 而不是面板', tags: ['践行/经验'] })
+		assert.equal(saved.description, '部署走 SSH 而不是面板')
+		assert.equal(store.all().length, 1, '被拒的卡一张都没落库')
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
@@ -346,15 +502,22 @@ test('card_write 可以带一句逐字出处；太长或像密钥直接拒绝', 
 		const agent = createCardAgent(store)
 		const saved = await agent.write({
 			body: '部署走 SSH。',
+			description: '部署用 SSH，不用 HTTPS',
 			tags: ['践行/约定'],
 			quote: '部署用 SSH，不要用 HTTPS。',
 		})
 		assert.equal(saved.source.quote, '部署用 SSH，不要用 HTTPS。')
 		// 更新不带 quote 时，原出处不能被冲掉。
-		const updated = await agent.write({ id: saved.id, body: '部署走 SSH。', tags: ['践行/约定'] })
+		const updated = await agent.write({ id: saved.id, body: '部署走 SSH。', description: '部署用 SSH，不用 HTTPS', tags: ['践行/约定'] })
 		assert.equal(updated.source.quote, '部署用 SSH，不要用 HTTPS。')
-		await assert.rejects(() => agent.write({ body: '第二条结论', tags: ['践行/约定'], quote: 'x'.repeat(200) }), /160/)
-		await assert.rejects(() => agent.write({ body: '第三条结论', tags: ['践行/约定'], quote: 'sk-abcdefghijklmnopqrstuvwx' }), /密钥/)
+		await assert.rejects(
+			() => agent.write({ body: '第二条结论', description: '出处太长的一条', tags: ['践行/约定'], quote: 'x'.repeat(200) }),
+			/160/,
+		)
+		await assert.rejects(
+			() => agent.write({ body: '第三条结论', description: '出处像密钥的一条', tags: ['践行/约定'], quote: 'sk-abcdefghijklmnopqrstuvwx' }),
+			/密钥/,
+		)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
@@ -446,22 +609,40 @@ test('卡片索引超预算时先丢说明再收卡片，结构摘要永远在',
 	const roomy = cardIndexText(fake, 99_999)
 	assert.match(roomy, /一句用来占位的卡片说明/)
 	assert.match(roomy, /\[知识结构\]/)
-	assert.equal(roomy.split('\n').filter((line) => /^- [0-9A-Z]{5,8}｜/.test(line)).length, 8)
+	assert.equal(roomy.split('\n').filter((line) => /^- [0-9A-Z]{5,8}(｜|$)/.test(line)).length, MAX_TOP_CARDS)
 
 	// 2. 放不下说明但放得下卡片：丢掉说明，id/标签/关系数还在。
 	const mid = cardIndexText(fake, 1000)
 	assert.ok(Buffer.byteLength(mid, 'utf8') <= 1000)
 	assert.match(mid, /\[知识结构\]/)
 	assert.equal(mid.includes('一句用来占位的卡片说明'), false)
-	assert.match(mid, /- [0-9A-Z]{5,8}｜第 \d+ 张关系很多的卡｜连 \d+/)
+	assert.match(mid, /^- [0-9A-Z]{5,8}$/m, '没有描述的卡只留短 id')
 
 	// 3. 更小：卡片减少，但摘要段落不丢——结构比名单重要。
-	const tight = cardIndexText(fake, 600)
-	assert.ok(Buffer.byteLength(tight, 'utf8') <= 600)
+	const tight = cardIndexText(fake, 220)
+	assert.ok(Buffer.byteLength(tight, 'utf8') <= 220)
 	assert.match(tight, /\[知识结构\]/)
-	assert.ok(tight.split('\n').filter((line) => /^- [0-9A-Z]{5,8}｜/.test(line)).length < 8)
+	assert.ok(tight.split('\n').filter((line) => /^- [0-9A-Z]{5,8}(｜|$)/.test(line)).length < MAX_TOP_CARDS)
 })
 
+
+test('兜底截断按字节切：预算小到一行都放不下时也不超字节', () => {
+	const cards = Array.from({ length: 3 }, (_, index) => ({
+		id: `card-01HF7YAT00S37S1ZGTH35DPP${String(index).padStart(2, '0')}`,
+		label: `第 ${index} 张`,
+		description: '一句说明',
+		tags: ['践行/经验'],
+		links: [],
+		updated: '2026-11-10T00:00:00.000Z',
+	}))
+	// 120 字节连一行卡片加摘要都放不下：走「其余未展开」的兜底分支。
+	const text = cardIndexText({ all: () => cards }, 120)
+	const bytes = Buffer.byteLength(text, 'utf8')
+	assert.ok(bytes <= 120, `超出字节预算：${bytes}`)
+	assert.ok(text.startsWith('[卡片索引]'))
+	// 不能切出半个汉字：按 UTF-8 来回编解码必须原样。
+	assert.equal(Buffer.from(text, 'utf8').toString('utf8'), text)
+})
 
 test('默认预算容得下卡片索引与结构摘要，不截断也不带计数', async () => {
 	const { dir, store } = await fixture()
@@ -483,9 +664,10 @@ test('默认预算容得下卡片索引与结构摘要，不截断也不带计�
 		assert.match(prompt, /\[卡片索引\]/)
 		assert.match(prompt, /\[知识结构\]/)
 		assert.equal(prompt.includes('未展开'), false, '默认预算下不该丢掉卡片')
-		const lines = prompt.split('\n').filter((line) => /^- [0-9A-Z]{5,8}｜/.test(line))
-		assert.equal(lines.length, 8, '索引最多点名 8 张卡')
-		for (const line of lines) assert.match(line, /连 \d+/, '卡片行带关系数')
+		const lines = prompt.split('\n').filter((line) => /^- [0-9A-Z]{5,8}(｜|$)/.test(line))
+		assert.equal(lines.length, MAX_TOP_CARDS, '索引点名的卡数就是上限')
+		// 卡片是 id + 描述：没有标题，也不带关系数。
+		for (const line of lines) assert.match(line, /^- [0-9A-Z]{5,8}(｜\S|$)/, '卡片行只有 id 和描述')
 		// 摘要是一段话，不是目录：不出现逐行标签树。
 		assert.equal(/^#\S/m.test(prompt), false)
 		assert.match(prompt, /共 \d+ 张卡/)
@@ -496,7 +678,7 @@ test('默认预算容得下卡片索引与结构摘要，不截断也不带计�
 })
 
 
-test('标签描述是数据：写入后经每日快照进入注入的结构摘要', async () => {
+test('标签描述是可编辑数据，但不再进注入的结构摘要', async () => {
 	const { dir, store } = await fixture()
 	try {
 		// A branch a card invented today has no description until somebody writes one.
@@ -518,15 +700,17 @@ test('标签描述是数据：写入后经每日快照进入注入的结构摘�
 			'见闻': '全新的根说明',
 		}, '空说明被丢弃')
 
-		// Before the daily run the deterministic floor is injected.
+		// The injected summary is a count table now: six parenthetical branch
+		// descriptions cost ~70 characters on every request, and every one of
+		// them is one `card_index` call away.
 		const before = cardIndexText(store)
-		assert.match(before, /落地与持续行动/)
-		// The daily run bakes the effective descriptions into the snapshot.
+		assert.match(before, /共 \d+ 张卡，按枝干：/)
+		assert.equal(before.includes('落地与持续行动'), false, '摘要不再带枝干描述')
 		await refreshCardIndex(store)
 		const after = cardIndexText(store)
-		assert.match(after, /改过的根说明/)
-		assert.match(after, /全新的根说明/)
-		assert.equal(after.includes('落地与持续行动'), false)
+		assert.equal(after.includes('改过的根说明'), false, '快照摘要也不带')
+		// 描述本身仍是数据：面板和 card_index 读的是同一份。
+		assert.equal((await store.tagDescriptions())['践行'], '改过的根说明')
 
 		// The description file is inside the data folder, so it travels with it.
 		assert.equal(store.tagDescriptionsPath(), join(dir, 'knowledge', 'tags.json'))
@@ -770,7 +954,7 @@ test('description 也过密钥与单行清洗，导入的超长描述读回被�
 	const reopened = new CardStore({ dataDir: imported.dir })
 	try {
 		await reopened.init()
-		assert.equal(reopened.all()[0].description.length, 120, '读回时截到 120 字')
+		assert.equal(reopened.all()[0].description.length, 200, '读回时截到硬上限 200 字')
 	} finally {
 		await reopened.close()
 		await rm(imported.dir, { recursive: true, force: true })
@@ -901,7 +1085,9 @@ test('无快照的注入回退按 store 版本记忆化：2000 卡第二次调�
 		assert.ok(secondMs < 10, `记忆化后应 <10ms，实测 ${secondMs.toFixed(2)}ms`)
 		// 写卡让版本变化：注入必须立即反映新卡，而不是旧缓存。
 		const fresh = await store.put({ body: '一张刚写的新卡：前缀记忆化的失效检查。', tags: ['践行/经验'] })
-		assert.match(cardIndexText(store), new RegExp(fresh.label), '写卡后回退索引立即更新')
+		const freshTop = topCardsOfRecords(store.records()).find((card) => card.id === fresh.id)
+		assert.ok(freshTop !== undefined, '新卡进入候选')
+		assert.match(cardIndexText(store), new RegExp(freshTop.short), '写卡后回退索引立即更新')
 		assert.ok(firstMs < 500, `2000 卡首次回退应在宽预算内，实测 ${firstMs.toFixed(2)}ms`)
 	} finally {
 		await store.close()

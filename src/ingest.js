@@ -14,6 +14,7 @@
  */
 
 import { EXTRACT_KINDS } from './cards/extract-kinds.js'
+import { resolveOrganizerModel } from './organize.js'
 import { findSecret } from './secrets.js'
 import { digestSessions, probeSessions } from './sessions.js'
 
@@ -31,6 +32,18 @@ const MAX_SESSIONS = 10
 
 /** The most memories one run accepts. */
 const MAX_MEMORIES = 6
+
+/**
+ * The output budget of one extraction.
+ *
+ * The reply is a small JSON object, but the budget is spent on reasoning first
+ * when the model reasons: at a high reasoning effort a 2 500-token cap is gone
+ * before the first brace, the adapter stops with `max-tokens`, and the run then
+ * fails with "no JSON" — which names the symptom and hides the cause. Budget
+ * for the thinking plus the answer; the extra is only spent when the model
+ * actually thinks.
+ */
+const MAX_OUTPUT_TOKENS = 12_000
 
 /** A memory shorter than this carries no information. */
 const MIN_MEMORY_CHARS = 8
@@ -90,21 +103,27 @@ function extractionPrompt(digest) {
  *
  * @param {object} options - Services.
  * @param {object} options.llm - The Host `llm` service.
+ * @param {object} options.settings - The settings store.
  * @param {object} options.modelSelection - The Host `agentDefaultModel` service.
  * @param {object} options.digest - The digest to extract from.
- * @returns {Promise<string>} The raw model text.
+ * @returns {Promise<{text: string, truncated: boolean}>} The raw model text, and whether the cap cut it.
  */
-async function callModel({ llm, modelSelection, digest }) {
-	const selection = modelSelection?.currentSelection?.() ?? {}
-	const provider = typeof selection.provider === 'string' ? selection.provider : ''
-	const model = typeof selection.model === 'string' ? selection.model : ''
+async function callModel({ settings, llm, modelSelection, digest }) {
+	const selection = resolveOrganizerModel(settings, modelSelection)
+	const provider = selection.provider
+	const model = selection.model
 	if (provider === '' || model === '') throw new Error('没有可用的默认模型；请先在聊天里选择模型。')
 	const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(120_000) : undefined
 	let text = ''
 	let failure
+	// `max-tokens` is not an error to the adapter: the stream ends normally and
+	// whatever arrived is whatever fit. Reporting that as a plain "no JSON" is
+	// how a truncated reply reads as a parsing bug.
+	let truncated = false
 	for await (const chunk of llm.stream({
 		provider,
 		model,
+		...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
 		// Some adapters route on the session header even though the call is
 		// not part of a session; a stable synthetic id keeps the request
 		// routable without creating a visible session.
@@ -112,16 +131,17 @@ async function callModel({ llm, modelSelection, digest }) {
 		system: SYSTEM_PROMPT,
 		messages: [{ role: 'user', content: [{ type: 'text', text: extractionPrompt(digest) }] }],
 		temperature: 0,
-		maxTokens: 2500,
+		maxTokens: MAX_OUTPUT_TOKENS,
 		...(signal === undefined ? {} : { signal }),
 	})) {
 		if (chunk.type === 'text-delta') text += chunk.text
-		if (chunk.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
-			failure = chunk.reason.failure ?? chunk.reason
-		}
+		if (chunk.type !== 'finish') continue
+		const kind = chunk.reason?.kind
+		if (kind === 'error' || kind === 'aborted') failure = chunk.reason.failure ?? chunk.reason
+		if (kind === 'max-tokens') truncated = true
 	}
 	if (failure !== undefined) throw new Error(failure.message || '模型调用失败')
-	return text
+	return { text, truncated }
 }
 
 /**
@@ -239,16 +259,21 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 	 *
 	 * @returns {Promise<object>} What was ingested.
 	 */
-	async function runNow() {
+	async function runNow(source = 'manual') {
 		if (typeof isBusy === 'function' && isBusy() === true) throw new Error('数据目录操作正在进行，会话整理已跳过。')
 		// The panel button and the timer reach the same job. Without a shared
 		// guard two clicks (or a click during the nightly run) would both call
 		// the model on the same batch — double the tokens, and two writers
 		// racing over the same cards and ledger.
 		if (inFlight !== null) throw new Error('整理正在进行，请等它结束。')
-		inFlight = performRun()
+		logger?.info?.(`dsh-evolver: ingest run started (${source})`)
+		inFlight = performRun(source)
 		try {
 			return await inFlight
+		} catch (error) {
+			// The stage logs above say how far it got; this one says why it stopped.
+			logger?.warn?.(`dsh-evolver: ingest run failed (${source}): ${error instanceof Error ? error.message : String(error)}`)
+			throw error
 		} finally {
 			inFlight = null
 		}
@@ -259,14 +284,21 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 	 *
 	 * @returns {Promise<object>} The run result.
 	 */
-	async function performRun() {
+	async function performRun(source = 'manual') {
 		if (!available()) throw new Error('这个宿主没有提供会话读取或模型调用能力。')
 		const digest = await digestSessions({ query, ledger, sinceDays: PROBE_DAYS, limit: MAX_SESSIONS, now: now() })
+		// The three numbers that answer "why did nothing happen": how many
+		// sessions were candidates, how many were only noise, and whether the
+		// scan hit its own bound instead of the library's end.
+		logger?.info?.(`dsh-evolver: ingest digest (${source}) — ${digest.sessions.length} session(s), ${digest.empty.length} without user text, truncated=${digest.truncated === true}`)
 		if (digest.sessions.length === 0) {
 			// Sessions with no real user text (runtime context, reminders, the
 			// ingest itself) are cleared without spending a model call.
 			if (digest.empty.length > 0) {
 				await ledger.commit(digest.empty, new Date(now()).toISOString())
+			}
+			if (digest.empty.length > 0) {
+				logger?.info?.(`dsh-evolver: ingest cleared ${digest.empty.length} session(s) with no user text`)
 			}
 			return {
 				success: true,
@@ -277,15 +309,22 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 				message: '没有可整理的会话。',
 			}
 		}
-		const text = await callModel({ llm, modelSelection, digest })
+		const selection = resolveOrganizerModel(settings, modelSelection)
+		logger?.info?.(`dsh-evolver: ingest model ${selection.provider || '?'}/${selection.model || '?'}${selection.reasoningEffort === undefined ? '' : ` (${selection.reasoningEffort})`}`)
+		const { text, truncated } = await callModel({ settings, llm, modelSelection, digest })
 		let parsed
 		try {
 			parsed = parseMemories(text)
 		} catch (error) {
 			// Never log the excerpt itself: it comes from conversations and may
-			// contain personal or sensitive text.
-			logger?.warn?.(`dsh-evolver: ingest extraction rejected (${error instanceof Error ? error.message : String(error)})`)
-			throw error
+			// contain personal or sensitive text. The reply length is safe, and
+			// it is what separates "the model rambled" from "the model was cut off".
+			const detail = error instanceof Error ? error.message : String(error)
+			logger?.warn?.(`dsh-evolver: ingest extraction rejected after ${String(text ?? '').length} chars`
+				+ `, truncated=${truncated === true}, effort=${selection.reasoningEffort ?? 'default'} (${detail})`)
+			throw new Error(truncated === true
+				? `模型输出被截断（上限 ${MAX_OUTPUT_TOKENS} token，思考强度 ${selection.reasoningEffort ?? '默认'}）：把整理模型换成更低的思考强度，或减少一次整理的会话数。`
+				: detail)
 		}
 		let saved = 0
 		let quoted = 0
@@ -314,7 +353,7 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 		state.lastSaved = saved
 		state.lastQuoted = quoted
 		state.lastError = ''
-		logger?.info?.(`dsh-evolver: session ingest read ${digest.sessions.length} session(s), saved ${saved} card(s)`)
+		logger?.info?.(`dsh-evolver: session ingest read ${digest.sessions.length} session(s), saved ${saved} card(s), quoted ${quoted}, skipped ${parsed.skipped}`)
 		return { success: true, sessions: digest.sessions.length, saved, quoted, skipped: parsed.skipped, cleared: digest.empty.length }
 	}
 
@@ -338,7 +377,7 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 			const probe = await probeSessions({ query, ledger, sinceDays: PROBE_DAYS, now: current })
 			if (probe.pending === 0) return null
 			state.lastAutoAt = current
-			const result = await runNow()
+			const result = await runNow('auto')
 			return result
 		} catch (error) {
 			state.lastError = error instanceof Error ? error.message : String(error)

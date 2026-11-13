@@ -20,10 +20,13 @@ import {
 	INDEX_VERSION,
 	MAX_SUMMARY_CHARS,
 	MAX_TOP_CARDS,
+	RECENT_SLOTS,
+	topCardsOf,
+	pickIndexCards,
 	readCardIndex,
 	refreshCardIndex,
 } from '../src/cards/injection-index.js'
-import { cardIndexText } from '../src/cards/prompt.js'
+import { DEFAULT_PROMPT_BUDGET, cardIndexText } from '../src/cards/prompt.js'
 import { CardStore } from '../src/cards/store.js'
 
 /** Milliseconds in one day. */
@@ -71,7 +74,6 @@ test('快照写进 knowledge/index.json：卡片按关系数排序，摘要是�
 		assert.equal(parsed.topCards.length, 3)
 		// hub is linked from both sides, so it is the card the index names first.
 		assert.equal(parsed.topCards[0].id, hub.id)
-		assert.equal(parsed.topCards[0].degree, 2)
 		// 注入用短 id（唯一后缀），工具接受它。
 		assert.equal(parsed.topCards[0].short, hub.id.slice(-5))
 		assert.match(parsed.summary, /共 3 张卡/)
@@ -142,7 +144,9 @@ test('索引最多点名 12 张卡；模型写的一整段摘要覆盖确定性�
 		const index = readCardIndex(store, NOW)
 		assert.equal(index.topCards.length, MAX_TOP_CARDS)
 		assert.equal(index.summary, '这张库主要讲检索与注入，最近在长践行经验。')
-		const text = cardIndexText(store)
+		// The snapshot is dated NOW, so the reader has to be told the same day:
+		// with the wall clock this assertion would only hold until midnight.
+		const text = cardIndexText(store, DEFAULT_PROMPT_BUDGET, NOW)
 		assert.match(text, /这张库主要讲检索与注入/)
 		// Over-long summaries are cut, never propagated into the prompt whole.
 		await refreshCardIndex(store, NOW, { summary: '长'.repeat(MAX_SUMMARY_CHARS + 200) })
@@ -170,4 +174,82 @@ test('没有快照时用实时排序；注入路径从不写盘', async () => {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
 	}
+})
+
+test('索引留两个位置给最近写的卡，读得多的卡在同度数时优先', () => {
+	const entries = []
+	for (let index = 0; index < 6; index += 1) {
+		entries.push({ id: `hub${index}`, degree: 20 - index, updated: '2026-01-01T00:00:00.000Z' })
+	}
+	entries.push({ id: 'fresh', degree: 0, updated: '2026-11-13T00:00:00.000Z' })
+	const picked = pickIndexCards(entries, { limit: 6 })
+	assert.equal(picked.length, 6)
+	assert.equal(picked.includes('fresh'), true, '没链接的新卡也要点名')
+	assert.equal(picked.length - RECENT_SLOTS, 4, '枢纽占其余位置')
+
+	// 同度数时才看读次数：hub0 与另一个同度数的卡之间，选被读过的那个。
+	const tied = [
+		{ id: 'rarely', degree: 5, updated: '2026-01-02T00:00:00.000Z' },
+		{ id: 'often', degree: 5, updated: '2026-01-01T00:00:00.000Z' },
+	]
+	assert.deepEqual(pickIndexCards(tied, { limit: 1, access: { often: { count: 9 } } }), ['often'])
+	// 度数更高时读次数不翻盘：结构优先。
+	const ladder = [
+		{ id: 'hub', degree: 9, updated: '2026-01-01T00:00:00.000Z' },
+		{ id: 'hot', degree: 2, updated: '2026-01-01T00:00:00.000Z' },
+	]
+	assert.equal(pickIndexCards(ladder, { limit: 1, access: { hot: { count: 99 } } })[0], 'hub')
+})
+
+test('快照排序用上访问账：同度数时读得多的卡排前面', async () => {
+	const { dir, store } = await fixture()
+	try {
+		// a 被 b、c 各链一次（度数 2），b 和 c 互相是「度数 1」的平手。
+		const a = await store.put({ body: '甲：两边都链它的一条', tags: ['践行/经验'] })
+		const b = await store.put({ body: '乙：没人打开的一条', tags: ['践行/经验'], links: [a.id] })
+		const c = await store.put({ body: '丙：被反复查阅的一条', tags: ['践行/经验'], links: [a.id] })
+		await writeFile(join(dir, 'knowledge', 'access.json'), JSON.stringify({
+			version: 1,
+			ids: { [c.id]: { count: 12, lastAt: '2026-11-12T10:00:00.000Z' } },
+		}))
+		await refreshCardIndex(store, NOW)
+		const order = readCardIndex(store, NOW).topCards.map((card) => card.id)
+		assert.equal(order[0], a.id, '度数高的在前')
+		assert.ok(order.indexOf(c.id) < order.indexOf(b.id), `同度数时读得多的在前：${order.join(',')}`)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('描述超出上限时在标点处收尾并标省略号，不硬切句子', () => {
+	// 超过 80 字才会触发截断：短描述本来就不该被切。
+	const longDesc = '这句说明也会超长，它不该停在句子中间，'.repeat(5)
+	const cards = [
+		{
+			id: 'card-01HF7YAT00S37S1ZGTH35DPPXW',
+			label: '正文首行不是标题',
+			description: longDesc,
+			tags: ['践行/经验'],
+			links: [],
+			updated: '2026-11-10T00:00:00.000Z',
+		},
+		{
+			id: 'card-01HF7YAT00S37S1ZGTH35DPPXX',
+			label: '另一张',
+			description: '短说明',
+			tags: ['践行/经验'],
+			links: ['card-01HF7YAT00S37S1ZGTH35DPPXW'],
+			updated: '2026-11-10T00:00:00.000Z',
+		},
+	]
+	const ranked = topCardsOf(cards)
+	const long = ranked.find((card) => card.id === 'card-01HF7YAT00S37S1ZGTH35DPPXW')
+	assert.ok([...long.description].length <= 80, `描述超出上限：${long.description}`)
+	assert.match(long.description, /[，。；：、！？,;]…$/, `必须停在标点后面：${long.description}`)
+	// 卡片没有标题字段：正文首行进不了索引。
+	assert.equal(long.label, undefined, '索引条目不带标题')
+	// 没超长的描述原样保留，不该凭空多出省略号。
+	const short = ranked.find((card) => card.id === 'card-01HF7YAT00S37S1ZGTH35DPPXX')
+	assert.equal(short.description, '短说明')
 })

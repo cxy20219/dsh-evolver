@@ -11,7 +11,7 @@
  * the prompt injects only the tag tree, never card bodies.
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { MemoryStore } from '../memory/store.js'
@@ -41,7 +41,30 @@ import {
 const DEFAULT_CARD_MAX_CHARS = 1000
 
 /** The longest a card description may be. */
-const MAX_DESCRIPTION_CHARS = 120
+const MAX_DESCRIPTION_CHARS = 200
+
+/**
+ * The default cap on a card description.
+ *
+ * A description is a one-sentence index of the card, and it is the only thing
+ * the injected index shows next to an id — so it is short by definition. 80 is
+ * what the index renders; the store refuses anything longer instead of
+ * silently trimming it, because a trimmed sentence is what made the old index
+ * unreadable.
+ */
+export const DEFAULT_DESCRIPTION_MAX_CHARS = 80
+
+/** A description shorter than this says nothing. */
+const MIN_DESCRIPTION_CHARS = 4
+
+/**
+ * Values that look like a description but are not one.
+ *
+ * The rule is "a card carries a real description"; a field filled with 暂无 or
+ * TODO satisfies the schema and leaves the index blank, which is exactly the
+ * state this is meant to prevent.
+ */
+const PLACEHOLDER_DESCRIPTION = /^(描述|说明|摘要|简述|简介|占位|占位符|待补|待定|待写|补充|暂无|没有|无|略|同上|待|todo|tbd|n\/a|na|none|null|undefined|na\.|示例|样例|测试|test)[\s。.!?，,、~～-]*$/i
 
 /** How many neighbours a graph search lists beyond the cards it returns. */
 const MAX_RELATED = 8
@@ -67,64 +90,57 @@ async function writeJsonAtomic(path, value) {
 	await rename(temp, path)
 }
 
-/**
- * How many derived labels to remember.
- *
- * Labels are recomputed from the body on every read of the card view; the
- * cache turns that into one pass per distinct body. The cap keeps a library
- * that is rewritten often from growing without bound.
- */
-const LABEL_CACHE_LIMIT = 4096
-
-/** Derived labels, oldest first. */
-const LABEL_CACHE = new Map()
-
-/**
- * An invisible character that reorders the text around it.
- *
- * A label is drawn in a list and in the injected tag map; one of these makes
- * the rendered order differ from the stored order.
- */
-const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069\u200e\u200f]/g
-
-/**
- * Make one line safe to show as a label.
- *
- * Sliced by code point, not by UTF-16 unit: an emoji is two units, and cutting
- * between them leaves a lone surrogate that renders as a replacement box.
- *
- * @param {string} value - The raw line.
- * @returns {string} At most 80 characters, single-spaced, no bidi controls.
- */
-function clipLabel(value) {
-	const clean = String(value ?? '').replace(BIDI_CONTROLS, '').replace(/\s+/g, ' ').trim()
-	const points = Array.from(clean)
-	return points.length <= 80 ? clean : points.slice(0, 79).join('') + '…'
+/** File extension to MIME type: the panel needs it to pick a renderer. */
+const MIME_BY_EXTENSION = {
+	md: 'text/markdown',
+	markdown: 'text/markdown',
+	txt: 'text/plain',
+	log: 'text/plain',
+	json: 'application/json',
+	yaml: 'text/yaml',
+	yml: 'text/yaml',
+	toml: 'text/plain',
+	csv: 'text/csv',
+	tsv: 'text/csv',
+	html: 'text/html',
+	css: 'text/css',
+	js: 'text/javascript',
+	mjs: 'text/javascript',
+	cjs: 'text/javascript',
+	ts: 'text/typescript',
+	py: 'text/x-python',
+	sh: 'text/x-shellscript',
+	bash: 'text/x-shellscript',
+	zsh: 'text/x-shellscript',
+	rb: 'text/x-ruby',
+	go: 'text/x-go',
+	rs: 'text/x-rust',
+	java: 'text/x-java',
+	c: 'text/x-c',
+	h: 'text/x-c',
+	cpp: 'text/x-c',
+	sql: 'text/plain',
+	xml: 'text/xml',
+	svg: 'image/svg+xml',
+	png: 'image/png',
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	bmp: 'image/bmp',
+	pdf: 'application/pdf',
 }
 
 /**
- * Derive a card label from its body.
+ * The MIME type of one attachment, by extension.
  *
- * @param {unknown} body - The body text.
- * @returns {string} A single-line label.
+ * @param {string} name - The file name.
+ * @returns {string} A MIME type, or `application/octet-stream` when unknown.
  */
-/** @internal exported for tests */
-export function labelOf(body) {
-	const source = String(body ?? '')
-	const cached = LABEL_CACHE.get(source)
-	if (cached !== undefined) return cached
-	const line = source.split('\n').map((part) => part.trim()).find((part) => part !== '') ?? ''
-	const clean = line.replace(/^#{1,6}\s+/, '').replace(/^[-*+>]\s+/, '')
-	const link = clean.match(/^\[([^\]]+)\]\([^)]*\)/)
-	const label = clipLabel(link !== null ? link[1] : clean)
-	// Deriving the label costs a split and three passes over the body, and
-	// every read path asks for the same bodies again. The cache holds the
-	// strings it saw last; a changed body is simply a miss.
-	if (LABEL_CACHE.size >= LABEL_CACHE_LIMIT) {
-		LABEL_CACHE.delete(LABEL_CACHE.keys().next().value)
-	}
-	LABEL_CACHE.set(source, label)
-	return label
+function mimeOf(name) {
+	const match = /\.([0-9a-z]+)$/i.exec(name)
+	const ext = match === null ? '' : match[1].toLowerCase()
+	return MIME_BY_EXTENSION[ext] ?? 'application/octet-stream'
 }
 
 /**
@@ -158,9 +174,9 @@ const MAX_SOURCE_QUOTE_CHARS = 160
 /**
  * Normalise a one-line card description.
  *
- * The description is what search results and the injected index show next to
- * the label, so it must stay on one line: a newline would break the rendered
- * list and let a paragraph sneak into the prompt.
+ * The description is the card's identity: search results and the injected
+ * index show it next to the id, so it must stay on one line — a newline would
+ * break the rendered list and let a paragraph sneak into the prompt.
  *
  * @param {unknown} value - The proposed description.
  * @returns {string} The clean description, `''` when unusable.
@@ -172,6 +188,75 @@ export function normalizeDescription(value) {
 		.trim()
 	if (clean === '') return ''
 	return [...clean].slice(0, MAX_DESCRIPTION_CHARS).join('')
+}
+
+/**
+ * Clamp a description budget.
+ *
+ * @param {unknown} value - The configured cap.
+ * @returns {number} The cap, inside 20–200.
+ */
+export function normalizeDescriptionMaxChars(value) {
+	const size = Math.round(Number(value))
+	if (!Number.isFinite(size)) return DEFAULT_DESCRIPTION_MAX_CHARS
+	return Math.min(MAX_DESCRIPTION_CHARS, Math.max(20, size))
+}
+
+/**
+ * Cut a sentence down to a description, on a boundary and with an ellipsis.
+ *
+ * Used where the text already exists and a description has to be derived from
+ * it (an ingested memory is one sentence; that sentence is also the index
+ * entry for the card). Cutting mid-phrase is what made the old index read as
+ * broken text.
+ *
+ * @param {unknown} value - The text.
+ * @param {number} [maxChars] - The configured cap.
+ * @returns {string} A description no longer than the cap.
+ */
+export function clipDescription(value, maxChars = DEFAULT_DESCRIPTION_MAX_CHARS) {
+	const clean = normalizeDescription(value)
+	const limit = normalizeDescriptionMaxChars(maxChars)
+	const chars = [...clean]
+	if (chars.length <= limit) return clean
+	const head = chars.slice(0, limit - 1)
+	const breakAt = /[，。；：、！？,;]/
+	for (let index = head.length - 1; index >= Math.floor(limit * 0.4); index -= 1) {
+		if (breakAt.test(head[index])) return head.slice(0, index + 1).join('') + '…'
+	}
+	return head.join('') + '…'
+}
+
+/**
+ * Validate the description a caller is writing.
+ *
+ * A card is an id plus a description — the injected index shows nothing else
+ * per card — so an empty or placeholder description turns the index back into
+ * a list of opaque ids. The check lives here so the tool, the panel and the
+ * HTTP path all get the same rule and the same message.
+ *
+ * @param {unknown} value - The raw description.
+ * @param {number} [maxChars] - The configured cap.
+ * @returns {string} The normalised description.
+ */
+export function assertRealDescription(value, maxChars = DEFAULT_DESCRIPTION_MAX_CHARS) {
+	const clean = normalizeDescription(value)
+	if (clean === '') {
+		throw new Error('卡片必须写 description：一句话说清这张卡回答什么问题，索引里只放它。')
+	}
+	// Placeholder first: "暂无" is short too, and "that is a placeholder" is the
+	// useful thing to say about it.
+	if (PLACEHOLDER_DESCRIPTION.test(clean)) {
+		throw new Error('描述不能是占位词（「暂无」「TODO」之类）：索引里显示的就是这段文本。')
+	}
+	if ([...clean].length < MIN_DESCRIPTION_CHARS) {
+		throw new Error(`描述至少 ${MIN_DESCRIPTION_CHARS} 字：一句话说清这张卡回答什么问题。`)
+	}
+	const limit = normalizeDescriptionMaxChars(maxChars)
+	if ([...clean].length > limit) {
+		throw new Error(`描述最多 ${limit} 字：它是一句话索引，不是摘要。`)
+	}
+	return clean
 }
 
 /**
@@ -261,7 +346,6 @@ function subgraphView(graph, degree, ids) {
 			const card = graph.nodes.get(id)
 			return {
 				id,
-				label: card.label,
 				description: card.description ?? '',
 				degree: degree.get(id) ?? 0,
 			}
@@ -319,7 +403,8 @@ export class CardStore {
 	/**
 	 * @param {{dataDir: string, logger?: object, cardMaxChars?: number}} deps - Dependencies.
 	 */
-	constructor({ dataDir, logger, cardMaxChars = DEFAULT_CARD_MAX_CHARS }) {
+	constructor({ dataDir, logger, cardMaxChars = DEFAULT_CARD_MAX_CHARS, descriptionMaxChars = DEFAULT_DESCRIPTION_MAX_CHARS }) {
+		this.descriptionMaxChars = normalizeDescriptionMaxChars(descriptionMaxChars)
 		this.dataDir = dataDir
 		this.logger = logger
 		this.cardMaxChars = Math.max(1, Math.min(4000, Math.round(Number(cardMaxChars) || DEFAULT_CARD_MAX_CHARS)))
@@ -338,6 +423,9 @@ export class CardStore {
 		this.idCache = null
 		this.idVersion = -1
 		this.resources = new ResourceStore({ root: dataDir })
+		// Attachment metadata per card, filled on demand and dropped when a card
+		// is rewritten: list and query paths ask for it repeatedly.
+		this.attachmentCache = new Map()
 	}
 
 	/**
@@ -484,10 +572,16 @@ export class CardStore {
 	 * never been reviewed, so there is no per-card date to keep up to date by
 	 * hand and no way for the two to disagree.
 	 *
-	 * @returns {Promise<{lastRunAt: string, dayKey: string, cards: Record<string, string>, attempts: {day: string, count: number}}>} The ledger.
+	 * @returns {Promise<{lastRunAt: string, dayKey: string, cards: Record<string, string>, attempts: {day: string, count: number}, progress: {day: string, reviewed: number, batches: number}}>} The ledger.
 	 */
 	async consolidationLedger() {
-		const empty = { lastRunAt: '', dayKey: '', cards: {}, attempts: { day: '', count: 0 } }
+		const empty = {
+			lastRunAt: '',
+			dayKey: '',
+			cards: {},
+			attempts: { day: '', count: 0 },
+			progress: { day: '', reviewed: 0, batches: 0 },
+		}
 		let raw
 		try {
 			raw = await readFile(this.consolidationPath(), 'utf8')
@@ -505,11 +599,22 @@ export class CardStore {
 		const attempts = parsed.attempts !== null && typeof parsed.attempts === 'object'
 			? { day: String(parsed.attempts.day ?? ''), count: Number(parsed.attempts.count) || 0 }
 			: { day: '', count: 0 }
+		// How much of today's quota is already spent. Derived on every run, so a
+		// missing or hand-edited field means "nothing spent yet" rather than an
+		// error that would stop the review.
+		const progress = parsed.progress !== null && typeof parsed.progress === 'object'
+			? {
+				day: String(parsed.progress.day ?? ''),
+				reviewed: Math.max(0, Math.round(Number(parsed.progress.reviewed)) || 0),
+				batches: Math.max(0, Math.round(Number(parsed.progress.batches)) || 0),
+			}
+			: { day: '', reviewed: 0, batches: 0 }
 		return {
 			lastRunAt: typeof parsed.lastRunAt === 'string' ? parsed.lastRunAt : '',
 			dayKey: typeof parsed.dayKey === 'string' ? parsed.dayKey : '',
 			cards,
 			attempts,
+			progress,
 		}
 	}
 
@@ -562,7 +667,6 @@ export class CardStore {
 		const links = Array.isArray(record.links) ? record.links.filter((id) => typeof id === 'string') : []
 		return {
 			id: record.id,
-			label: labelOf(record.body),
 			description: normalizeDescription(record.description),
 			body: typeof record.body === 'string' ? record.body : '',
 			tags: Array.isArray(record.tags) ? record.tags.filter((tag) => typeof tag === 'string') : [],
@@ -678,6 +782,9 @@ export class CardStore {
 		if (description !== '') {
 			const leaked = findSecret(description)
 			if (leaked !== undefined) throw new Error(`描述里像是${leaked}：卡片库不保存密钥，请删掉后重写。`)
+			if (charCount(description) > this.descriptionMaxChars) {
+				throw new Error(`描述超过 ${this.descriptionMaxChars} 字上限；它是一句话索引，不是摘要。`)
+			}
 		}
 		for (const link of links) {
 			if (!isCardId(link)) throw new Error(`链接目标不是卡片 id：${link}`)
@@ -706,6 +813,7 @@ export class CardStore {
 		}
 		for (const resource of resourceInputs) {
 			await this.resources.put(id, resource.name, resource.data)
+			this.attachmentCache.delete(id)
 		}
 		const record = {
 			id,
@@ -744,6 +852,105 @@ export class CardStore {
 			: `${String(card.body ?? '').trim()}\n\n[${safe}]({{resource}})：用途：附件资源；入口：按文件说明；输入、输出和关联流程：待补充。`.trim()
 		await this.put({ ...card, id, body }, { resourceInputs: [{ name: safe, data }] })
 		return this.read(id)
+	}
+
+	/**
+	 * Resolve one attachment to its absolute path, refusing anything outside
+	 * the card's own folder.
+	 *
+	 * The panel and the "open with the system app" action both need a path,
+	 * and neither may be trusted to build one: the client sends a card id and
+	 * a file name, this turns them into the only path that could be meant.
+	 *
+	 * @param {string} id - The card id.
+	 * @param {string} name - The file name.
+	 * @returns {Promise<string>} The absolute path.
+	 */
+	async resourcePath(id, name) {
+		await this.resources.read(id, name)
+		return join(this.dataDir, 'knowledge', 'resources', id, safeResourceName(name))
+	}
+
+	/**
+	 * Read one attachment for the preview pane.
+	 *
+	 * Three answers, because resources are not all text: a text file comes
+	 * back as text (capped — a 400 KB log is not a preview), an image comes
+	 * back as base64 the panel can drop into an `<img>`, and everything else
+	 * says "binary" so the panel offers the system app instead of rendering.
+	 *
+	 * @param {string} id - The card id.
+	 * @param {string} name - The file name.
+	 * @returns {Promise<object>} `{kind, mime, bytes, name, text?, base64?, truncated?}`.
+	 */
+	async resourcePreview(id, name, { textLimit = 200 * 1024, binaryLimit = 4 * 1024 * 1024 } = {}) {
+		const safe = safeResourceName(name)
+		if (safe === '') throw new Error('资源文件名不合法。')
+		const read = await this.resources.read(id, safe)
+		const mime = mimeOf(safe)
+		const base = { name: read.name, bytes: read.bytes, mime, executable: read.executable === true }
+		if (typeof read.text === 'string') {
+			const chars = [...read.text]
+			const truncated = chars.length > textLimit
+			return { ...base, kind: mime.startsWith('image/') ? 'image' : 'text', text: truncated ? chars.slice(0, textLimit).join('') : read.text, truncated }
+		}
+		// Binary: only formats the browser can actually display come back whole.
+		if ((mime.startsWith('image/') || mime === 'application/pdf') && read.bytes <= binaryLimit) {
+			const buffer = await readFile(read.path)
+			return { ...base, kind: mime === 'application/pdf' ? 'pdf' : 'image', base64: buffer.toString('base64') }
+		}
+		return { ...base, kind: 'binary' }
+	}
+
+	/**
+	 * What files one card carries, without reading them.
+	 *
+	 * Cached because the answer is asked on list/query paths that touch many
+	 * cards: a `readdir` per card per query is how a cheap call becomes an
+	 * expensive one. The cache is dropped whenever a card's attachments are
+	 * rewritten.
+	 *
+	 * @param {string} id - The card id.
+	 * @returns {Promise<Array<{name: string, bytes: number, executable: boolean}>>} The metadata.
+	 */
+	async attachments(id) {
+		const cached = this.attachmentCache.get(id)
+		if (cached !== undefined) return cached
+		const listed = await this.resources.list(id).catch(() => [])
+		const summary = listed.map((item) => ({ name: item.name, bytes: item.bytes, executable: item.executable === true }))
+		this.attachmentCache.set(id, summary)
+		return summary
+	}
+
+	/**
+	 * Every card that carries at least one file.
+	 *
+	 * Reads the resources directory once and then each card folder that
+	 * exists, instead of statting every card in the library.
+	 *
+	 * @returns {Promise<Array<{id: string, files: object[]}>>} The cards with files.
+	 */
+	async resourcesIndex() {
+		const root = join(this.dataDir, 'knowledge', 'resources')
+		const names = await readdir(root).catch(() => [])
+		// One pass over the bodies, then a substring test per file: "which cards
+		// reference this file" is a literal question and the answer is already
+		// in the text.
+		const bodies = this.all().map((card) => ({ id: card.id, body: String(card.body ?? '') }))
+		const out = []
+		for (const name of names) {
+			if (!isCardId(name)) continue
+			const files = await this.attachments(name)
+			if (files.length === 0) continue
+			out.push({
+				id: name,
+				files: files.map((file) => {
+					const path = resourceRelativePath(name, file.name)
+					return { ...file, path, referencing: bodies.filter((card) => card.body.includes(path)).map((card) => card.id) }
+				}),
+			})
+		}
+		return out
 	}
 
 	/**
@@ -792,8 +999,8 @@ export class CardStore {
 	 * @param {{tags?: string[], anyTags?: string[], limit?: number, includeArchived?: boolean}} [options] - Filters.
 	 * @returns {object[]} The cards.
 	 */
-	list({ tags = [], anyTags = [], limit = 50, includeArchived = false, archivedOnly = false } = {}) {
-		return this.listPage({ tags, anyTags, limit, includeArchived, archivedOnly }).cards
+	list({ tags = [], anyTags = [], limit = 50, includeArchived = false, archivedOnly = false, resourcePath = '' } = {}) {
+		return this.listPage({ tags, anyTags, limit, includeArchived, archivedOnly, resourcePath }).cards
 	}
 
 	/**
@@ -805,9 +1012,13 @@ export class CardStore {
 	 * @param {object} options - The same filters as `list`.
 	 * @returns {{cards: object[], total: number}} The page and the match size.
 	 */
-	listPage({ tags = [], anyTags = [], limit = 50, includeArchived = false, archivedOnly = false } = {}) {
+	listPage({ tags = [], anyTags = [], limit = 50, includeArchived = false, archivedOnly = false, resourcePath = '' } = {}) {
 		const filters = normalizeTags(tags)
 		const any = normalizeTags(anyTags)
+		// A resource path is a literal needle, not a search word: "which cards
+		// reference this file" is an exact question and BM25 would answer a
+		// different one.
+		const needle = String(resourcePath ?? '').trim()
 		const archivedFilter = filters.some((tag) => tag.split('/').pop() === '归档')
 		const cards = this.all().filter((card) => {
 			if (archivedOnly && !isArchived(card.tags)) return false
@@ -820,6 +1031,7 @@ export class CardStore {
 				const cardTags = card.tags ?? []
 				if (!any.some((filter) => cardTags.some((tag) => isUnder(tag, filter)))) return false
 			}
+			if (needle !== '' && !String(card.body ?? '').includes(needle)) return false
 			return true
 		})
 		cards.sort((left, right) => String(right.updated).localeCompare(String(left.updated)))
@@ -833,19 +1045,21 @@ export class CardStore {
 	 * @param {{text?: string, tags?: string[], anyTags?: string[], limit?: number, includeArchived?: boolean}} [request] - The query.
 	 * @returns {Promise<object[]>} Matching cards.
 	 */
-	async query({ text = '', tags = [], anyTags = [], limit = 8, includeArchived = false, archivedOnly = false } = {}) {
+	async query({ text = '', tags = [], anyTags = [], limit = 8, includeArchived = false, archivedOnly = false, resourcePath = '' } = {}) {
 		const queryText = String(text ?? '').trim()
 		const size = Math.max(1, Math.min(50, Math.round(Number(limit) || 8)))
-		if (queryText === '') return this.list({ tags, anyTags, limit: size, includeArchived, archivedOnly })
+		if (queryText === '') return this.list({ tags, anyTags, limit: size, includeArchived, archivedOnly, resourcePath })
 		const keep = cardFilter({ tags, anyTags, includeArchived, archivedOnly })
 		const results = await hybridRetrieve({
 			db: this.cards.db,
 			query: queryText,
 			limit: Math.max(size * 4, 20),
 		})
+		const needle = String(resourcePath ?? '').trim()
 		return results
 			.map((result) => this.cardOf(result.memory))
 			.filter(keep)
+			.filter((card) => needle === '' || String(card.body ?? '').includes(needle))
 			.slice(0, size)
 	}
 
@@ -935,7 +1149,6 @@ export class CardStore {
 				const card = graph.nodes.get(id)
 				return {
 					id,
-					label: card.label,
 					description: card.description ?? '',
 					tags: card.tags ?? [],
 					degree: { in: (backlinks[id] ?? []).length, out: (card.links ?? []).length },
@@ -1064,6 +1277,7 @@ export class CardStore {
 			await this.resources.archiveCard(id, join(this.dataDir, 'knowledge', 'trash-resources')).catch(() => {})
 		} else {
 			await this.resources.removeCard(id)
+			this.attachmentCache.delete(id)
 		}
 		return existed
 	}

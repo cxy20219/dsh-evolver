@@ -27,28 +27,84 @@ import { readFileSync } from 'node:fs'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
+import { accessStats } from './access.js'
 import { buildGraph, degrees } from '../memory/graph.js'
 import { shortIds } from './ids.js'
-import { labelOf } from './store.js'
-import { isArchived, rootOf, TAG_DESCRIPTIONS, TOP_TAGS } from './tags.js'
+import { isArchived, rootOf, TOP_TAGS } from './tags.js'
 
 /** The snapshot format. Bumped when the shape changes; unknown versions are ignored. */
 /** @internal exported for tests */
-export const INDEX_VERSION = 3
+export const INDEX_VERSION = 4
 
 
-/** How many well-connected cards the injected index names. */
-export const MAX_TOP_CARDS = 8
+/** How many cards the injected index names. */
+export const MAX_TOP_CARDS = 12
+
+/**
+ * How many of those slots go to the most recently written cards.
+ *
+ * An index made only of hubs answers "what is this library about" but never
+ * "what am I working on now": a note written today has no links yet and stays
+ * invisible until it collects some. Two slots keep the fresh end represented
+ * without touching the part that points at the structure.
+ */
+export const RECENT_SLOTS = 2
 
 /** The longest library summary paragraph. */
 /** @internal exported for tests */
 export const MAX_SUMMARY_CHARS = 320
 
-/** The longest label one injected card line carries. */
-const MAX_TOP_LABEL_CHARS = 44
+/**
+ * The longest description one injected card line carries.
+ *
+ * A card has no title. Its first line is prose, and cutting prose to stand in
+ * for a title is how the index ended up with long lines that stopped mid-word.
+ * What a card actually carries is its id and its description, and that is what
+ * the line shows.
+ */
+const MAX_TOP_DESC_CHARS = 80
 
-/** The longest description one injected card line carries. */
-const MAX_TOP_DESC_CHARS = 60
+/**
+ * The cap in use: the store's configured limit, or the default.
+ *
+ * The setting exists so the description budget is one number, not two: what the
+ * store accepts and what the index renders must not drift apart.
+ *
+ * @param {object} [store] - The card store, or an options object carrying it.
+ * @returns {number} The cap in characters.
+ */
+function descriptionCapOf(store) {
+	const value = Number(store?.descriptionMaxChars)
+	return Number.isFinite(value) && value > 0 ? value : MAX_TOP_DESC_CHARS
+}
+
+/** Where a clipped field is allowed to end: never mid-phrase. */
+const FIELD_BREAK = /[，。；：、！？,;]/
+
+/**
+ * Clip one index field to its cap, ending on a boundary and saying so.
+ *
+ * The caps exist so one pathological card cannot make a line heavy — not to
+ * save bytes, since the block sits at half its budget. A hard `slice` was the
+ * worst of both worlds: it spent the bytes and conveyed nothing ("…；动插") and
+ * the reader could not tell the text continued. This cuts at the last
+ * punctuation inside the cap and marks the cut with an ellipsis; without a
+ * punctuation to land on it still cuts hard, but still marks it.
+ *
+ * @param {unknown} text - The field.
+ * @param {number} cap - The longest the field may be, ellipsis included.
+ * @returns {string} The field, clipped and marked when it had to be.
+ */
+function clipField(text, cap) {
+	const chars = [...String(text ?? '').replace(/\s+/g, ' ').trim()]
+	if (chars.length <= cap) return chars.join('')
+	const head = chars.slice(0, cap - 1)
+	// Do not cut so early that only a stub survives.
+	for (let index = head.length - 1; index >= Math.floor(cap * 0.4); index -= 1) {
+		if (FIELD_BREAK.test(head[index])) return head.slice(0, index + 1).join('') + '…'
+	}
+	return head.join('') + '…'
+}
 
 /** The file name inside `<dataDir>/knowledge/`. */
 /** @internal exported for tests */
@@ -144,17 +200,53 @@ function sameIndexBody(left, right) {
 }
 
 /**
- * Recompute and persist the injected card index snapshot.
+ * Pick which cards one index block names.
  *
- * Called by the daily run, never by the prompt: this reads every card, ranks
- * every branch and writes a file, all of which are side effects the injection
- * path must not carry. The result is deterministic for a fixed clock and card
- * set, so two runs on an unchanged library write the same bytes.
+ * Two kinds of slot, because the index answers two questions. Most point at
+ * the hubs — the cards a search would also reach. The last two go to the most
+ * recently written cards, so a fresh note is visible before it has collected
+ * any links: an index made only of old hubs stops pointing at what is actually
+ * being worked on.
  *
- * @param {object} store - The card store.
- * @param {Date | number | string} [now] - Clock; defaults to now.
- * @returns {Promise<object>} The snapshot that was written.
+ * Degree is the primary order because it is the structure. Read count breaks
+ * ties: a hub nobody opens is still a hub, but between two equals the one that
+ * is actually consulted wins. `updated` and then the id finish the order, so
+ * two runs on the same library always produce the same list.
+ *
+ * @param {Array<{id: string, updated: string, degree: number}>} cards - The candidates.
+ * @param {{limit?: number, access?: Record<string, {count: number}>}} [options] - Knobs.
+ * @returns {string[]} The chosen ids, hubs first, then the fresh ones.
  */
+/** @internal exported for tests */
+export function pickIndexCards(cards, options = {}) {
+	const size = Math.max(1, Math.min(MAX_TOP_CARDS, Math.round(Number(options.limit) || MAX_TOP_CARDS)))
+	const access = options.access ?? {}
+	const readCount = (id) => {
+		const entry = access[id]
+		return typeof entry?.count === 'number' && Number.isFinite(entry.count) ? entry.count : 0
+	}
+	const compareText = (left, right) => (left === right ? 0 : (left < right ? -1 : 1))
+	const ranked = [...(cards ?? [])].sort((left, right) => {
+		const byDegree = right.degree - left.degree
+		if (byDegree !== 0) return byDegree
+		const byReads = readCount(right.id) - readCount(left.id)
+		if (byReads !== 0) return byReads
+		const byUpdated = compareText(String(right.updated ?? ''), String(left.updated ?? ''))
+		if (byUpdated !== 0) return byUpdated
+		return compareText(left.id, right.id)
+	})
+	// Never spend every slot on freshness: one hub is the floor.
+	const recentSlots = size <= 1 ? 0 : Math.min(RECENT_SLOTS, size - 1)
+	const hubs = ranked.slice(0, size - recentSlots)
+	const chosen = new Set(hubs.map((card) => card.id))
+	const fresh = ranked
+		.filter((card) => !chosen.has(card.id))
+		.sort((left, right) => compareText(String(right.updated ?? ''), String(left.updated ?? ''))
+			|| compareText(left.id, right.id))
+		.slice(0, recentSlots)
+	return hubs.concat(fresh).map((card) => card.id)
+}
+
 /**
  * The cards the injected index names.
  *
@@ -164,32 +256,29 @@ function sameIndexBody(left, right) {
  * one is more likely to be what the person is thinking about.
  *
  * @param {object[]} cards - The card views.
- * @param {number} [limit] - How many to keep.
- * @returns {Array<{id: string, label: string, description: string, degree: number}>} The cards.
+ * @param {{limit?: number, access?: Record<string, {count: number}>}} [options] - Slots and read counts.
+ * @returns {Array<{id: string, short: string, description: string}>} The cards.
  */
-export function topCardsOf(cards, limit = MAX_TOP_CARDS) {
-	const size = Math.max(1, Math.min(MAX_TOP_CARDS, Math.round(Number(limit) || MAX_TOP_CARDS)))
+export function topCardsOf(cards, options = {}) {
 	const active = (cards ?? []).filter((card) => card !== null && typeof card === 'object' && !isArchived(card.tags ?? []))
 	// Short ids are computed over the whole library, archived cards included:
 	// an abbreviation has to be unambiguous for every card a lookup may hit.
 	const short = shortIds((cards ?? []).filter((card) => card !== null && typeof card === 'object').map((card) => card.id))
 	const graph = buildGraph(active)
 	const degree = degrees(graph)
-	const ranked = [...graph.nodes.values()]
-		.sort((left, right) => {
-			const byDegree = (degree.get(right.id) ?? 0) - (degree.get(left.id) ?? 0)
-			if (byDegree !== 0) return byDegree
-			const byUpdated = String(right.updated ?? '').localeCompare(String(left.updated ?? ''))
-			if (byUpdated !== 0) return byUpdated
-			return left.id.localeCompare(right.id)
-		})
-	return ranked.slice(0, size).map((card) => ({
+	const entries = [...graph.nodes.values()].map((card) => ({
 		id: card.id,
-		short: short.get(card.id) ?? card.id,
-		label: [...String(card.label ?? '')].slice(0, MAX_TOP_LABEL_CHARS).join(''),
-		description: [...String(card.description ?? '')].slice(0, MAX_TOP_DESC_CHARS).join(''),
+		updated: String(card.updated ?? ''),
 		degree: degree.get(card.id) ?? 0,
 	}))
+	return pickIndexCards(entries, options).map((id) => {
+		const card = graph.nodes.get(id) ?? {}
+		return {
+			id,
+			short: short.get(id) ?? id,
+			description: clipField(card.description, descriptionCapOf(options)),
+		}
+	})
 }
 
 /**
@@ -201,11 +290,10 @@ export function topCardsOf(cards, limit = MAX_TOP_CARDS) {
  * readable version for the daily snapshot writer.
  *
  * @param {object[]} records - The raw card records.
- * @param {number} [limit] - How many to keep.
- * @returns {Array<{id: string, label: string, description: string, degree: number}>} The cards.
+ * @param {{limit?: number, access?: Record<string, {count: number}>}} [options] - Slots and read counts.
+ * @returns {Array<{id: string, short: string, description: string}>} The cards.
  */
-export function topCardsOfRecords(records, limit = MAX_TOP_CARDS) {
-	const size = Math.max(1, Math.min(MAX_TOP_CARDS, Math.round(Number(limit) || MAX_TOP_CARDS)))
+export function topCardsOfRecords(records, options = {}) {
 	const byId = new Map()
 	for (const record of records ?? []) {
 		if (record !== null && typeof record === 'object' && typeof record.id === 'string') byId.set(record.id, record)
@@ -228,20 +316,19 @@ export function topCardsOfRecords(records, limit = MAX_TOP_CARDS) {
 			if (out.has(link) && !out.get(link).has(record.id)) degree.set(link, (degree.get(link) ?? 0) + 1)
 		}
 	}
-	const ranked = [...active].sort((left, right) => {
-		const byDegree = (degree.get(right.id) ?? 0) - (degree.get(left.id) ?? 0)
-		if (byDegree !== 0) return byDegree
-		const byUpdated = String(right.updated ?? '').localeCompare(String(left.updated ?? ''))
-		if (byUpdated !== 0) return byUpdated
-		return left.id.localeCompare(right.id)
-	})
-	return ranked.slice(0, size).map((record) => ({
+	const entries = active.map((record) => ({
 		id: record.id,
-		short: short.get(record.id) ?? record.id,
-		label: [...labelOf(record.body)].slice(0, MAX_TOP_LABEL_CHARS).join(''),
-		description: [...String(record.description ?? '')].slice(0, MAX_TOP_DESC_CHARS).join(''),
+		updated: String(record.updated ?? ''),
 		degree: degree.get(record.id) ?? 0,
 	}))
+	return pickIndexCards(entries, options).map((id) => {
+		const record = byId.get(id) ?? {}
+		return {
+			id,
+			short: short.get(id) ?? id,
+			description: clipField(record.description, descriptionCapOf(options)),
+		}
+	})
 }
 
 /**
@@ -253,10 +340,9 @@ export function topCardsOfRecords(records, limit = MAX_TOP_CARDS) {
  * this is the deterministic floor.
  *
  * @param {object[]} cards - The card views.
- * @param {Record<string, string>} [descriptions] - Branch descriptions.
  * @returns {string} The paragraph.
  */
-export function librarySummary(cards, descriptions = TAG_DESCRIPTIONS) {
+export function librarySummary(cards) {
 	const active = (cards ?? []).filter((card) => card !== null && typeof card === 'object' && !isArchived(card.tags ?? []))
 	const counts = new Map()
 	for (const card of active) {
@@ -269,16 +355,15 @@ export function librarySummary(cards, descriptions = TAG_DESCRIPTIONS) {
 	for (const root of TOP_TAGS) {
 		const count = counts.get(root) ?? 0
 		if (count === 0) continue
-		// The summary is one paragraph, not the tree: a description is kept only
-		// when it is short enough to read whole — clipping it mid-phrase makes
-		// the paragraph look like a broken tree.
-		const description = String(descriptions?.[root] ?? '').replace(/\s+/g, ' ').trim()
-		const about = description !== '' && [...description].length <= 18 ? `（${description}）` : ''
-		parts.push(`${root}${about} ${count} 张`)
+		// No branch descriptions here: the six roots are plain Chinese words the
+		// model already understands, and `card_index` carries each branch's own
+		// description for the one call that needs it. Six parentheticals cost
+		// about 70 characters on every request for nothing.
+		parts.push(`${root} ${count}`)
 	}
 	const total = active.length
 	if (parts.length === 0) return `库里还没有卡片。`
-	const paragraph = `共 ${total} 张卡，按枝干组织：${parts.join('；')}。具体分类以 card_index 为准，内容用 card_query 取。`
+	const paragraph = `共 ${total} 张卡，按枝干：${parts.join(' · ')}。`
 	return [...paragraph].slice(0, MAX_SUMMARY_CHARS).join('')
 }
 
@@ -288,6 +373,10 @@ export async function refreshCardIndex(store, now = Date.now(), { summary } = {}
 	if (typeof store?.all !== 'function') throw new Error('卡片库不可读，无法刷新重要度索引。')
 	const stamp = stampOf(now)
 	const cards = store.all()
+	// Read counts break degree ties: a hub nobody opens is still a hub, but
+	// between two equal ones the card that is actually consulted wins. The
+	// ledger is a derived cache — a missing file simply means "no reads yet".
+	const access = await accessStats(store.dataDir).catch(() => ({ ids: {} }))
 	// The organiser may have written a better one-paragraph summary than the
 	// deterministic one; fall back to the floor whenever it did not.
 	const proposed = typeof summary === 'string' ? summary.replace(/\s+/g, ' ').trim() : ''
@@ -296,8 +385,8 @@ export async function refreshCardIndex(store, now = Date.now(), { summary } = {}
 		version: INDEX_VERSION,
 		day: dayKeyOf(stamp),
 		at: new Date(stamp).toISOString(),
-		topCards: topCardsOf(cards),
-		summary: cleanSummary === '' ? librarySummary(cards, await store.tagDescriptions()) : cleanSummary,
+		topCards: topCardsOf(cards, { access: access.ids ?? {}, descriptionMaxChars: descriptionCapOf(store) }),
+		summary: cleanSummary === '' ? librarySummary(cards) : cleanSummary,
 	}
 	// The empty-batch tick runs every few minutes and the ranking rarely moves;
 	// rewriting byte-identical content would churn the file for nothing. The
@@ -329,16 +418,12 @@ function normalizeIndex(value, stamp) {
 		if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
 		const id = String(entry.id ?? '')
 		if (id === '' || seenCards.has(id)) continue
-		const degree = Number(entry.degree)
-		if (!Number.isFinite(degree)) continue
 		seenCards.add(id)
 		const short = String(entry.short ?? '').trim()
 		topCards.push({
 			id,
 			short: /^[0-9A-Za-z-]{3,40}$/.test(short) ? short : '',
-			label: String(entry.label ?? ''),
 			description: String(entry.description ?? ''),
-			degree,
 		})
 	}
 	return {

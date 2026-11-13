@@ -23,6 +23,7 @@
  */
 
 import { buildGraph, degrees } from '../memory/graph.js'
+import { hasSettledTag } from './tag-policy.js'
 import { isArchived, rootOf } from './tags.js'
 
 /** The node count the panel asks for by default. */
@@ -145,7 +146,8 @@ function normalizeCards(cards) {
 		seen.add(card.id)
 		views.push({
 			id: card.id,
-			label: typeof card.label === 'string' ? card.label : '',
+			// No label: a card has no title, and the graph names nodes by their
+			// description now.
 			description: typeof card.description === 'string' ? card.description : '',
 			tags,
 			links: strings(card.links),
@@ -156,13 +158,22 @@ function normalizeCards(cards) {
 }
 
 /**
- * The branch a card's first tag belongs to, or '' for an untagged card.
+ * The branch a card is drawn in.
+ *
+ * `即兴` is the inbox, not a classification: a card that also carries a settled
+ * branch belongs to that branch. Colouring by the first tag put 39 of the first
+ * hundred cards in the inbox cluster while their tag groups stayed in the
+ * branches, so six tag groups spanned two clusters and every one of their edges
+ * was drawn across the whole picture. The branch is a reading of the tags, and
+ * the honest reading prefers the settled one.
  *
  * @param {object} card - The normalised card view.
- * @returns {string} The root of the first tag.
+ * @returns {string} The root of the first settled tag, else of the first tag.
  */
 function branchOf(card) {
-	return card.tags.length === 0 ? '' : rootOf(card.tags[0])
+	if (card.tags.length === 0) return ''
+	const settled = card.tags.filter((tag) => hasSettledTag([tag]))
+	return rootOf((settled.length > 0 ? settled : card.tags)[0])
 }
 
 /**
@@ -186,7 +197,6 @@ function nodeOf(entry) {
 	const card = entry.card
 	return {
 		id: card.id,
-		label: card.label,
 		description: card.description,
 		tags: [...card.tags],
 		branch: branchOf(card),

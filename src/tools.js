@@ -71,7 +71,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_read',
-			description: '读一张卡片的完整记录：正文、摘要、层级标签、双链和资源附件。resourceContents 里有附件的绝对 path 和 executable，入口命令优先用该绝对路径。id 传完整 ULID，或卡片索引里显示的缩写（唯一即解析）。neighbors:true 时附带出链/入链（各最多 10 条，{id,label,tags}），可以顺着链接继续读。',
+			description: '读一张卡片的完整记录：正文、摘要、层级标签、双链和资源附件。resourceContents 里有附件的绝对 path 和 executable，入口命令优先用该绝对路径。id 传完整 ULID，或卡片索引里显示的缩写（唯一即解析）。neighbors:true 时附带出链/入链（各最多 10 条，{id,description,tags}），可以顺着链接继续读。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -93,8 +93,8 @@ export function createTools({ cards, sessions }) {
 				type: 'object',
 				properties: {
 					id: { type: 'string', description: '更新已有卡片时传入 id（完整或唯一缩写）；新卡留空' },
-					body: { type: 'string', description: '卡片正文；首行会派生 label。有附件时必须包含 [标题]({{resource}})：用途、入口命令、输入输出、关联流程' },
-					description: { type: 'string', description: '可选：一句话说明这张卡讲什么、什么时候值得读（≤120 字，单行）。会进检索与注入索引，写卡时顺手写' },
+					body: { type: 'string', description: '卡片正文。有附件时必须包含 [标题]({{resource}})：用途、入口命令、输入输出、关联流程' },
+					description: { type: 'string', description: '必填：一句话说清这张卡回答什么问题（单行，上限见设置）。索引里每个 id 后面只跟这一段，空着或写占位词会被拒绝' },
 					tags: { type: 'array', items: { type: 'string' }, description: '层级标签，顶层必须是六大枝干之一，例如 ["践行/工作流","见闻/网络"]' },
 					links: { type: 'array', items: { type: 'string' }, description: '关联卡片 id（完整或唯一缩写，必须是已有卡片），双向关系只需写一次' },
 					quote: { type: 'string', description: '可选：这条笔记的逐字出处（用户原话、文件原句，≤160 字）。抄不到就别填——编造的出处比没有更糟；整理时会拿它核对正文' },

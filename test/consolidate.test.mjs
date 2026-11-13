@@ -16,7 +16,8 @@ import test from 'node:test'
 
 import { CardStore } from '../src/cards/store.js'
 import { createConsolidationController, consolidationPrompt, parseActions, parseReply } from '../src/consolidate.js'
-import { defaultConsolidate, defaultSettings, normalizeConsolidate } from '../src/settings.js'
+import { createOrganizeSettings } from '../src/organize.js'
+import { defaultConsolidate, defaultOrganize, defaultSettings, normalizeConsolidate, normalizeOrganize } from '../src/settings.js'
 
 /**
  * A card store plus a settings stub on a temporary folder.
@@ -24,16 +25,23 @@ import { defaultConsolidate, defaultSettings, normalizeConsolidate } from '../sr
  * @param {object} [consolidate] - The consolidation settings.
  * @returns {Promise<object>} The fixture.
  */
-async function fixture(consolidate = {}) {
+async function fixture(consolidate = {}, organize = {}) {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-consolidate-'))
 	const store = new CardStore({ dataDir: dir })
 	await store.init()
-	const state = { ...defaultSettings(), consolidate: { ...defaultConsolidate(), ...consolidate } }
+	const state = {
+		...defaultSettings(),
+		consolidate: { ...defaultConsolidate(), ...consolidate },
+		organize: { ...defaultOrganize(), ...organize },
+	}
 	const settings = {
 		get: () => state,
 		update: async (patch) => {
 			if (patch.consolidate !== undefined) {
 				state.consolidate = normalizeConsolidate({ ...state.consolidate, ...patch.consolidate })
+			}
+			if (patch.organize !== undefined) {
+				state.organize = normalizeOrganize({ ...state.organize, ...patch.organize })
 			}
 			return state
 		},
@@ -175,12 +183,12 @@ test('整理动作只认结构：批外 id、空正文、超长正文都被挡�
 test('整理提示带着标签树、候选链接和要整理的卡片', () => {
 	const prompt = consolidationPrompt(
 		[{ id: 'card-01HF7YAT00S37S1ZGTH35DPPXW', tags: ['践行/经验'], links: [], body: '一条正文' }],
-		[{ id: 'card-01HF7YAT00S37S1ZGTH35DPPX2', tags: ['践行/经验'], label: '另一张' }],
+		[{ id: 'card-01HF7YAT00S37S1ZGTH35DPPX2', tags: ['践行/经验'], description: '另一张卡讲的事' }],
 		[{ path: '践行', name: '践行', count: 1, children: [] }],
 		{ 践行: '落地与持续行动' },
 	)
 	assert.match(prompt, /#践行 \(1\) — 落地与持续行动/)
-	assert.match(prompt, /card-01HF7YAT00S37S1ZGTH35DPPX2 \| 践行\/经验 \| 另一张/)
+	assert.match(prompt, /card-01HF7YAT00S37S1ZGTH35DPPX2 \| 践行\/经验 \| 另一张卡讲的事/)
 	assert.match(prompt, /一条正文/)
 })
 
@@ -225,8 +233,12 @@ test('整理把模型动作落到卡片：改写、加链接、合并、删除�
 		assert.equal(trash.find((entry) => entry.op === 'merge').into, keep.id)
 
 		// The ledger records the review, so the batch is not repeated tomorrow.
+		// Only the cards that still exist are stamped: the deleted one and the
+		// one merged away are gone, not "reviewed".
 		const ledger = JSON.parse(await readFile(join(dir, 'knowledge', 'consolidation.json'), 'utf8'))
-		assert.equal(Object.keys(ledger.cards).length, 4)
+		assert.equal(Object.keys(ledger.cards).length, 2)
+		assert.notEqual(ledger.cards[keep.id], undefined)
+		assert.notEqual(ledger.cards[related.id], undefined)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
@@ -266,32 +278,105 @@ test('整理不会碰批外的卡片，也不会写进密钥', async () => {
 	}
 })
 
-test('每天只跑一次，且到了设定的小时才开始', async () => {
+test('到了设定的小时才开始；一天的配额跟着入库量放大，分批跑完就停', async () => {
 	const { dir, store, settings } = await fixture({ enabled: true, dailyCards: 2, hour: 3 })
 	try {
-		await store.put({ body: '第一张待整理的卡片', tags: ['践行/经验'] })
-		await store.put({ body: '第二张待整理的卡片', tags: ['见闻/事实'] })
+		for (let index = 0; index < 6; index += 1) {
+			await store.put({ body: `第 ${index} 张待整理的卡片`, tags: ['践行/经验'] })
+		}
 		let clock = new Date(2026, 10, 11, 2, 30, 0).getTime()
+		let calls = 0
+		const llm = {
+			async *stream() {
+				calls += 1
+				yield { type: 'text-delta', text: '{"actions":[]}' }
+				yield { type: 'finish', reason: { kind: 'stop' } }
+			},
+		}
+		const controller = createConsolidationController({ settings, store: () => store, llm, modelSelection, now: () => clock })
+		assert.equal(await controller.check(), null, '没到点不跑')
+		clock = new Date(2026, 10, 11, 3, 5, 0).getTime()
+		// 六张新卡、每批两张：当天的配额是六张，所以分三批跑完，而不是一批就收工。
+		for (let index = 0; index < 3; index += 1) {
+			const result = await controller.check()
+			assert.equal(result.batch, 2, `第 ${index + 1} 批两张`)
+		}
+		assert.equal(calls, 3)
+		assert.equal(await controller.check(), null, '配额用完当天就停')
+		const ledger = JSON.parse(await readFile(join(dir, 'knowledge', 'consolidation.json'), 'utf8'))
+		assert.deepEqual(ledger.progress, { day: '2026-11-11', reviewed: 6, batches: 3 })
+		assert.equal(Object.keys(ledger.cards).length, 6, '六张都记账了，明天不再重复')
+		const status = await controller.status()
+		assert.equal(status.total, 6)
+		assert.equal(status.due, 0)
+		assert.equal(status.lastBatch, 2)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('一天最多跑四批：入库再猛也不会无限调用模型', async () => {
+	const { dir, store, settings } = await fixture({ enabled: true, dailyCards: 1, hour: 3 })
+	try {
+		for (let index = 0; index < 10; index += 1) {
+			await store.put({ body: `第 ${index} 张待整理的卡片`, tags: ['践行/经验'] })
+		}
+		let calls = 0
+		const llm = {
+			async *stream() {
+				calls += 1
+				yield { type: 'text-delta', text: '{"actions":[]}' }
+				yield { type: 'finish', reason: { kind: 'stop' } }
+			},
+		}
+		const controller = createConsolidationController({
+			settings,
+			store: () => store,
+			llm,
+			modelSelection,
+			now: () => new Date(2026, 10, 11, 4, 0, 0).getTime(),
+		})
+		for (let index = 0; index < 4; index += 1) {
+			assert.notEqual(await controller.check(), null, `第 ${index + 1} 批还在配额里`)
+		}
+		assert.equal(await controller.check(), null, '四批之后就停手')
+		assert.equal(calls, 4, '当天的上限是四批，不是十批')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('看过但没落定的老卡不记账：下一轮还会被挑到', async () => {
+	const { dir, store, settings } = await fixture({ enabled: true, dailyCards: 2, hour: 3 })
+	try {
+		// 2023 年的 ULID：两张都超过 14 天，只有一张有落定枝干。
+		const unfiled = await store.put({ id: 'card-01HF7YAT00S37S1ZGTH35DPPXW', body: '很久以前的一条想法', tags: ['即兴'] })
+		const settled = await store.put({ id: 'card-01HF7YAT00S37S1ZGTH35DPPXX', body: '很久以前就已落定的一条', tags: ['践行/经验'] })
 		const controller = createConsolidationController({
 			settings,
 			store: () => store,
 			llm: modelReturning('{"actions":[]}'),
 			modelSelection,
-			now: () => clock,
+			now: () => new Date(2026, 10, 11, 4, 0, 0).getTime(),
 		})
-		assert.equal(await controller.check(), null, '没到点不跑')
-		clock = new Date(2026, 10, 11, 3, 5, 0).getTime()
-		const first = await controller.check()
-		assert.equal(first.success, true)
-		assert.equal(first.batch, 2)
-		assert.equal(await controller.check(), null, '同一天不重复跑')
-		clock = new Date(2026, 10, 12, 3, 5, 0).getTime()
-		// Both cards were just reviewed, so nothing is due yet.
-		assert.equal(await controller.check(), null)
-		const status = await controller.status()
-		assert.equal(status.total, 2)
-		assert.equal(status.due, 0)
-		assert.equal(status.lastBatch, 2)
+		await controller.run()
+		const ledger = JSON.parse(await readFile(join(dir, 'knowledge', 'consolidation.json'), 'utf8'))
+		assert.notEqual(ledger.cards[settled.id], undefined, '已落定的卡照常记账')
+		assert.equal(ledger.cards[unfiled.id], undefined, '没落定的卡不记账')
+		assert.equal(ledger.progress.reviewed, 2, '但两张都花了当天的配额')
+
+		// 第二天：没落定的那张还在队列里，已落定的那张不会重复。
+		const tomorrow = createConsolidationController({
+			settings,
+			store: () => store,
+			llm: modelReturning('{"actions":[]}'),
+			modelSelection,
+			now: () => new Date(2026, 10, 12, 4, 0, 0).getTime(),
+		})
+		const result = await tomorrow.run()
+		assert.equal(result.batch, 1, '只有没落定的那张回来了')
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
@@ -332,7 +417,7 @@ test('模型一直答不出 JSON 时，一天最多试两次，不会每十分�
 	}
 })
 
-test('整理设置被夹在合理范围，默认关闭且每天 15 张', () => {
+test('整理设置被夹在合理范围，默认关闭、每批 15 张', () => {
 	assert.deepEqual(defaultConsolidate(), { enabled: false, dailyCards: 15, hour: 3 })
 	assert.equal(normalizeConsolidate({ dailyCards: 0 }).dailyCards, 1)
 	assert.equal(normalizeConsolidate({ dailyCards: 9999 }).dailyCards, 100)
@@ -340,6 +425,20 @@ test('整理设置被夹在合理范围，默认关闭且每天 15 张', () => {
 	assert.equal(normalizeConsolidate({ hour: 99 }).hour, 23)
 	assert.equal(normalizeConsolidate({ enabled: 'yes' }).enabled, false)
 	assert.equal(normalizeConsolidate({ enabled: true, dailyCards: '7' }).dailyCards, 7)
+})
+
+test('整理模型是独立设置：缺省和 null 都是跟随聊天，残掉的値退回跟随', () => {
+	assert.deepEqual(defaultOrganize(), { model: null })
+	assert.equal(normalizeOrganize({}).model, null)
+	assert.equal(normalizeOrganize({ model: null }).model, null)
+	assert.deepEqual(normalizeOrganize({ model: { provider: 'p', model: 'm' } }).model, { provider: 'p', model: 'm' })
+	assert.deepEqual(
+		normalizeOrganize({ model: { provider: 'p', model: 'm', reasoningEffort: 'high' } }).model,
+		{ provider: 'p', model: 'm', reasoningEffort: 'high' },
+	)
+	// 半个模型不能留在设置里：那会让「跟随聊天」变成「跟随一个空选择」。
+	assert.equal(normalizeOrganize({ model: { provider: 'p' } }).model, null)
+	assert.equal(normalizeOrganize({ model: 'p::m' }).model, null)
 })
 
 test('整理任务不会并发跑两次', async () => {
@@ -833,6 +932,112 @@ test('模型调用期间卡片被人工编辑：该卡的动作被跳过，不�
 		assert.equal(result.updated, 0)
 		assert.equal(result.retagged, 0)
 		assert.ok(result.skipped >= 2, '两条动作都记为跳过')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('配了整理模型就按配置调用并带上思考强度；没配就跟随聊天默认', async () => {
+	const { dir, store, settings } = await fixture({}, { model: { provider: 'cfg', model: 'cfg-model', reasoningEffort: 'high' } })
+	try {
+		await store.put({ body: '一张待整理的卡片', tags: ['践行/经验'] })
+		const seen = []
+		const controller = createConsolidationController({
+			settings,
+			store: () => store,
+			llm: {
+				async *stream(request) {
+					seen.push(request)
+					yield { type: 'text-delta', text: '{"actions":[]}' }
+					yield { type: 'finish', reason: { kind: 'stop' } }
+				},
+			},
+			modelSelection: { currentSelection: () => ({ provider: 'sess', model: 'sess-model' }) },
+		})
+		await controller.run()
+		assert.equal(seen[0].provider, 'cfg')
+		assert.equal(seen[0].model, 'cfg-model')
+		assert.equal(seen[0].reasoningEffort, 'high')
+
+		// 清掉配置，下一次运行跟着聊天走，且不带任何强度。
+		settings.get().organize.model = null
+		await store.put({ body: '第二张待整理的卡片', tags: ['践行/经验'] })
+		await createConsolidationController({
+			settings,
+			store: () => store,
+			llm: {
+				async *stream(request) {
+					seen.push(request)
+					yield { type: 'text-delta', text: '{"actions":[]}' }
+					yield { type: 'finish', reason: { kind: 'stop' } }
+				},
+			},
+			modelSelection: { currentSelection: () => ({ provider: 'sess', model: 'sess-model' }) },
+		}).run()
+		assert.equal(seen[1].provider, 'sess')
+		assert.equal(seen[1].model, 'sess-model')
+		assert.equal('reasoningEffort' in seen[1], false)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('整理模型设置：目录带出思考强度，坏路由只跳过自己，保存后立刻反映', async () => {
+	const { dir, store, settings } = await fixture()
+	try {
+		let providerCalls = 0
+		const llm = {
+			async listProviders() {
+				providerCalls += 1
+				return [{ id: 'p1', name: 'Provider One' }, { id: 'bad', name: 'Broken' }]
+			},
+			async listModels(provider) {
+				if (provider === 'bad') throw new Error('route down')
+				return [{ id: 'm1', name: 'Model One' }]
+			},
+			async resolveModelInfo() {
+				return { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'low' } }
+			},
+		}
+		const controller = createOrganizeSettings({ settings, llm, modelSelection })
+		const status = await controller.status()
+		assert.equal(status.model, null, '默认跟随聊天')
+		assert.deepEqual(status.current, { provider: 'p', model: 'm' }, '生效的是聊天里的模型')
+		assert.deepEqual(status.providers.map((provider) => provider.id), ['p1', 'bad'])
+		assert.deepEqual(status.providers[0].models[0].reasoning.efforts.map((effort) => effort.id), ['low', 'high'])
+		assert.deepEqual(status.providers[1].models, [], '坏路由留空，不连坐整张表')
+
+		await controller.status()
+		assert.equal(providerCalls, 1, '第二次读走缓存，不再打适配器')
+
+		const saved = await controller.save({ model: { provider: 'p1', model: 'm1', reasoningEffort: 'high' } })
+		assert.deepEqual(saved.model, { provider: 'p1', model: 'm1', reasoningEffort: 'high' })
+		assert.deepEqual(saved.current, { provider: 'p1', model: 'm1', reasoningEffort: 'high' }, '保存后生效的就是它')
+		assert.deepEqual(settings.get().organize.model, { provider: 'p1', model: 'm1', reasoningEffort: 'high' })
+
+		// 换回「跟随聊天」：存 null，不残留上一个模型。
+		const cleared = await controller.save({ model: null })
+		assert.equal(cleared.model, null)
+		assert.deepEqual(cleared.current, { provider: 'p', model: 'm' })
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('整理回复被 max-tokens 截断时说清楚是截断', async () => {
+	const { dir, store, settings } = await fixture()
+	try {
+		await store.put({ body: '一张待整理的卡片', tags: ['践行/经验'] })
+		const llm = {
+			async *stream() {
+				yield { type: 'finish', reason: { kind: 'max-tokens' } }
+			},
+		}
+		const controller = createConsolidationController({ settings, store: () => store, llm, modelSelection })
+		await assert.rejects(() => controller.run(), /截断/)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })

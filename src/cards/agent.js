@@ -11,7 +11,7 @@ import { findSecret } from '../secrets.js'
 import { createAccessLog } from './access.js'
 import { cardIndexText } from './prompt.js'
 import { flattenTagTree, renderTagBranch, renderTagIndex, resolveTag } from './tag-index.js'
-import { normalizeDescription } from './store.js'
+import { assertRealDescription, clipDescription } from './store.js'
 import {
 	descriptionOf,
 	isArchived,
@@ -90,7 +90,8 @@ export function createCardAgent(cards) {
 	 */
 	async function write(input = {}) {
 		const body = String(input.body ?? '').trim()
-		const description = normalizeDescription(input.description)
+		// A card is an id plus a description; nothing may write one without it.
+		const description = assertRealDescription(input.description, cards.descriptionMaxChars)
 		if (body === '') throw new Error('卡片正文不能为空。')
 		assertNoSecret(body)
 		const tags = normalizeCardTags(input.tags)
@@ -153,8 +154,11 @@ export function createCardAgent(cards) {
 			const saved = await cards.put({ ...twin, body: text, tags: cardTags, ...(source === undefined ? {} : { source }) })
 			return { success: true, id: saved.id, message: '已更新 #即兴 卡。' }
 		}
+		// Ingested memories are one sentence already: the same sentence, cut to
+		// the description budget, is the index entry for the card.
 		const saved = await cards.put({
 			body: text,
+			description: clipDescription(text, cards.descriptionMaxChars),
 			tags: cardTags,
 			...(source === undefined ? {} : { source }),
 		})
@@ -203,13 +207,21 @@ export function createCardAgent(cards) {
 		})
 		await access.recordAccess(results.map((card) => card.id))
 		const backlinks = cards.backlinks()
-		return results.map((card) => ({
-			...card,
-			degree: {
-				in: (backlinks[card.id] ?? []).length,
-				out: (card.links ?? []).length,
-			},
-		}))
+		// Attachment names ride along with the hit: without them the model has
+		// to `card_read` a card just to learn it carries a script.
+		const attachments = new Map()
+		for (const card of results) attachments.set(card.id, await cards.attachments(card.id))
+		return results.map((card) => {
+			const files = attachments.get(card.id) ?? []
+			return {
+				...card,
+				degree: {
+					in: (backlinks[card.id] ?? []).length,
+					out: (card.links ?? []).length,
+				},
+				...(files.length === 0 ? {} : { resources: files.map((file) => ({ name: file.name, executable: file.executable })) }),
+			}
+		})
 	}
 
 	/**
@@ -343,7 +355,7 @@ export function createCardAgent(cards) {
 			.slice()
 			.sort((left, right) => String(right.updated).localeCompare(String(left.updated)))
 			.slice(0, 5)
-			.map((card) => ({ id: card.id, label: card.label, tags: card.tags, updated: card.updated }))
+			.map((card) => ({ id: card.id, description: card.description, tags: card.tags, updated: card.updated }))
 		// Freshness lives in the review ledger, not on the card: one place to
 		// update, and no card can disagree with the record of when it was read.
 		const reviewed = (await cards.consolidationLedger()).cards
@@ -417,7 +429,7 @@ export function createCardAgent(cards) {
  *
  * @param {object} cards - The card store.
  * @param {string[]} ids - The linked ids.
- * @returns {Array<{id: string, label: string, tags: string[]}>} Neighbours, by label, at most `MAX_NEIGHBORS`.
+ * @returns {Array<{id: string, description: string, tags: string[]}>} Neighbours, by description, at most `MAX_NEIGHBORS`.
  */
 function neighborList(cards, ids) {
 	const seen = new Set()
@@ -427,10 +439,12 @@ function neighborList(cards, ids) {
 		seen.add(id)
 		const card = cards.get(id)
 		list.push(card === undefined
-			? { id, label: '(missing)', tags: [] }
-			: { id: card.id, label: card.label, tags: card.tags })
+			? { id, description: '', tags: [] }
+			: { id: card.id, description: card.description, tags: card.tags })
 	}
-	list.sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id))
+	// Neighbours are named by description now: sort by that, then by id so the
+	// list is stable when two cards say the same thing.
+	list.sort((left, right) => left.description.localeCompare(right.description) || left.id.localeCompare(right.id))
 	return list.slice(0, MAX_NEIGHBORS)
 }
 
@@ -444,7 +458,7 @@ function neighborList(cards, ids) {
  * ones worth naming in an index.
  *
  * @param {object[]} cards - The active cards (archived already excluded).
- * @returns {{cards: number, links: number, density: number, orphans: number, orphanRatio: number, hubs: Array<{id: string, label: string, in: number}>}} The metrics.
+ * @returns {{cards: number, links: number, density: number, orphans: number, orphanRatio: number, hubs: Array<{id: string, description: string, in: number}>}} The metrics.
  */
 function graphMetrics(cards) {
 	const ids = new Set(cards.map((card) => card.id))
@@ -462,9 +476,11 @@ function graphMetrics(cards) {
 	}).length
 	const possible = count * (count - 1)
 	const hubs = cards
-		.map((card) => ({ id: card.id, label: card.label, in: inbound.get(card.id) ?? 0 }))
+		.map((card) => ({ id: card.id, description: card.description, in: inbound.get(card.id) ?? 0 }))
 		.filter((hub) => hub.in > 0)
-		.sort((left, right) => right.in - left.in || left.label.localeCompare(right.label) || left.id.localeCompare(right.id))
+		.sort((left, right) => right.in - left.in
+			|| left.description.localeCompare(right.description)
+			|| left.id.localeCompare(right.id))
 		.slice(0, MAX_HUBS)
 	return {
 		cards: count,

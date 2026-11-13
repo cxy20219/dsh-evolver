@@ -31,11 +31,13 @@ DSH 的「演化器」插件：一个追加式卡片库 + 分层标签 + 双向�
   - 注入走 `cardIndexText`，读快照；快照缺失/过期时回退实时排序，并按 store 版本记忆化（2000 卡无快照从 43.8 ms 降到 3.3–4.3 ms，命中缓存 0.04 ms）。标签树不再注入，标签目录用 `card_index` 取（2 KB 预算，超了按 tag 钻取）。
 - **检索有两段**：BM25 词法命中 + 沿双链扩散（`src/memory/graph.js`，带衰减的个性化游走 + 枢纽加成）；`card_query` 的 `graph:true` 返回相关子图，`within` 做二次搜索。
 - 数据目录默认 `~/.dsh/evolver`，`cards.jsonl` 是追加日志，同 id 后写覆盖前写。
+- `knowledge/health.json` 是健康度序列（每天一行，最多 10 行）；同一行同时写进插件日志，**不再单独占用一张卡片**（2026-11-13 改：原来每天写一张「卡片库健康度」卡，会占掉注入索引的两个"最近写的"槽位，还要在统计时把自己排除）。面板的「日志 → 库健康」读这份序列。
+- `knowledge/logs/plugin.log` 是插件自己的日志（`src/logs.js`，按 256 KB 轮转、最多 3 个文件）；宿主 stdout 在桌面端重启后即丢，所以后台任务必须往上写，否则「点了没反应」无从定位。
 
 ## 常用入口
 
 ```bash
-npm test                          # 277 个用例
+npm test                          # 309 个用例
 node --check src/xxx.js           # 单文件语法
 node harness/tool/link-layout-metrics.mjs --data-dir ~/.dsh/evolver   # 关系图布局实测
 ```

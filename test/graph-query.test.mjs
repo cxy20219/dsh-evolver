@@ -75,6 +75,7 @@ test('queryGraph：返回命中卡 + related + 子图，卡片与节点各带自
 		})
 		const neighbour = await store.put({
 			body: '# 回滚脚本\n\n回滚前先备份。',
+			description: '回滚那条命令怎么跑',
 			tags: ['践行/工作流'],
 			links: [seed.id],
 		})
@@ -97,9 +98,8 @@ test('queryGraph：返回命中卡 + related + 子图，卡片与节点各带自
 		// 一跳邻居在 related 里；二跳的 far 不在（hops=1），无关卡也进不来。
 		assert.deepEqual(ids(result.related), [neighbour.id])
 		const related = result.related[0]
-		assert.deepEqual(Object.keys(related).sort(), ['degree', 'description', 'id', 'label', 'score', 'tags'])
-		assert.equal(related.label, '回滚脚本')
-		assert.equal(related.description, '')
+		assert.deepEqual(Object.keys(related).sort(), ['degree', 'description', 'id', 'score', 'tags'])
+		assert.equal(related.description, '回滚那条命令怎么跑')
 		assert.deepEqual(related.tags, ['践行/工作流'])
 		assert.deepEqual(related.degree, { in: 1, out: 1 })
 		assert.ok(related.score > 0 && related.score <= 1)
@@ -107,9 +107,9 @@ test('queryGraph：返回命中卡 + related + 子图，卡片与节点各带自
 		// 子图节点按 rank 顺序排列；节点 degree 是候选库内的邻居数，不是入/出链。
 		assert.deepEqual(ids(result.graph.nodes), [seed.id, neighbour.id])
 		for (const node of result.graph.nodes) {
-			assert.deepEqual(Object.keys(node).sort(), ['degree', 'description', 'id', 'label'])
+			assert.deepEqual(Object.keys(node).sort(), ['degree', 'description', 'id'])
 		}
-		assert.equal(result.graph.nodes[0].label, '部署方式')
+		assert.equal(result.graph.nodes[0].description, '本机部署的步骤和禁忌')
 		assert.deepEqual(result.graph.nodes.map((node) => node.degree), [1, 2])
 		assert.deepEqual(result.graph.edges.map(ends), [[seed.id, neighbour.id].sort()])
 		assert.equal(ids(result.graph.nodes).includes(far.id), false)

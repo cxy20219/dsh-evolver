@@ -160,9 +160,9 @@ test('apply 注册工具、注入与接口，注入读每日快照', async () =>
 			assert.equal(overview.version, pkg.version)
 
 			const saved = await (await post(routes, 'card-write', {
-				card: { body: '来自接口\n\n正文', tags: ['践行/测试'] },
+				card: { body: '来自接口\n\n正文里独一无二的一句话', description: '接口写入的一条测试卡', tags: ['践行/测试'] },
 			})).json()
-			// The injected block is the card index: ids and labels, never bodies.
+			// The injected block is the card index: ids (and descriptions), never bodies.
 			// 写卡不改注入：快照每天重建一次，写完之后读到的还是同一份快照。
 			assert.match(contexts[0].text(), /\[卡片索引\]/)
 			assert.match(contexts[0].text(), /\[知识结构\]/)
@@ -172,14 +172,15 @@ test('apply 注册工具、注入与接口，注入读每日快照', async () =>
 			// 快照缺失时退回实时排序，新卡立刻出现（审计 H1 的 fallback 路径）。
 			await unlink(snapshotPath)
 			assert.equal(contexts[0].text().includes(saved.id.slice(-5)), true, '无快照时索引里能看到短 id')
-			assert.equal(contexts[0].text().includes('来自接口'), true, '无快照时 label 进索引')
-			assert.equal(contexts[0].text().includes('正文'), false, '正文不进索引')
+			// 卡片没有标题：正文首行不进索引，只有 id 和描述。
+			assert.equal(contexts[0].text().includes('来自接口'), false, '正文首行不进索引')
+			assert.equal(contexts[0].text().includes('正文里独一无二的一句话'), false, '正文不进索引')
 			assert.equal(sections[0].text().includes(saved.id), false)
 			// The static section points at the tools instead of injecting content.
 			assert.match(sections[0].text(), /card_index/)
 
 			const read = await (await post(routes, 'card-read', { id: saved.id })).json()
-			assert.equal(read.card.label, '来自接口')
+			assert.equal(read.card.description, '接口写入的一条测试卡')
 
 			const query = await (await post(routes, 'card-list', { query: '来自接口' })).json()
 			assert.equal(query.cards.length, 1)
@@ -188,7 +189,7 @@ test('apply 注册工具、注入与接口，注入读每日快照', async () =>
 			assert.equal(filtered.cards.length, 1)
 
 			const temporary = await (await post(routes, 'card-write', {
-				card: { body: '待整理为践行卡', tags: ['即兴'] },
+				card: { body: '待整理为践行卡', description: '还没归枝的收件箱卡', tags: ['即兴'] },
 			})).json()
 			const promoteTool = tools.find((tool) => tool.name === 'card_promote')
 			assert.equal(promoteTool !== undefined, true)
@@ -287,7 +288,7 @@ test('导出、导入与迁移数据目录', async () => {
 
 			// 导出的压缩包可以再导入：删一张卡，再从包里恢复（含附件）
 			const restorable = await (await post(routes, 'card-write', {
-				card: { body: '会被恢复\n\nb', tags: ['践行/测试'] },
+				card: { body: '会被恢复\n\nb', description: '备份恢复用的测试卡', tags: ['践行/测试'] },
 			})).json()
 			await post(routes, 'card-attach', {
 				id: restorable.id,
@@ -306,7 +307,7 @@ test('导出、导入与迁移数据目录', async () => {
 			const restoredCards = await (await post(routes, 'card-list', { query: '会被恢复' })).json()
 			assert.ok(restoredCards.cards.length >= 1)
 			const restoredCard = await (await post(routes, 'card-read', { id: restoredCards.cards[0].id })).json()
-			assert.equal(restoredCard.card.label, '会被恢复')
+			assert.equal(restoredCard.card.description, '备份恢复用的测试卡')
 			assert.match(restoredCard.card.resourceContents[0].text, /会被恢复的附件/)
 
 			// 浏览压缩包：只列支持的三种后缀，并带上路径与大小
@@ -375,7 +376,7 @@ test('导出、导入与迁移数据目录', async () => {
 
 			// 之后的写入落进新目录，旧目录不动
 			await post(routes, 'card-write', {
-				card: { body: '迁移之后', tags: ['即兴'] },
+				card: { body: '迁移之后', description: '迁移后仍在的卡', tags: ['即兴'] },
 			})
 			const after = await (await post(routes, 'card-list', { query: '迁移之后' })).json()
 			assert.equal(after.cards.length, 1)
@@ -420,16 +421,25 @@ test('卡片接口：列表、写入、读取、提升、附件、标签、归�
 			assert.ok(Array.isArray(list.tree))
 
 			const created = await (await post(routes, 'card-write', {
-				card: { body: '一条即兴卡片', tags: ['即兴'] },
+				card: { body: '一条即兴卡片', description: '接口创建的即兴卡', tags: ['即兴'] },
 			})).json()
 			assert.equal(created.type, undefined)
-			assert.equal(created.label, '一条即兴卡片')
+			assert.equal(created.description, '接口创建的即兴卡')
 			assert.deepEqual(created.tags, ['即兴'])
 
 			const read = await (await post(routes, 'card-read', { id: created.id })).json()
 			assert.equal(read.card.id, created.id)
 			const promoted = await (await post(routes, 'card-promote', { id: created.id, tags: ['践行/经验'] })).json()
 			assert.ok(promoted.tags.includes('践行/经验'))
+
+			const attachments = await (await post(routes, 'resources-list', {})).json()
+			assert.equal(Array.isArray(attachments), true, '资源列表是数组')
+			// 一行一个文件：文件名在前，卡片是它的上下文。
+			for (const row of attachments) {
+				assert.equal(typeof row.name, 'string', '每行是一个文件')
+				assert.equal(typeof row.bytes, 'number')
+				assert.equal(typeof row.card?.id, 'string', '文件带着所属卡片')
+			}
 
 			const attached = await (await post(routes, 'card-attach', {
 				id: created.id,
@@ -468,10 +478,10 @@ test('关系图接口：返回节点、边与总数，limit 越界被夹取', as
 		await apply(ctx, { dataDir: join(home, 'evolver') })
 		try {
 			const first = await (await post(routes, 'card-write', {
-				card: { body: '图一', tags: ['践行/工作流'] },
+				card: { body: '图一', description: '关系图的起点卡', tags: ['践行/工作流'] },
 			})).json()
 			const second = await (await post(routes, 'card-write', {
-				card: { body: '图二', tags: ['践行/工作流'], links: [first.id] },
+				card: { body: '图二', description: '链到图一的第二张', tags: ['践行/工作流'], links: [first.id] },
 			})).json()
 
 			const graph = await (await post(routes, 'graph', { limit: 10 })).json()
@@ -493,7 +503,7 @@ test('关系图接口：返回节点、边与总数，limit 越界被夹取', as
 			// 新写的卡在图上，节点形状是面板要的那一份。
 			const node = graph.nodes.find((item) => item.id === second.id)
 			assert.ok(node !== undefined, '新写的卡必须入图')
-			assert.equal(node.label, '图二')
+			assert.equal(node.description, '链到图一的第二张')
 			assert.equal(node.branch, '践行')
 			assert.equal(node.degree, 1)
 			assert.equal(Array.isArray(node.tags), true)
@@ -638,12 +648,21 @@ test('密钥筛查覆盖阿里云/Bearer/AWS secret 等常见形状', async () =
 				'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
 			]
 			for (const sample of samples) {
-				const response = await post(routes, 'card-write', { card: { body: `密钥：${sample}`, tags: ['即兴'] } })
+				const response = await post(routes, 'card-write', { card: { body: `密钥：${sample}`, description: '正文里带凭据的卡', tags: ['即兴'] } })
 				assert.equal(response.status, 400, `应当拒绝：${sample.slice(0, 12)}`)
 				assert.match((await response.json()).error.message, /密钥/)
 			}
+			// 描述是必填项：空、占位词、超上限都被拒绝，且不会落库。
+			for (const description of [undefined, '', '暂无', 'TODO', '长'.repeat(81)]) {
+				const response = await post(routes, 'card-write', {
+					card: { body: '没有合格描述的卡', ...(description === undefined ? {} : { description }), tags: ['即兴'] },
+				})
+				assert.equal(response.status, 400, `应当拒绝描述：${String(description).slice(0, 8)}`)
+				assert.match((await response.json()).error.message, /description|占位|最多 \d+ 字/)
+			}
+
 			// 普通正文不能被误伤
-			const clean = await post(routes, 'card-write', { card: { body: '普通笔记：这段正文没有凭据', tags: ['即兴'] } })
+			const clean = await post(routes, 'card-write', { card: { body: '普通笔记：这段正文没有凭据', description: '正文里没有凭据的卡', tags: ['即兴'] } })
 			assert.equal(clean.status, 200)
 		} finally {
 			await disposeEffects(effects)

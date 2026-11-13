@@ -14,9 +14,6 @@
 
 import { isArchived, rootOf } from './tags.js'
 
-/** The tags the report card carries. */
-export const REPORT_TAGS = ['践行/验证方法']
-
 /** How many days the card keeps. */
 export const MAX_ROWS = 10
 

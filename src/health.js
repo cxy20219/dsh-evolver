@@ -1,18 +1,20 @@
 /**
- * The daily health card.
+ * The daily health row.
  *
- * A job rather than a script on purpose: the card lives in the same store the
- * plugin writes, and a second process appending to `cards.jsonl` would leave
- * the running plugin with a stale picture of its own library until restart.
+ * This is instrumentation, not knowledge: it used to be written into a card of
+ * its own, which meant a dashboard lived in the library, took one of the two
+ * "recently written" slots in the injected index every morning, and had to be
+ * excluded from its own numbers. It is a log line now — one per day, next to
+ * the plugin's other records — and the panel reads the series from the ledger.
  *
  * The numbers themselves are computed in `cards/health.js`; this file owns the
- * ledger, the once-a-day decision and the card itself.
+ * ledger, the once-a-day decision and the line it writes.
  */
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { MAX_ROWS, REPORT_TAGS, REPORT_TITLE, healthMetrics, renderReport } from './cards/health.js'
+import { MAX_ROWS, healthMetrics, renderReport } from './cards/health.js'
 
 /** How often to look at the clock. */
 const CHECK_INTERVAL_MS = 10 * 60_000
@@ -55,18 +57,17 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache, 
 	/**
 	 * Read the series, tolerating a missing or broken file.
 	 *
-	 * @returns {Promise<{cardId: string, rows: object[], lastRunAt: string}>} The ledger.
+	 * @returns {Promise<{rows: object[], lastRunAt: string}>} The ledger.
 	 */
 	async function readLedger() {
 		try {
 			const parsed = JSON.parse(await readFile(ledgerPath(), 'utf8'))
 			return {
-				cardId: typeof parsed?.cardId === 'string' ? parsed.cardId : '',
 				rows: Array.isArray(parsed?.rows) ? parsed.rows.filter((row) => typeof row?.date === 'string') : [],
 				lastRunAt: typeof parsed?.lastRunAt === 'string' ? parsed.lastRunAt : '',
 			}
 		} catch {
-			return { cardId: '', rows: [], lastRunAt: '' }
+			return { rows: [], lastRunAt: '' }
 		}
 	}
 
@@ -85,36 +86,15 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache, 
 	}
 
 	/**
-	 * Replace the card's body, creating the card the first time.
+	 * Compute today's row and append it to the series.
 	 *
-	 * @param {object} current - The card store.
-	 * @param {object} ledger - The ledger, updated in place with the card id.
-	 * @param {string} body - The rendered report.
-	 * @returns {Promise<void>} Resolves once the card is saved.
-	 */
-	async function saveCard(current, ledger, body) {
-		const existing = ledger.cardId === '' ? undefined : current.get(ledger.cardId)
-		if (existing !== undefined) {
-			await current.put({ id: existing.id, body, tags: existing.tags, links: existing.links })
-			return
-		}
-		const created = await current.put({ body, tags: REPORT_TAGS })
-		ledger.cardId = created.id
-	}
-
-	/**
-	 * Compute today's row and rewrite the card.
-	 *
-	 * @returns {Promise<object>} What was written.
+	 * @returns {Promise<object>} What was recorded.
 	 */
 	async function performRun() {
 		const current = store()
 		if (current === undefined) throw new Error('卡片库还没有打开。')
 		const ledger = await readLedger()
-		// The report card is instrumentation, not knowledge: counting it would
-		// make the numbers drift with the report itself.
-		const cards = current.all().filter((card) => !String(card.label ?? '').startsWith(REPORT_TITLE))
-		const metrics = healthMetrics(cards, current.backlinks())
+		const metrics = healthMetrics(current.all(), current.backlinks())
 		const date = dayKeyOf(now())
 		// The cache numbers are a probe of the day's sessions, not of the card
 		// store, so they are optional: an unavailable provider leaves the
@@ -130,17 +110,20 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache, 
 				? {}
 				: { cacheHit: cacheStats.hit, cacheMisses: cacheStats.misses, cacheSessions: cacheStats.sessions }),
 		})
-		// Keep the newest MAX_ROWS; the oldest fall off rather than the card
-		// growing until it hits the body cap.
+		// Keep the newest MAX_ROWS; the oldest fall off rather than the series
+		// growing without bound.
 		const kept = rows.slice(-MAX_ROWS)
-		await saveCard(current, ledger, renderReport(kept))
-		await current.flush?.()
-		await writeLedger({ cardId: ledger.cardId, rows: kept, lastRunAt: new Date(now()).toISOString() })
+		await writeLedger({ rows: kept, lastRunAt: new Date(now()).toISOString() })
+		// The log line carries the whole row: it is the record, and grepping for
+		// "health" is how the trend is read without opening the panel.
 		logger?.info?.(
-			`dsh-evolver: health ${date} cards=${metrics.cards} improvised=${metrics.fleeting} outbound=${metrics.outbound}` +
-				(cacheStats === null || cacheStats === undefined ? '' : ` cache=${Math.round(cacheStats.hit)}% misses=${cacheStats.misses}`),
+			`dsh-evolver: health ${date} cards=${metrics.cards} improvised=${metrics.fleeting}`
+				+ ` unfiled=${metrics.unfiled} outbound=${metrics.outbound} inbound=${metrics.inbound} islands=${metrics.islands}`
+				+ (cacheStats === null || cacheStats === undefined
+					? ''
+					: ` cache=${Math.round(cacheStats.hit)}% misses=${cacheStats.misses}`),
 		)
-		return { date, cardId: ledger.cardId, ...metrics }
+		return { date, ...metrics }
 	}
 
 	/**
@@ -177,6 +160,16 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache, 
 	}
 
 	/**
+	 * The series as the panel shows it.
+	 *
+	 * @returns {Promise<{rows: object[], lastRunAt: string, text: string}>} The ledger plus the rendered table.
+	 */
+	async function status() {
+		const ledger = await readLedger()
+		return { rows: ledger.rows, lastRunAt: ledger.lastRunAt, text: renderReport(ledger.rows) }
+	}
+
+	/**
 	 * Start the timer.
 	 *
 	 * @returns {() => void} Stops it.
@@ -193,7 +186,7 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache, 
 		}
 	}
 
-	return { check, runNow, start }
+	return { check, runNow, start, status }
 }
 
-export { REPORT_TITLE, MAX_ROWS }
+export { MAX_ROWS }

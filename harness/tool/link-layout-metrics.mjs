@@ -189,13 +189,17 @@ console.log(JSON.stringify({
 if (flags.svg !== undefined) {
 	const parts = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${layout.width} ${layout.height}" width="${layout.width * 2}" height="${layout.height * 2}">`,
 		'<rect width="100%" height="100%" fill="#fff"/>']
-	// The branch names are the region labels the panel draws under the dots.
-	for (const region of layout.branches ?? []) {
-		parts.push(`<text x="${region.x.toFixed(1)}" y="${region.y.toFixed(1)}" text-anchor="middle" font-size="10" font-family="sans-serif" font-weight="500" fill="${region.color}" fill-opacity="0.35" stroke="#fff" stroke-width="2" paint-order="stroke">${region.branch}</text>`)
-	}
-	// The panel draws no arrowheads at rest (direction appears on hover), so the
-	// preview matches it; weak ties are the faint dashed layer.
+	// The panel draws no arrowheads at rest (direction appears on hover) and no
+	// branch names, so the preview matches it; a weak tie is only drawn where it
+	// is the only evidence, i.e. unless both ends already have a stated link.
+	const linked = new Set()
 	for (const edge of edges) {
+		if (edge.kind !== 'link') continue
+		linked.add(edge.source)
+		linked.add(edge.target)
+	}
+	for (const edge of edges) {
+		if (edge.kind !== 'link' && linked.has(edge.source) && linked.has(edge.target)) continue
 		parts.push(edge.kind === 'link'
 			? `<path d="${edge.d}" fill="none" stroke="#9aa0a6" stroke-opacity="0.45" stroke-width="1"/>`
 			: `<path d="${edge.d}" fill="none" stroke="#c3c8ce" stroke-opacity="0.22" stroke-dasharray="2 4" stroke-width=".75"/>`)

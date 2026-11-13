@@ -126,31 +126,36 @@ test('访问记账：topAccessed 按次数、最近访问、id 稳定排序并�
 	}
 })
 
-test('card_read：neighbors 给出出链与入链，缺失目标标 (missing)，按 label 排序并截断', async () => {
+test('card_read：neighbors 给出出链与入链，缺失目标标 (missing)，按描述排序并截断', async () => {
 	const { dir, store } = await fixture()
 	try {
 		const agent = createCardAgent(store)
 		const targets = []
 		for (let index = 1; index <= 12; index += 1) {
 			const number = String(index).padStart(2, '0')
-			targets.push(await store.put({ body: `# 目标 ${number}\n\n正文`, tags: ['见闻/事实'] }))
+			targets.push(await store.put({
+				body: `# 目标 ${number}\n\n正文`,
+				description: `目标 ${number}`,
+				tags: ['见闻/事实'],
+			}))
 		}
 		const hub = await store.put({
 			body: '# 枢纽\n\n链接所有目标',
+			description: '链接了所有目标卡的枢纽',
 			tags: ['见闻/事实'],
 			links: targets.map((card) => card.id),
 		})
-		await store.put({ body: '# 来源 A\n\n指向枢纽', tags: ['见闻/事实'], links: [hub.id] })
-		await store.put({ body: '# 来源 B\n\n指向枢纽', tags: ['见闻/事实'], links: [hub.id] })
+		await store.put({ body: '# 来源 A\n\n指向枢纽', description: '来源 A', tags: ['见闻/事实'], links: [hub.id] })
+		await store.put({ body: '# 来源 B\n\n指向枢纽', description: '来源 B', tags: ['见闻/事实'], links: [hub.id] })
 
 		const read = await agent.read(hub.id, { neighbors: true })
 		assert.equal(read.neighbors.out.length, 10, '出链最多 10 条')
-		assert.deepEqual(read.neighbors.out.map((card) => card.label), [
+		assert.deepEqual(read.neighbors.out.map((card) => card.description), [
 			'目标 01', '目标 02', '目标 03', '目标 04', '目标 05',
 			'目标 06', '目标 07', '目标 08', '目标 09', '目标 10',
-		], '按 label 排序后再截断')
-		assert.deepEqual(read.neighbors.in.map((card) => card.label), ['来源 A', '来源 B'])
-		assert.deepEqual(Object.keys(read.neighbors.out[0]).sort(), ['id', 'label', 'tags'])
+		], '按描述排序后再截断')
+		assert.deepEqual(read.neighbors.in.map((card) => card.description), ['来源 A', '来源 B'])
+		assert.deepEqual(Object.keys(read.neighbors.out[0]).sort(), ['description', 'id', 'tags'])
 
 		// Without the flag the neighbourhood is not computed, let alone paid for.
 		const plain = await agent.read(hub.id)
@@ -162,7 +167,7 @@ test('card_read：neighbors 给出出链与入链，缺失目标标 (missing)，
 		const pointer = await store.put({ body: '# 指向死链', tags: ['见闻/事实'], links: [doomed.id] })
 		await store.remove(doomed.id)
 		const dangling = await agent.read(pointer.id, { neighbors: true })
-		assert.deepEqual(dangling.neighbors.out, [{ id: doomed.id, label: '(missing)', tags: [] }])
+		assert.deepEqual(dangling.neighbors.out, [{ id: doomed.id, description: '', tags: [] }])
 	} finally {
 		await cleanup(dir, store)
 	}
@@ -189,8 +194,8 @@ test('card_query：每张卡带 degree（入链 / 出链数）', async () => {
 test('evolve_review：链接图只算活跃卡之间的边，孤岛率超过三成时提示补链', async () => {
 	const { dir, store } = await fixture()
 	try {
-		const b = await store.put({ body: '# B', tags: ['见闻/事实'] })
-		const c = await store.put({ body: '# C', tags: ['见闻/事实'] })
+		const b = await store.put({ body: '# B', description: 'B', tags: ['见闻/事实'] })
+		const c = await store.put({ body: '# C', description: 'C', tags: ['见闻/事实'] })
 		await store.put({ body: '# A', tags: ['见闻/事实'], links: [b.id, c.id] })
 		await store.put({ body: '# E', tags: ['见闻/事实'], links: [c.id] })
 		const d = await store.put({ body: '# D', tags: ['见闻/事实'] })
@@ -201,7 +206,7 @@ test('evolve_review：链接图只算活跃卡之间的边，孤岛率超过三�
 		assert.equal(review.graph.density, 3 / (5 * 4))
 		assert.equal(review.graph.orphans, 1)
 		assert.equal(review.graph.orphanRatio, 1 / 5)
-		assert.deepEqual(review.graph.hubs.map((hub) => [hub.label, hub.in]), [['C', 2], ['B', 1]])
+		assert.deepEqual(review.graph.hubs.map((hub) => [hub.description, hub.in]), [['C', 2], ['B', 1]])
 		assert.equal(review.hints.some((hint) => hint.includes('孤岛率')), false, '孤岛率不高时不说')
 
 		// Archived cards are out of the graph: their links no longer count.
@@ -244,7 +249,7 @@ test('evolve_review：孤岛率超过三成时 hint 说先补链', async () => {
 test('工具层：card_read 透出 neighbors，card_query 透出 degree', async () => {
 	const { dir, store } = await fixture()
 	try {
-		const target = await store.put({ body: '# 目标卡', tags: ['见闻/事实'] })
+		const target = await store.put({ body: '# 目标卡', description: '目标卡', tags: ['见闻/事实'] })
 		const source = await store.put({ body: '# 源卡', tags: ['见闻/事实'], links: [target.id] })
 		const tools = createTools({ cards: createCardAgent(store) })
 		const readTool = tools.find((tool) => tool.name === 'card_read')
@@ -253,7 +258,7 @@ test('工具层：card_read 透出 neighbors，card_query 透出 degree', async 
 		const plain = await readTool.execute({ id: source.id })
 		assert.equal(Object.hasOwn(plain, 'neighbors'), false, '默认不附带邻居')
 		const withNeighbors = await readTool.execute({ id: source.id, neighbors: true })
-		assert.deepEqual(withNeighbors.neighbors.out, [{ id: target.id, label: '目标卡', tags: ['见闻/事实'] }])
+		assert.deepEqual(withNeighbors.neighbors.out, [{ id: target.id, description: '目标卡', tags: ['见闻/事实'] }])
 
 		const queryTool = tools.find((tool) => tool.name === 'card_query')
 		const queried = await queryTool.execute({ tags: ['见闻/事实'] })

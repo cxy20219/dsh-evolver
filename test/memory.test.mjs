@@ -185,6 +185,28 @@ test('卡片记忆可以按限制列出，总数仍在店里', async () => {
 	}
 })
 
+test('会话整理落下的卡自带描述：索引里不会只留一个 id', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-desc-'))
+	try {
+		const store = new CardStore({ dataDir: dir })
+		await store.init()
+		const agent = createCardAgent(store)
+		const long = '这条记忆很长，长到超过描述上限，'.repeat(6)
+		const first = await agent.saveFleeting({ content: long, kind: 'fact' })
+		const second = await agent.saveFleeting({ content: '提交前先跑 npm test。', kind: 'convention' })
+		const saved = [store.get(first.id), store.get(second.id)]
+		for (const card of saved) {
+			assert.ok(card.description.length > 0, '必须带描述')
+			assert.ok([...card.description].length <= store.descriptionMaxChars, '不超过上限')
+		}
+		assert.equal(saved[1].description, '提交前先跑 npm test。', '短句原样当描述')
+		assert.equal(saved[0].description.endsWith('…'), true, '要裁就在标点处收尾并标出来')
+		await store.close()
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
 test('卡片记忆不保存密钥', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'evr-secret-'))
 	try {

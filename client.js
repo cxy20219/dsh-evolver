@@ -41,6 +41,25 @@ window.__ModuleLoader__.load({
 			'panel': '演化器',
 			'tab.overview': '概览',
 			'tab.cards': '卡片',
+			'tab.resources': '资源',
+			'resources.title': '资源',
+			'cards.resources.empty': '还没有附件。卡片正文用 [标题]({{resource}}) 引用附件；脚本附件会自动设为可执行，agent 拿到绝对路径就能直接跑。',
+			'cards.resources.view': '看引用它的卡片',
+			'cards.resources.search': '搜索资源…',
+			'cards.resources.preview': '预览',
+			'cards.resources.open': '打开',
+			'cards.resources.close': '关闭',
+			'cards.resources.noPreview': '这个类型没法在面板里预览，用系统程序打开更合适。',
+			'cards.resources.emptySearch': '没有匹配的资源。',
+			'cards.resources.truncated': '文件较大，预览只显示前 200 KB。',
+			'cards.filter.resource': '引用资源：{name}',
+			'cards.filter.resourceClear': '清除',
+			'cards.resources.owner': '所属卡片',
+			'cards.resources.file': '文件',
+			'cards.resources.exec': '可执行',
+			'cards.resources.card': '所属卡片',
+			'cards.resources.refs': '引用',
+			'cards.resources.count': '共 {files} 个文件 · {cards} 张卡',
 			'cards.new': '新建卡片',
 			'cards.search': '搜索卡片…',
 			'cards.filter.all': '全部',
@@ -59,7 +78,7 @@ window.__ModuleLoader__.load({
 			'cards.editor.edit': '编辑卡片',
 			'cards.field.body': '正文',
 			'cards.field.tags': '标签（逗号分隔）',
-			'cards.field.description': '描述（一句话说明这张卡讲什么，≤120 字）',
+			'cards.field.description': '描述（必填：一句话说清这张卡回答什么问题，≤{max} 字）',
 			'cards.field.descriptionHint': '例如：说明部署走 SSH 的原因，和 HTTPS 的边界',
 			'cards.field.links': '链接（卡片 id，逗号分隔）',
 			'cards.field.tagsHint': '践行/工作流, 见闻/网络, 复盘/经验',
@@ -81,6 +100,8 @@ window.__ModuleLoader__.load({
 			'cards.removed': '已删除',
 			'cards.attachFailed': '附件读取失败',
 			'cards.attachTooLarge': '附件超过 8 MB，先压缩或拆分后再添加。',
+			'settings.cardDescCap': '卡片描述上限',
+			'settings.cardDescCapHint': '20–200 字。描述就是注入索引里 id 后面那句话；超过上限会被拒绝写入，不会截断。',
 			'settings.cardCap': '卡片正文上限',
 			'settings.cardCapHint': '200–4000 字；超长内容请放资源附件。',
 			'sight.ingest.auto': '闲时自动整理',
@@ -99,6 +120,22 @@ window.__ModuleLoader__.load({
 			'tab.preferences': '偏好',
 			'tab.organize': '整理',
 			'tab.settings': '设置',
+			'tab.logs': '日志',
+			'logs.tab.logs': '插件日志',
+			'logs.tab.health': '库健康',
+			'logs.health.hint': '每天 9:00 记一行：即兴积压、出链率、孤岛数、提示词缓存。只记数据，不写卡片。',
+			'logs.health.lastRun': '上次记录 {at}',
+			'logs.health.never': '还没记录过',
+			'logs.health.run': '立即记录',
+			'logs.title': '插件日志',
+			'logs.hint': '只记插件自己的运行轨迹：谁在什么时候跑了什么、停在哪个阶段、为什么停下。按大小轮转，最多 {max}，最旧的先删。',
+			'logs.empty': '还没有日志。跑一次整理或等一次定时任务，这里就会出现记录。',
+			'logs.refresh': '刷新',
+			'logs.files': '{files} 个文件 · {bytes}',
+			'logs.truncated': '只显示最近 {n} 条',
+			'logs.levelInfo': '信息',
+			'logs.levelWarn': '警告',
+			'logs.levelError': '错误',
 			'state.migrated': '已迁移到新目录',
 			'state.exported': '已导出',
 			'state.imported': '已导入',
@@ -125,8 +162,6 @@ window.__ModuleLoader__.load({
 			'overview.notesHint': '未归档的卡片',
 			'overview.tagsHint': '唯一标签',
 			'overview.daysHint': '自首张卡',
-			'overview.index': '索引',
-			'overview.indexHint': '卡片索引 / 卡片正文',
 			'overview.yearHeatmap.hint': '记录 {notes} 条笔记 · {days} 天有记录。',
 			'overview.heatmap.section': '记录热力',
 			'overview.heatmap.empty': '还没有卡片活动。',
@@ -152,6 +187,8 @@ window.__ModuleLoader__.load({
 			'overview.bytes': '大小',
 			'overview.link': '链接',
 			'overview.info': '信息',
+			'overview.info.snapshot': '快照 {at} 生成 · 当天固定不变：这期间写的卡要等下一次快照（每日整理或重开数据目录）才进这里。这是刻意为之——注入块每变一次，整段提示词的前缀缓存就作废一次。',
+			'overview.info.snapshotLive': '没有今天的快照：这里显示的是实时排序，写一张卡它就变一次（每变一次都在作废前缀缓存）。',
 			'overview.info.hint': '这些内容每次请求都会注入，分两块：纪律与主动性协议是静态的，进系统段；卡片索引随库变，进运行时上下文（每日快照）。',
 			'overview.info.section': '纪律与主动性',
 			'overview.info.index': '卡片索引',
@@ -223,8 +260,15 @@ window.__ModuleLoader__.load({
 			'settings.organize.hint': '两个整理器做的是不同的事：会话整理读聊天记录、写出新卡片；卡片整理改的是已有的卡片库。',
 			'settings.organize.ingestHint': '闲时读 DSH 会话，把值得留下的判断、偏好、踩坑和工具怪癖写成 #即兴 卡。',
 			'settings.consolidate.title': '每天整理卡片',
-			'settings.consolidate.hint': '每天挑一批卡片复查：用自己的话重写、找关联做双向链接、合并重复、删掉以后用不上的，并让每张卡落到对的枝干（归只用 retag，不动正文）。被删掉的内容会先写进回收站日志。',
-			'settings.consolidate.cards': '每天整理张数',
+			'settings.consolidate.hint': '每天按入库量分批复查（每批张数可设，一天最多 4 批）：用自己的话重写、找关联做双向链接、合并重复、删掉以后用不上的，并让每张卡落到对的枝干（归只用 retag，不动正文）。被删掉的内容会先写进回收站日志。',
+			'settings.consolidate.cards': '每批整理张数',
+			'settings.organize.modelTitle': '整理用的模型',
+			'settings.organize.modelHint': '会话整理和卡片整理都在后台自己调模型；这里设给它们共用。默认跟随聊天里选的模型。',
+			'settings.organize.model': '模型',
+			'settings.organize.modelSession': '跟随聊天默认',
+			'settings.organize.effort': '思考强度',
+			'settings.organize.effortDefault': '模型默认',
+			'settings.organize.modelEffective': '当前生效',
 			'settings.consolidate.at': '执行时间',
 			'settings.consolidate.hourUnit': '点（本机时区）',
 			'settings.consolidate.run': '立即整理',
@@ -253,6 +297,25 @@ window.__ModuleLoader__.load({
 			'panel': 'Evolver',
 			'tab.overview': 'Overview',
 			'tab.cards': 'Cards',
+			'tab.resources': 'Resources',
+			'resources.title': 'Resources',
+			'cards.resources.empty': 'No attachments yet. Reference one from a card body with [title]({{resource}}); script attachments are marked executable and the agent can run them by absolute path.',
+			'cards.resources.view': 'Cards using it',
+			'cards.resources.search': 'Search resources…',
+			'cards.resources.preview': 'Preview',
+			'cards.resources.open': 'Open',
+			'cards.resources.close': 'Close',
+			'cards.resources.noPreview': 'This type cannot be previewed here; open it with the system app.',
+			'cards.resources.emptySearch': 'No matching resources.',
+			'cards.resources.truncated': 'Large file: the preview shows the first 200 KB only.',
+			'cards.filter.resource': 'Uses resource: {name}',
+			'cards.filter.resourceClear': 'Clear',
+			'cards.resources.owner': 'Card',
+			'cards.resources.file': 'File',
+			'cards.resources.exec': 'Exec',
+			'cards.resources.card': 'Card',
+			'cards.resources.refs': 'Used by',
+			'cards.resources.count': '{files} files · {cards} cards',
 			'cards.new': 'New card',
 			'cards.search': 'Search cards…',
 			'cards.filter.all': 'All',
@@ -271,7 +334,7 @@ window.__ModuleLoader__.load({
 			'cards.editor.edit': 'Edit card',
 			'cards.field.body': 'Body',
 			'cards.field.tags': 'Tags (comma separated)',
-			'cards.field.description': 'Description (one line: what this card is about, ≤120 chars)',
+			'cards.field.description': 'Description (required: one line on what this card answers, ≤{max} chars)',
 			'cards.field.descriptionHint': 'e.g. why deploys use SSH and where HTTPS does not fit',
 			'cards.field.links': 'Links (card ids, comma separated)',
 			'cards.field.tagsHint': 'practice/workflow, input/network, review/experience',
@@ -293,6 +356,8 @@ window.__ModuleLoader__.load({
 			'cards.removed': 'Removed',
 			'cards.attachFailed': 'Could not read the attachment',
 			'cards.attachTooLarge': 'The attachment is larger than 8 MB; compress or split it first.',
+			'settings.cardDescCap': 'Card description limit',
+			'settings.cardDescCapHint': '20–200 characters. The description is what the injected index shows next to an id; longer text is rejected instead of being cut.',
 			'settings.cardCap': 'Card body limit',
 			'settings.cardCapHint': '200–4000 characters; long content should be an attachment.',
 			'sight.ingest.auto': 'Automatic on idle',
@@ -311,6 +376,22 @@ window.__ModuleLoader__.load({
 			'tab.preferences': 'Preferences',
 			'tab.organize': 'Organise',
 			'tab.settings': 'Settings',
+			'tab.logs': 'Logs',
+			'logs.tab.logs': 'Plugin log',
+			'logs.tab.health': 'Library health',
+			'logs.health.hint': 'One line a day at 09:00: improvised backlog, outbound links, islands, prompt cache. Data only — no card is written.',
+			'logs.health.lastRun': 'Last recorded {at}',
+			'logs.health.never': 'Nothing recorded yet',
+			'logs.health.run': 'Record now',
+			'logs.title': 'Plugin log',
+			'logs.hint': 'Only the plugin its own runs: who started what, which stage it reached, and why it stopped. Rotated by size, {max} at most, oldest dropped first.',
+			'logs.empty': 'Nothing logged yet. Run an organiser, or wait for one, and entries will appear here.',
+			'logs.refresh': 'Refresh',
+			'logs.files': '{files} file(s) · {bytes}',
+			'logs.truncated': 'Showing the last {n}',
+			'logs.levelInfo': 'info',
+			'logs.levelWarn': 'warn',
+			'logs.levelError': 'error',
 			'state.migrated': 'Moved to the new folder',
 			'state.exported': 'Exported',
 			'state.imported': 'Imported',
@@ -337,8 +418,6 @@ window.__ModuleLoader__.load({
 			'overview.notesHint': 'Unarchived cards',
 			'overview.tagsHint': 'Unique tags',
 			'overview.daysHint': 'Since the first card',
-			'overview.index': 'Index',
-			'overview.indexHint': 'tag tree / card text',
 			'overview.yearHeatmap.hint': '{notes} notes · {days} active days.',
 			'overview.heatmap.section': 'Activity',
 			'overview.heatmap.empty': 'No card activity yet.',
@@ -364,6 +443,8 @@ window.__ModuleLoader__.load({
 			'overview.bytes': 'Size',
 			'overview.link': 'Link',
 			'overview.info': 'Context',
+			'overview.info.snapshot': 'Snapshot written {at} · fixed for the day: cards written since then reach this block at the next snapshot (the daily run, or reopening the data folder). That is deliberate — every change to an injected block invalidates the whole prompt prefix.',
+			'overview.info.snapshotLive': 'No snapshot for today: this is the live ranking, so it changes with every card written (and each change invalidates the prompt prefix).',
 			'overview.info.hint': 'Injected on every request as two blocks: the discipline and the proactive protocol are static and ride in the system prompt, the card index changes with the library and rides in runtime context refreshed daily.',
 			'overview.info.section': 'Discipline and proactivity',
 			'overview.info.index': 'Card index',
@@ -435,8 +516,15 @@ window.__ModuleLoader__.load({
 			'settings.organize.hint': 'Two different jobs: the session ingest reads conversations and writes new cards; the card consolidation edits the library that already exists.',
 			'settings.organize.ingestHint': 'Reads DSH sessions when idle and turns durable judgements, preferences, failures and tool quirks into #即兴 cards.',
 			'settings.consolidate.title': 'Daily card consolidation',
-			'settings.consolidate.hint': 'Reviews a batch of cards every day: rewrite in your own words, link related cards both ways, merge duplicates, delete what has no future use, and settle every card into the right branch with a tag-only retag. Removed content lands in a trash log first.',
-			'settings.consolidate.cards': 'Cards per day',
+			'settings.consolidate.hint': 'Reviews cards in batches that follow how fast the library grows (four batches a day at most): rewrite in your own words, link related cards both ways, merge duplicates, delete what has no future use, and settle every card into the right branch with a tag-only retag. Removed content lands in a trash log first.',
+			'settings.consolidate.cards': 'Cards per batch',
+			'settings.organize.modelTitle': 'Model for the organisers',
+			'settings.organize.modelHint': 'The session ingest and the daily card review both call a model in the background; this is the one they share. It follows the chat by default.',
+			'settings.organize.model': 'Model',
+			'settings.organize.modelSession': 'Follow the chat',
+			'settings.organize.effort': 'Reasoning',
+			'settings.organize.effortDefault': 'Model default',
+			'settings.organize.modelEffective': 'In effect',
 			'settings.consolidate.at': 'Runs at',
 			'settings.consolidate.hourUnit': ':00 local time',
 			'settings.consolidate.run': 'Consolidate now',
@@ -469,9 +557,11 @@ window.__ModuleLoader__.load({
 		var TABS = [
 			{ id: 'overview', label: 'tab.overview' },
 			{ id: 'cards', label: 'tab.cards' },
+			{ id: 'resources', label: 'tab.resources' },
 			{ id: 'preferences', label: 'tab.preferences' },
 			{ id: 'organize', label: 'tab.organize' },
 			{ id: 'settings', label: 'tab.settings' },
+			{ id: 'logs', label: 'tab.logs' },
 		];
 
 		//#endregion
@@ -587,7 +677,17 @@ window.__ModuleLoader__.load({
 			'.evrLinkGraphDragging{cursor:grabbing}',
 			'.evrLinkNodeOn circle{stroke:var(--dsw-alias-label-primary);stroke-width:1.5}',
 			'.evrLinkEdgeWeak{stroke-dasharray:2 4;stroke-width:.75;stroke-opacity:.22}',
-			'.evrLinkBranch{font-size:10px;font-family:inherit;font-weight:500;letter-spacing:.06em;pointer-events:none;paint-order:stroke;stroke:var(--dsw-alias-bg-base);stroke-width:2px;stroke-linejoin:round}',
+			// A tie that the hover explains has to be visible, or the card it
+			// points at lights up for no reason the reader can see.
+			'.evrLinkEdgeWeakLit{stroke-dasharray:3 3;stroke-width:1;stroke-opacity:.55}',
+			'.evrLog{display:flex;flex-direction:column;gap:2px;max-height:420px;overflow:auto;border:1px solid var(--dsw-alias-border-subtle);border-radius:6px;padding:6px 8px;font-size:11.5px;line-height:1.5}',
+			'.evrLogRow{display:flex;gap:8px;align-items:baseline;font-variant-numeric:tabular-nums}',
+			'.evrLogTime{flex:none;color:var(--dsw-alias-label-tertiary)}',
+			'.evrLogLevel{flex:none;width:28px;text-transform:uppercase;font-size:10px;letter-spacing:.04em}',
+			'.evrLogInfo .evrLogLevel{color:var(--dsw-alias-label-tertiary)}',
+			'.evrLogWarn .evrLogLevel{color:#b8860b}',
+			'.evrLogError .evrLogLevel{color:#b0402e}',
+			'.evrLogText{flex:1;min-width:0;word-break:break-word;font-family:ui-monospace,Menlo,monospace}',
 			'.evrGraphWrap{position:relative}',
 			'.evrGraph{width:100%;height:auto;max-width:460px;display:block;margin:0 auto;cursor:grab;touch-action:none}',
 			'.evrGraph:active{cursor:grabbing}',
@@ -613,6 +713,7 @@ window.__ModuleLoader__.load({
 			'.evrHeat1{background:rgba(72,187,120,.28)}',
 			'.evrHeat2{background:rgba(72,187,120,.55)}',
 			'.evrHeat3{background:rgba(47,174,114,.85)}',
+			'.evrHeat4{background:rgba(24,120,74,.95)}',
 			'.evrHeat0{background:var(--dsw-alias-bg-layer-3)}',
 			'.evrHeatLegend{display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:var(--dsw-alias-label-tertiary)}',
 			'.evrHeatLegend .evrHeatCell{width:10px;height:10px}',
@@ -644,6 +745,12 @@ window.__ModuleLoader__.load({
 			'.evrMono{font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px}',
 			'.evrPre{white-space:pre-wrap;word-break:break-word;font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:11.5px;line-height:1.65;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);padding:10px 12px;margin:0}',
 			'.evrWarn{border-left:3px solid var(--dsw-alias-state-warn-primary);padding-left:10px}',
+			'.evrPreview{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.32);padding:24px}',
+			'.evrPreviewPanel{display:flex;flex-direction:column;width:min(980px,92vw);max-height:86vh;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-elevation-soft);overflow:hidden}',
+			'.evrPreviewHead{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);font-size:12.5px}',
+			'.evrPreviewBody{flex:1;min-height:0;overflow:auto;padding:14px}',
+			'.evrPreviewBody img{max-width:100%;height:auto;display:block;margin:0 auto}',
+			'.evrPreviewBody iframe{width:100%;height:70vh;border:0;background:var(--dsw-alias-bg-base)}',
 			'.evrToast{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:30;display:flex;align-items:center;gap:10px;max-width:min(620px,84%);padding:9px 11px 9px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-2);box-shadow:var(--dsw-elevation-soft);font-size:12.5px;line-height:1.5}',
 			'.evrToastOk{color:var(--dsw-alias-state-success-primary)}',
 			'.evrToastError{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}',
@@ -1310,11 +1417,23 @@ window.__ModuleLoader__.load({
 				}
 				return '';
 			});
+			// The busiest day in the window sets the scale. Fixed steps ("three or
+			// more is the darkest") turn every day dark as soon as the library is
+			// busy — three cards a day is ordinary here — and a uniformly green map
+			// tells nothing. Relative to the peak, a quiet day stays pale and only
+			// the real spikes go dark. Exact numbers are in each cell's tooltip.
+			var peak = 0;
+			activity.forEach(function (item) {
+				var value = Number(item.count);
+				if (Number.isFinite(value) && value > peak) peak = value;
+			});
 			function level(count) {
-				if (count === undefined || count === 0) return 0;
-				if (count === 1) return 1;
-				if (count === 2) return 2;
-				return 3;
+				var value = Number(count);
+				if (!Number.isFinite(value) || value <= 0) return 0;
+				// Three cards ever is not a distribution: fall back to one step per
+				// card so the first days still read as light / medium / heavy.
+				if (peak <= 3) return Math.min(4, value);
+				return Math.min(4, Math.max(1, Math.ceil((value / peak) * 4)));
 			}
 			return h('div', { className: 'evrHeatmapWrap' },
 				h('div', { className: 'evrHeatmapMonths' }, monthLabels.map(function (label, index) {
@@ -1340,6 +1459,7 @@ window.__ModuleLoader__.load({
 					h('span', { className: 'evrHeatCell evrHeat1' }),
 					h('span', { className: 'evrHeatCell evrHeat2' }),
 					h('span', { className: 'evrHeatCell evrHeat3' }),
+					h('span', { className: 'evrHeatCell evrHeat4' }),
 					h('span', null, t('overview.heatmap.more'))));
 		}
 
@@ -1618,16 +1738,21 @@ window.__ModuleLoader__.load({
 					var nearestY = Math.min(bottom, Math.max(top, node.y));
 					var dx = node.x - nearestX;
 					var dy = node.y - nearestY;
-					var margin = node.r + 1;
+					// One pixel of the dot's own rim is fair game: the label carries a
+					// 2.5px background halo, so touching the edge still reads as "beside
+					// the dot", while demanding a full pixel of air left most names in a
+					// crowded cluster unplaceable — which is what made hovering a card
+					// look broken. The dot itself is never covered.
+					var margin = node.r - 1;
 					if (dx * dx + dy * dy < margin * margin) return false;
 				}
 				return true;
 			}
 			for (var index = 0; index < ordered.length && count < limit; index += 1) {
 				var node = ordered[index];
-				// A card label is a sentence; a dozen characters is what fits
-				// between the dots, and the title carries the full text.
-				var label = node.label.length > 12 ? node.label.slice(0, 12) + '…' : node.label;
+				// The name is the card's description; a dozen characters is what
+				// fits between the dots, and the title carries the full text.
+				var label = node.text.length > 12 ? node.text.slice(0, 12) + '…' : node.text;
 				if (label === '') continue;
 				var boxWidth = linkLabelWidth(label) + 4;
 				var spot = null;
@@ -1863,7 +1988,7 @@ window.__ModuleLoader__.load({
 					var offset = cloudOffset(index, members.length, card.id);
 					nodes.push({
 						id: card.id,
-						label: typeof card.label === 'string' ? card.label : '',
+						text: typeof card.description === 'string' ? card.description : '',
 						branch: branch,
 						color: linkColorOf(card),
 						degree: degree[card.id] ?? 0,
@@ -1901,7 +2026,7 @@ window.__ModuleLoader__.load({
 				return {
 					source: index[edge.source],
 					target: index[edge.target],
-					rest: weak ? 14 + 26 * (1 - average) : 20 + 50 * (1 - average),
+					rest: weak ? 14 + 26 * (1 - average) : 14 + 34 * (1 - average),
 					stiffness: weak ? 0.02 : 0.05,
 				};
 			});
@@ -2076,14 +2201,14 @@ window.__ModuleLoader__.load({
 			/**
 			 * Project the current state into what the component draws.
 			 *
-			 * @returns {object} `{nodes, edges, branches, neighbours}` with edge
-			 *   paths and region names already resolved for this frame.
+			 * @returns {object} `{nodes, edges, neighbours}` with edge paths already
+			 *   resolved for this frame.
 			 */
 			function snapshot() {
 				var projected = nodes.map(function (node) {
 					return {
 						id: node.id,
-						label: node.label,
+						text: node.text,
 						color: node.color,
 						x: node.x,
 						y: node.y,
@@ -2091,6 +2216,16 @@ window.__ModuleLoader__.load({
 						degree: node.degree,
 						branch: node.branch,
 					};
+				});
+				// The cards that already have a stated relation. An inferred tie
+				// is only worth ink where it is the only evidence: around a card
+				// that already has links it doubles the lines and says nothing
+				// the link did not already say.
+				var linked = {};
+				pairs.forEach(function (edge) {
+					if (edge.kind !== 'link') return;
+					linked[edge.source] = true;
+					linked[edge.target] = true;
 				});
 				var edgePaths = pairs.map(function (edge) {
 					var source = index[edge.source];
@@ -2101,7 +2236,13 @@ window.__ModuleLoader__.load({
 					var length = Math.max(1, Math.sqrt(dx * dx + dy * dy));
 					var ux = dx / length;
 					var uy = dy / length;
-					var bend = weak ? 3 : 6;
+					// A relation is a straight line. A curve has to earn its extra
+					// ink: it says "this way around", and a plain tie says nothing
+					// of the sort — the graph draws direction with an arrowhead on
+					// hover instead. Straight also matches how the reference
+					// implementation draws its network view, and a straight line is
+					// the shortest path between two dots the reader already knows
+					// are related.
 					// Both ends stop at the circle edge so a line never runs under a
 					// dot; a stated link stops a little further out to leave room
 					// for its arrowhead.
@@ -2110,58 +2251,19 @@ window.__ModuleLoader__.load({
 					var trim = target.r + (weak ? 1 : 4);
 					var endX = target.x - ux * trim;
 					var endY = target.y - uy * trim;
-					var qx = (startX + endX) / 2 - uy * bend;
-					var qy = (startY + endY) / 2 + ux * bend;
 					return {
 						source: edge.source,
 						target: edge.target,
 						kind: edge.kind,
 						mutual: edge.mutual === true,
+						tied: weak && linked[edge.source] === true && linked[edge.target] === true,
 						d: 'M ' + startX.toFixed(1) + ' ' + startY.toFixed(1)
-							+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
-							+ ' ' + endX.toFixed(1) + ' ' + endY.toFixed(1),
+							+ ' L ' + endX.toFixed(1) + ' ' + endY.toFixed(1),
 					};
-				});
-				// One faint branch name per region, at the centroid of its members:
-				// the anchor is what the cluster was seeded around, but after the
-				// forces it is the members that say where the region actually is.
-				var branchLabels = [];
-				present.forEach(function (branch) {
-					var members = nodes.filter(function (node) { return node.branch === branch; });
-					// Three cards make a readable region; an untagged cluster has no
-					// name to write, so it stays unnamed rather than drawing a gap.
-					if (members.length < 3 || branch === '') return;
-					var sumX = 0;
-					var sumY = 0;
-					members.forEach(function (node) { sumX += node.x; sumY += node.y; });
-					var centreX = sumX / members.length;
-					var centreY = sumY / members.length;
-					// A name buried under the dots of its own cluster says nothing:
-					// try a few rings around the centroid and keep the roomiest spot.
-					var offsets = [[0, 0], [0, -13], [0, 13], [-16, 0], [16, 0], [-13, -13], [13, -13], [-13, 13], [13, 13], [0, -24], [0, 24], [-28, 0], [28, 0]];
-					var best = { x: Math.min(width - 14, Math.max(14, centreX)), y: Math.min(height - 6, Math.max(12, centreY)), penalty: Infinity };
-					offsets.forEach(function (offset) {
-						var px = Math.min(width - 14, Math.max(14, centreX + offset[0]));
-						var py = Math.min(height - 6, Math.max(12, centreY + offset[1]));
-						var penalty = 0;
-						nodes.forEach(function (node) {
-							var gap = Math.hypot(node.x - px, node.y - py) - node.r;
-							if (gap < 8) penalty += 8 - gap;
-						});
-						if (penalty < best.penalty) best = { x: px, y: py, penalty: penalty };
-					});
-					branchLabels.push({
-						branch: branch,
-						count: members.length,
-						color: members[0].color,
-						x: best.x,
-						y: best.y,
-					});
 				});
 				return {
 					nodes: projected,
 					edges: edgePaths,
-					branches: branchLabels,
 					neighbours: neighbours,
 				};
 			}
@@ -2243,7 +2345,6 @@ window.__ModuleLoader__.load({
 			return {
 				width: sim.width,
 				height: sim.height,
-				branches: snapshot.branches,
 				nodes: snapshot.nodes,
 				edges: snapshot.edges,
 				neighbours: snapshot.neighbours,
@@ -2254,12 +2355,14 @@ window.__ModuleLoader__.load({
 		 * A graph of the cards and the links between them.
 		 *
 		 * Layered the way Obsidian draws its graph: faint edges, a dot per card
-		 * sized by how many links it has, colour by branch, a faint branch name
-		 * over each community, labels on the busiest cards, and hovering or
-		 * clicking a card names it and its neighbours and fades everything else.
-		 * Explicit links are solid; the direction arrow only appears on the
-		 * hovered card's own links; the tag and branch ties the host derives are
-		 * dashed and very faint.
+		 * sized by how many links it has, colour by branch, labels on the
+		 * busiest cards, and hovering or clicking a card names it and its
+		 * neighbours and fades everything else. Explicit links are solid and
+		 * drawn as distance-scaled arcs; the direction arrow only appears on the
+		 * hovered card's own links; the tag ties the host derives are dashed,
+		 * very faint, and only drawn where no stated link already speaks for
+		 * both ends. No branch names: a region is told by its colour, and a name
+		 * over a cluster competes with the card labels for the same space.
 		 *
 		 * The picture is alive: the simulation runs from its seed so the six
 		 * communities visibly form, a node can be dragged (the simulation
@@ -2387,54 +2490,45 @@ window.__ModuleLoader__.load({
 				return function () { node.removeEventListener('wheel', onWheel); };
 			}, [sim]);
 
-			// Labels for the busiest cards, on by default and stable across hovers:
-			// the placement pass walks the whole degree order and fills the budget,
-			// so a dense region spends its names where they actually fit.
-			var labelNodes = useMemo(function () {
-				if (sim === null) return [];
-				var limit = Math.min(12, Math.max(6, Math.round(sim.nodes.length / 8)));
-				return sim.nodes.slice().sort(function (left, right) {
-					return right.degree - left.degree || (left.id < right.id ? -1 : 1);
-				}).slice(0, limit);
-			}, [sim]);
-
-			var baseLabels = useMemo(function () {
-				if (sim === null || snapshot === null || sim.alpha >= 0.005) return null;
-				var ordered = snapshot.nodes.slice().sort(function (left, right) {
-					return right.degree - left.degree || (left.id < right.id ? -1 : 1);
-				});
-				var limit = Math.min(12, Math.max(6, Math.round(snapshot.nodes.length / 8)));
-				var boxes = [];
-				return {
-					map: placeLinkLabels(ordered, snapshot.nodes, sim.width, sim.height, limit, boxes),
-					boxes: boxes,
-				};
-			}, [sim, snapshot]);
-
+			// Names are on demand, not on by default: a hundred cards labelled at
+			// once is the same wall of text the branch names were, and the picture
+			// reads better as colours and shapes until the reader asks a question.
+			// Hovering or pinning a card names it and its neighbours, and nothing
+			// else — the answer is exactly the cards the edges lead to.
 			var labels = useMemo(function () {
-				if (sim === null || snapshot === null) return {};
+				if (sim === null || snapshot === null || focus === null) return {};
+				var byId = {};
+				snapshot.nodes.forEach(function (node) { byId[node.id] = node; });
+				var focusNode = byId[focus];
+				// Stated relations first. The picture only has room for a few names
+				// around a crowded card, and the ones a solid line already points at
+				// are the answer the pointer asked for; a tag neighbour that merely
+				// came first in edge order is not.
+				var stated = {};
+				sim.pairs.forEach(function (edge) {
+					if (edge.kind !== 'link') return;
+					if (edge.source === focus) stated[edge.target] = true;
+					else if (edge.target === focus) stated[edge.source] = true;
+				});
+				var ordered = [];
+				(sim.neighbours[focus] ?? []).slice().sort(function (left, right) {
+					var leftStated = stated[left] === true ? 0 : 1;
+					var rightStated = stated[right] === true ? 0 : 1;
+					if (leftStated !== rightStated) return leftStated - rightStated;
+					return ((byId[right] ?? {}).degree ?? 0) - ((byId[left] ?? {}).degree ?? 0);
+				}).forEach(function (id) {
+					if (byId[id] !== undefined) ordered.push(byId[id]);
+				});
+				if (focusNode === undefined && ordered.length === 0) return {};
 				if (sim.alpha >= 0.005) {
 					// While the layout is still moving, a full collision search per
 					// painted frame would cost more than the motion it explains:
-					// labels follow their dot and flip to the other side near the
-					// edge. The settled pass below replaces this with the real
-					// non-overlapping placement once alpha dies.
+					// names follow their dot and flip to the other side near the edge.
+					// The settled pass below replaces this with the real placement.
 					var quick = {};
-					var wanted = [];
-					var add = function (node) {
-						if (node === undefined || node === null || quick[node.id] === true) return;
-						quick[node.id] = true;
-						wanted.push(node);
-					};
-					if (focus !== null) {
-						snapshot.nodes.forEach(function (node) {
-							if (node.id === focus || (sim.neighbours[focus] ?? []).indexOf(node.id) > -1) add(node);
-						});
-					}
-					labelNodes.forEach(add);
-					var quickLabels = {};
-					wanted.forEach(function (node) {
-						var text = node.label.length > 12 ? node.label.slice(0, 12) + '…' : node.label;
+					var toDraw = focusNode === undefined ? ordered : [focusNode].concat(ordered);
+					toDraw.forEach(function (node) {
+						var text = node.text.length > 12 ? node.text.slice(0, 12) + '…' : node.text;
 						if (text === '') return;
 						var boxWidth = linkLabelWidth(text) + 4;
 						var left = node.x + node.r + 4;
@@ -2443,31 +2537,29 @@ window.__ModuleLoader__.load({
 							left = node.x - node.r - 4 - boxWidth;
 							anchor = 'end';
 						}
-						quickLabels[node.id] = {
+						quick[node.id] = {
 							x: anchor === 'start' ? left : left + boxWidth,
 							y: node.y + 3,
 							anchor: anchor,
 							text: text,
 						};
 					});
-					return quickLabels;
+					return quick;
 				}
-				if (baseLabels === null) return {};
-				if (focus === null) return baseLabels.map;
-				var boxes = baseLabels.boxes.slice();
-				var map = { ...baseLabels.map };
-				var ordered = [];
-				snapshot.nodes.forEach(function (node) {
-					// A card that already has a stable label keeps it: only the
-					// cards without one are placed on top of the default set.
-					if (map[node.id] !== undefined) return;
-					if (node.id === focus) ordered.unshift(node);
-					else if ((sim.neighbours[focus] ?? []).indexOf(node.id) > -1) ordered.push(node);
-				});
-				var extra = placeLinkLabels(ordered, snapshot.nodes, sim.width, sim.height, ordered.length, boxes);
-				Object.keys(extra).forEach(function (id) { map[id] = extra[id]; });
+				// Focus first, so it wins the roomiest spot when space is short.
+				var boxes = [];
+				var placeable = focusNode === undefined ? ordered : [focusNode].concat(ordered);
+				var map = placeLinkLabels(placeable, snapshot.nodes, sim.width, sim.height, placeable.length, boxes);
+				if (focusNode !== undefined && map[focus] === undefined) {
+					// The card under the pointer has to be named even in the densest
+					// cluster: retry with the node clearance off. The label may touch a
+					// dot, but it is the one name the reader explicitly asked for, and
+					// without it the hover looks broken.
+					var alone = placeLinkLabels([focusNode], [], sim.width, sim.height, 1, boxes);
+					Object.keys(alone).forEach(function (id) { map[id] = alone[id]; });
+				}
 				return map;
-			}, [sim, snapshot, baseLabels, labelNodes, focus]);
+			}, [sim, snapshot, focus]);
 
 			/**
 			 * Find the live simulation node behind a snapshot id.
@@ -2536,27 +2628,36 @@ window.__ModuleLoader__.load({
 					related[focus] = true;
 					(sim.neighbours[focus] ?? []).forEach(function (id) { related[id] = true; });
 				}
-				var edgeEls = snapshot.edges.map(function (edge, index) {
+				var edgeEls = [];
+				snapshot.edges.forEach(function (edge, index) {
 					var weak = edge.kind !== 'link';
+					// A tie between two cards that already have stated relations
+					// stays out of the resting picture: the links already carry the
+					// structure, and the extra dashed layer is what made the graph
+					// unreadable. Focusing a card brings its own ties back, because
+					// then they are the subject rather than background.
+					if (edge.tied === true && focus === null) return;
 					var lit = focus === null
 						|| (related[edge.source] === true && related[edge.target] === true);
-					return h('path', {
+					edgeEls.push(h('path', {
 						key: 'e-' + index,
 						d: edge.d,
 						className: 'evrLinkEdge'
-							+ (weak ? ' evrLinkEdgeWeak' : (edge.mutual === true ? ' evrLinkEdgeMutual' : '')),
+							+ (weak
+								? ' evrLinkEdgeWeak' + (lit && focus !== null ? ' evrLinkEdgeWeakLit' : '')
+								: (edge.mutual === true ? ' evrLinkEdgeMutual' : '')),
 						// Direction is only worth drawing while the reader is looking
 						// at one card; a wall of arrowheads says nothing.
 						markerEnd: weak || focus === null ? undefined : 'url(#evrLinkArrow)',
 						opacity: lit ? 1 : 0.15,
-					});
+					}));
 				});
 				var nodeEls = snapshot.nodes.map(function (node) {
 					var nodeId = node.id;
 					var lit = focus === null || related[nodeId] === true;
 					var neighbour = focus !== null && nodeId !== focus && related[nodeId] === true;
 					var label = labels[nodeId];
-					var name = node.label === '' ? nodeId : node.label;
+					var name = node.text === '' ? nodeId : node.text;
 					return h('g', {
 						key: nodeId,
 						className: 'evrLinkNode'
@@ -2730,19 +2831,6 @@ window.__ModuleLoader__.load({
 							transition: 'transform 200ms ease',
 						},
 					},
-						// The region names sit under the edges and dots: they orient
-						// the eye without competing with a card label.
-						h('g', null, snapshot.branches.map(function (region) {
-							return h('text', {
-								key: 'branch-' + region.branch,
-								x: region.x,
-								y: region.y,
-								textAnchor: 'middle',
-								fill: region.color,
-								opacity: 0.35,
-								className: 'evrLinkBranch',
-							}, region.branch);
-						})),
 						h('g', null, parts.edges),
 						h('g', null, parts.nodes))));
 		}
@@ -2861,10 +2949,25 @@ window.__ModuleLoader__.load({
 				}
 				if (section === 'info') {
 					var detail = overview.injection;
+					var snapshot = detail === null || detail === undefined ? null : detail.snapshot;
+					var snapshotAt = snapshot !== null && snapshot !== undefined && typeof snapshot.at === 'string' && snapshot.at !== ''
+						? absoluteTime(snapshot.at, false)
+						: '';
 					var blocks = detail !== undefined && detail !== null
 						? [
 							{ key: 'section', title: t('overview.info.section'), badge: t('overview.info.badge.section'), text: detail.section ?? '' },
-							{ key: 'index', title: t('overview.info.index'), badge: t('overview.info.badge.context'), text: detail.index ?? '' },
+							{
+								key: 'index',
+								title: t('overview.info.index'),
+								badge: t('overview.info.badge.context'),
+								text: detail.index ?? '',
+								// What the block above actually is. "It looks old" is the
+								// right reading half the time; the other half it is the
+								// live fallback, which changes on every write.
+								note: snapshotAt === ''
+									? t('overview.info.snapshotLive')
+									: t('overview.info.snapshot').replace('{at}', snapshotAt),
+							},
 						]
 						// An older host only serves the combined preview.
 						: [{ key: 'all', title: t('overview.projection'), badge: t('overview.info.badge.context'), text: injection.cards.text ?? '' }];
@@ -2895,6 +2998,7 @@ window.__ModuleLoader__.load({
 											});
 										},
 									}, open ? t('overview.info.collapse') : t('overview.info.expand'))),
+								block.note === undefined ? null : h('div', { className: 'evrHint evrInfoNote' }, block.note),
 								open ? h('div', { className: 'evrInfoBody' }, h(Markdown, { t: t, text: block.text })) : null);
 						}),
 						h('div', { className: 'evrHint' }, t('overview.info.preferencesHint')));
@@ -2913,8 +3017,7 @@ window.__ModuleLoader__.load({
 					h('div', { className: 'evrGrid' },
 						h(StatCard, { title: t('overview.notes'), value: String(stats.cards ?? 0), hint: t('overview.notesHint') }),
 						h(StatCard, { title: t('overview.tags'), value: String(stats.tags ?? 0), hint: t('overview.tagsHint') }),
-						h(StatCard, { title: t('overview.days'), value: String(stats.days ?? 0), hint: t('overview.daysHint') }),
-						h(StatCard, { title: t('overview.index'), value: `${((stats.indexRatio ?? 0) * 100).toFixed(1)}%`, hint: t('overview.indexHint') })),
+						h(StatCard, { title: t('overview.days'), value: String(stats.days ?? 0), hint: t('overview.daysHint') })),
 					h('div', { className: 'evrOverviewSplit' },
 						h('div', { className: 'evrOverviewPane evrOverviewGraph' },
 							h('div', { className: 'evrSection' }, t('overview.graph')),
@@ -3066,6 +3169,12 @@ window.__ModuleLoader__.load({
 				return function () { clearTimeout(timer); };
 			}, [search]);
 			var [promoteTarget, setPromoteTarget] = useState('践行');
+			var [view, setView] = useState('cards');
+			useEffect(function () {
+				if (view !== 'resources') return undefined;
+				props.onLoadResources();
+				return undefined;
+			}, [view, props.onLoadResources]);
 			if (state === null || state === undefined) return h(Spinner, null, t('state.loading'));
 			var cards = Array.isArray(state.cards) ? state.cards : [];
 			var tree = Array.isArray(state.tree) ? state.tree : [];
@@ -3101,9 +3210,9 @@ window.__ModuleLoader__.load({
 						},
 					},
 						h('div', { className: 'evrRowMain' },
+							// 卡片没有标题：描述就是它在列表里的那一行，正文只进详情。
 							h('div', { className: 'evrRowTitle' },
-								card.label || t('cards.empty')),
-							h('div', { className: 'evrRowMeta' }, String(card.body ?? '').slice(0, 180)),
+								card.description || card.id),
 							h('div', { className: 'evrRowMeta' },
 								(card.tags ?? []).map(function (tag) {
 									return h('span', { key: tag, className: 'evrTag' }, "#" + tag);
@@ -3132,12 +3241,9 @@ window.__ModuleLoader__.load({
 				return h('div', null,
 					h('div', { className: 'evrCard' },
 						h('div', { className: 'evrCardHead' },
-							h('span', { className: 'evrCardTitle' }, card.label || '(未命名)'),
+							h('span', { className: 'evrCardTitle' }, card.description || card.id),
 							h('span', { className: 'evrCardCount' }, (card.tags ?? []).slice(0, 3).map(function (tag) { return '#' + tag; }).join(' · '))),
 						h('div', { className: 'evrHint evrMono' }, card.id),
-						String(card.description ?? '') === ''
-							? null
-							: h('div', { className: 'evrHint', style: { marginTop: '4px' } }, card.description),
 						h('div', { className: 'evrPre', style: { whiteSpace: 'pre-wrap', marginTop: '8px' } }, card.body || ''),
 						card.source !== undefined && card.source.quote !== undefined
 							? h('div', { className: 'evrHint', style: { marginTop: '8px' } }, t('cards.source') + '：' + card.source.quote)
@@ -3166,7 +3272,7 @@ window.__ModuleLoader__.load({
 						? h('div', { className: 'evrSection' }, t('cards.links'))
 						: null,
 					(detail.links ?? []).map(function (item) {
-						return h('div', { key: 'l-' + item.id, className: 'evrHint' }, '→ ' + item.label);
+						return h('div', { key: 'l-' + item.id, className: 'evrHint' }, '→ ' + (item.description || item.id));
 					}),
 					(detail.backlinks ?? []).length > 0 ? h('div', { className: 'evrSection' }, t('cards.backlinks')) : null,
 					(detail.backlinks ?? []).map(function (item) {
@@ -3176,7 +3282,7 @@ window.__ModuleLoader__.load({
 							className: 'evrBtn',
 							style: { marginRight: '6px', marginBottom: '4px' },
 							onClick: function () { props.onOpen(item.id); },
-						}, item.label);
+						}, item.description || item.id);
 					}),
 					h('div', { className: 'evrSection' }, t('cards.attachments')),
 					(card.resources ?? []).length === 0
@@ -3217,7 +3323,7 @@ window.__ModuleLoader__.load({
 						placeholder: t('cards.field.tagsHint'),
 						onChange: function (event) { patch({ tags: event.target.value }); },
 					})),
-					field(t('cards.field.description'), h('input', {
+					field(t('cards.field.description').replace('{max}', String(props.settings?.cardDescriptionMaxChars ?? 80)), h('input', {
 						className: 'evrInput',
 						value: fields.description,
 						placeholder: t('cards.field.descriptionHint'),
@@ -3258,6 +3364,16 @@ window.__ModuleLoader__.load({
 						onSelect: function (path) { props.onFilter({ tag: path, anyTags: [], archivedOnly: false }); },
 					})),
 				h('div', { className: 'evrCardsBody' },
+					(filter.resourcePath ?? '') === ''
+						? null
+						: h('div', { className: 'evrToolbar' },
+							h('span', { className: 'evrTag' }, t('cards.filter.resource')
+								.replace('{name}', String(filter.resourcePath).split('/').pop())),
+							h('button', {
+								type: 'button',
+								className: 'evrBtn',
+								onClick: function () { props.onFilter({ resourcePath: '' }); },
+							}, t('cards.filter.resourceClear'))),
 					h('div', { className: 'evrToolbar' },
 						filterButton(t('cards.filter.all'), { tag: '', anyTags: [], archivedOnly: false }, filter.tag === '' && (filter.anyTags ?? []).length === 0 && filter.archivedOnly !== true),
 						filterButton(t('cards.filter.execution'), { tag: '践行', anyTags: [], archivedOnly: false }, filter.tag === '践行'),
@@ -3290,6 +3406,174 @@ window.__ModuleLoader__.load({
 						: props.detail !== null && props.detail !== undefined
 							? h('div', { className: 'evrCardsScroll' }, renderDetail())
 							: h('div', { className: 'evrCardsScroll' }, renderList())));
+		}
+
+		/**
+		 * 资源页：全部附件的只读清单。
+		 *
+		 * 不新建第二套存储——附件本来就属于某张卡片（`knowledge/resources/<卡片id>/`），
+		 * 这里只是把散在卡片目录里的文件聚到一页：有什么、多大、能不能直接跑、
+		 * 挂在哪张卡上、被几张卡引用。
+		 *
+		 * @param {object} props - Slot props plus the loaded rows.
+		 * @returns {object} The page.
+		 */
+		/** 能在面板里直接渲染的扩展名：其余类型交给系统程序。 */
+		var PREVIEWABLE = ['md', 'markdown', 'txt', 'log', 'json', 'yaml', 'yml', 'toml', 'csv', 'tsv',
+			'html', 'css', 'js', 'mjs', 'cjs', 'ts', 'py', 'sh', 'bash', 'zsh', 'rb', 'go', 'rs',
+			'java', 'c', 'h', 'cpp', 'sql', 'xml', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'pdf'];
+
+		function previewableOf(name) {
+			var match = /\.([0-9a-z]+)$/i.exec(String(name ?? ''));
+			return match !== null && PREVIEWABLE.indexOf(match[1].toLowerCase()) >= 0;
+		}
+
+		/**
+		 * 资源页：全部附件的只读清单。
+		 *
+		 * 不新建第二套存储——附件本来就属于某张卡片（`knowledge/resources/<卡片id>/`），
+		 * 这里只是把散在卡片目录里的文件聚到一页：有什么、多大、能不能直接跑、
+		 * 挂在哪张卡上、被几张卡引用。
+		 *
+		 * @param {object} props - Slot props plus the loaded rows.
+		 * @returns {object} The page.
+		 */
+		function ResourcesTab(props) {
+			var t = props.t;
+			var [search, setSearch] = useState('');
+			var [preview, setPreview] = useState(null);
+			var [previewing, setPreviewing] = useState(false);
+			var all = Array.isArray(props.rows) ? props.rows : [];
+			var needle = search.trim().toLowerCase();
+			// 搜索在本地做：这一页一次只有几十个文件，发一轮请求比过滤更慢。
+			var list = needle === ''
+				? all
+				: all.filter(function (file) {
+					var card = file.card ?? {};
+					return String(file.name).toLowerCase().includes(needle)
+						|| String(card.description ?? '').toLowerCase().includes(needle)
+						|| (card.tags ?? []).some(function (tag) { return String(tag).toLowerCase().includes(needle); });
+				});
+			var owners = {};
+			all.forEach(function (file) {
+				var owner = file.card ?? { id: '' };
+				if (owner.id !== '') owners[owner.id] = true;
+			});
+
+			function openPreview(file) {
+				setPreviewing(true);
+				setPreview({ file: file, data: null });
+				props.onPreview(file.card.id, file.name).then(function (value) {
+					setPreview({ file: file, data: value });
+				}).catch(function () {
+					setPreview(null);
+				}).then(function () {
+					setPreviewing(false);
+				});
+			}
+
+			function previewBody() {
+				var body = h('div', { className: 'evrPreviewBody' });
+				var data = preview === null ? null : preview.data;
+				if (data === null || data === undefined) {
+					return h('div', null, body, h('div', { className: 'evrHint' }, t('state.loading')));
+				}
+				if (data.kind === 'image') {
+					body = h('div', { className: 'evrPreviewBody' }, h('img', { src: 'data:' + data.mime + ';base64,' + data.base64, alt: data.name }));
+				} else if (data.kind === 'pdf') {
+					body = h('div', { className: 'evrPreviewBody' }, h('iframe', { src: 'data:application/pdf;base64,' + data.base64, title: data.name }));
+				} else if (data.kind === 'text') {
+					body = h('div', { className: 'evrPreviewBody' },
+						data.mime === 'text/markdown'
+							? h(Markdown, { t: t, text: data.text })
+							: h('pre', { className: 'evrPre', style: { whiteSpace: 'pre-wrap', margin: 0 } }, data.text));
+				} else {
+					body = h('div', { className: 'evrPreviewBody' }, h('div', { className: 'evrHint' }, t('cards.resources.noPreview')));
+				}
+				return h('div', null,
+					body,
+					data.truncated === true ? h('div', { className: 'evrHint', style: { padding: '0 14px 10px' } }, t('cards.resources.truncated')) : null);
+			}
+
+			return h.apply(null, ['div', null].concat([
+				h('div', { className: 'evrSection' }, t('resources.title')),
+				h('div', { className: 'evrToolbar' },
+					h('input', {
+						className: 'evrInput',
+						type: 'search',
+						value: search,
+						placeholder: t('cards.resources.search'),
+						onChange: function (event) { setSearch(event.target.value); },
+					}),
+					h('span', { className: 'evrHint' }, t('cards.resources.count')
+						.replace('{files}', String(list.length))
+						.replace('{cards}', String(Object.keys(owners).length))),
+					h('span', { style: { flex: '1' } }),
+					h('button', {
+						type: 'button',
+						className: 'evrBtn',
+						disabled: props.busy,
+						onClick: props.onRefresh,
+					}, t('action.refresh'))),
+				all.length === 0
+					? h(Empty, null, t('cards.resources.empty'))
+					: list.length === 0
+						? h(Empty, null, t('cards.resources.emptySearch'))
+						// 文件名是这个页面的主体：先看到有什么文件，再决定要不要
+						// 关心它属于哪张卡。
+						: h('div', null, list.map(function (file) {
+							var card = file.card ?? {};
+							return h('div', { key: (card.id ?? '') + '/' + file.name, className: 'evrRow' },
+								h('div', { className: 'evrRowMain' },
+									h('div', { className: 'evrRowTitle evrMono', style: { fontSize: '12.5px' } }, file.name),
+									h('div', { className: 'evrRowMeta' },
+										formatBytes(file.bytes),
+										file.executable === true ? ' · ' + t('cards.resources.exec') : '',
+										' · ',
+										t('cards.resources.refs') + ' ' + String((file.referenced ?? []).length)),
+									h('div', { className: 'evrRowMeta' },
+										h('span', { className: 'evrHint' }, t('cards.resources.owner') + '：'),
+										card.description || card.id || '',
+										' ',
+										h('span', { className: 'evrMono evrHint' }, String(card.id ?? '').slice(-5))),
+									h('div', { className: 'evrRowMeta' },
+										(card.tags ?? []).map(function (tag) {
+											return h('span', { key: tag, className: 'evrTag' }, '#' + tag);
+										}))),
+								h('div', { style: { display: 'flex', gap: '6px', flex: 'none' } },
+									previewableOf(file.name)
+										? h('button', {
+											type: 'button',
+											className: 'evrBtn',
+											disabled: previewing,
+											onClick: function () { openPreview(file); },
+										}, t('cards.resources.preview'))
+										: null,
+									h('button', {
+										type: 'button',
+										className: 'evrBtn',
+										onClick: function () { props.onOpenFile(file.card.id, file.name); },
+									}, t('cards.resources.open')),
+									h('button', {
+										type: 'button',
+										className: 'evrBtn evrBtnPrimary',
+										onClick: function () { props.onFilter({ resourcePath: file.path ?? '', query: '', tag: '', anyTags: [], archivedOnly: false }); },
+									}, t('cards.resources.view'))));
+						})),
+				preview === null
+					? null
+					: h('div', { className: 'evrPreview', onClick: function () { setPreview(null); } },
+						h('div', { className: 'evrPreviewPanel', onClick: function (event) { if (event && event.stopPropagation) event.stopPropagation(); } },
+							h('div', { className: 'evrPreviewHead' },
+								h('span', { className: 'evrMono' }, preview.file.name),
+								h('span', { className: 'evrHint' }, formatBytes(preview.file.bytes)),
+								h('span', { style: { flex: '1' } }),
+								h('button', {
+									type: 'button',
+									className: 'evrBtn',
+									onClick: function () { setPreview(null); },
+								}, t('cards.resources.close'))),
+							previewBody()))]));
 		}
 
 		/**
@@ -3383,6 +3667,54 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The `<select>` value of a model selection.
+		 *
+		 * `''` is "follow the session". Provider and model ids never contain
+		 * `::`, so the pair survives the round trip through a select value.
+		 *
+		 * @param {object | null | undefined} model - The selection.
+		 * @returns {string} The option value.
+		 */
+		function modelOptionValue(model) {
+			return model === null || model === undefined ? '' : model.provider + '::' + model.model;
+		}
+
+		/**
+		 * The model behind one option value.
+		 *
+		 * @param {string} value - The option value.
+		 * @param {object | null | undefined} catalog - The model catalogue.
+		 * @returns {object} The selection, `{provider, model}` or bare.
+		 */
+		function modelFromOption(value, catalog) {
+			if (value === '') return null;
+			var parts = String(value).split('::');
+			if (parts.length !== 2) return null;
+			return { provider: parts[0], model: parts[1] };
+		}
+
+		/**
+		 * The reasoning levels one model offers, or `null`.
+		 *
+		 * @param {object | null | undefined} catalog - The model catalogue.
+		 * @param {object | null | undefined} model - The selection.
+		 * @returns {object | null} `{efforts, defaultEffort}`.
+		 */
+		function effortsOf(catalog, model) {
+			if (catalog === null || catalog === undefined || model === null || model === undefined) return null;
+			var groups = Array.isArray(catalog.providers) ? catalog.providers : [];
+			for (var index = 0; index < groups.length; index += 1) {
+				if (groups[index].id !== model.provider) continue;
+				var models = Array.isArray(groups[index].models) ? groups[index].models : [];
+				for (var inner = 0; inner < models.length; inner += 1) {
+					if (models[inner].id !== model.model) continue;
+					return models[inner].reasoning ?? null;
+				}
+			}
+			return null;
+		}
+
+		/**
 		 * The initial values of the backup form.
 		 *
 		 * @param {object | null | undefined} settings - The settings view.
@@ -3415,6 +3747,7 @@ window.__ModuleLoader__.load({
 			var [form, setForm] = useState(function () { return backupForm(settings); });
 			var [dataDir, setDataDir] = useState('');
 			var [cardCap, setCardCap] = useState(settings?.cardMaxChars ?? 1000);
+			var [descCap, setDescCap] = useState(settings?.cardDescriptionMaxChars ?? 80);
 			var [dataForce, setDataForce] = useState(false);
 			var [exportDir, setExportDir] = useState('');
 			var [exportName, setExportName] = useState('');
@@ -3429,6 +3762,10 @@ window.__ModuleLoader__.load({
 
 			useEffect(function () {
 				if (settings && settings.cardMaxChars !== undefined) setCardCap(settings.cardMaxChars);
+			}, [settings]);
+
+			useEffect(function () {
+				if (settings && settings.cardDescriptionMaxChars !== undefined) setDescCap(settings.cardDescriptionMaxChars);
 			}, [settings]);
 
 			useEffect(function () {
@@ -3636,6 +3973,23 @@ window.__ModuleLoader__.load({
 								onClick: function () { props.onSaveCardCap(Number(cardCap)); },
 							}, t('action.save'))))),
 				h('div', { style: { marginTop: '10px' } },
+					h(Field, { label: t('settings.cardDescCap'), hint: t('settings.cardDescCapHint') },
+						h('div', { style: { display: 'flex', gap: '6px' } },
+							h('input', {
+								className: 'evrInput',
+								type: 'number',
+								min: 20,
+								max: 200,
+								value: descCap,
+								onChange: function (event) { setDescCap(Number(event.target.value)); },
+							}),
+							h('button', {
+								type: 'button',
+								className: 'evrBtn',
+								disabled: busy,
+								onClick: function () { props.onSaveCardDescCap(Number(descCap)); },
+							}, t('action.save'))))),
+				h('div', { style: { marginTop: '10px' } },
 					h(Field, { label: t('settings.data.new'), hint: t('settings.data.moveHint') },
 						pathField(setDataDir, dataDir, '/Users/you/data/dsh-evolver'))),
 				targetIsCurrent
@@ -3815,11 +4169,101 @@ window.__ModuleLoader__.load({
 			var ingestForm = props.ingestDraft;
 			var consolidateStatus = props.consolidate;
 			var consolidateForm = props.consolidateDraft;
+			var organizeStatus = props.organize;
+			var organizeDraft = props.organizeDraft;
+			var organizeReady = organizeStatus !== null && organizeStatus !== undefined
+				&& organizeDraft !== null && organizeDraft !== undefined;
+			// `current` is what would actually run right now; an older host or a
+			// failed probe may leave it out, so read it through one guard.
+			var effectiveModel = organizeReady && organizeStatus.current !== null && organizeStatus.current !== undefined
+				? organizeStatus.current
+				: null;
+			var draftModel = organizeReady ? organizeDraft.model : null;
+			var organizeEfforts = effortsOf(organizeStatus, draftModel);
+			var listedModelValues = ((organizeStatus?.providers) ?? []).reduce(function (values, provider) {
+				(Array.isArray(provider.models) ? provider.models : []).forEach(function (model) {
+					values.push(provider.id + '::' + model.id);
+				});
+				return values;
+			}, []);
 			var ingestReady = ingestStatus !== null && ingestStatus !== undefined && ingestForm !== null && ingestForm !== undefined;
 			var consolidateReady = consolidateStatus !== null && consolidateStatus !== undefined && consolidateForm !== null && consolidateForm !== undefined;
 			return h.apply(null, ['div', null].concat([
 				h('div', { className: 'evrSection' }, t('settings.section.organize')),
 				h('div', { className: 'evrHint', style: { marginBottom: '10px' } }, t('settings.organize.hint')),
+				// One model for both organisers, above them: they are the same kind of
+				// job, and a selector buried in one card would silently govern the
+				// other as well.
+				organizeReady
+					? h('div', { className: 'evrCard', style: { marginBottom: '12px' } },
+						h('div', { className: 'evrCardHead' },
+							h('span', { className: 'evrCardTitle' }, t('settings.organize.modelTitle')),
+							h('span', { className: 'evrCardCount' }, effectiveModel === null
+								? '—'
+								: effectiveModel.provider + ' · ' + effectiveModel.model)),
+						h('div', { className: 'evrCardHint', style: { marginBottom: '8px' } }, t('settings.organize.modelHint')),
+						h('div', { className: 'evrToolbar' },
+							h('span', { className: 'evrHint' }, t('settings.organize.model')),
+							h('select', {
+								className: 'evrInput',
+								value: modelOptionValue(draftModel),
+								onChange: function (event) {
+									props.onOrganizeDraft({ model: modelFromOption(event.target.value, organizeStatus) });
+								},
+							},
+								[h('option', { key: '__session', value: '' }, t('settings.organize.modelSession'))].concat(
+									// A saved model the catalogue does not list (adapter down,
+									// removed route) still has to read as the current value;
+									// otherwise the select claims "follow the chat" while the
+									// host is running something else.
+									(draftModel !== null && listedModelValues.indexOf(modelOptionValue(draftModel)) === -1)
+										? [h('option', {
+											key: '__saved',
+											value: modelOptionValue(draftModel),
+										}, draftModel.provider + ' · ' + draftModel.model)]
+										: [],
+									((organizeStatus.providers) ?? []).map(function (provider) {
+										return h('optgroup', { key: provider.id, label: provider.name },
+											(Array.isArray(provider.models) ? provider.models : []).map(function (model) {
+												return h('option', {
+													key: provider.id + '::' + model.id,
+													value: provider.id + '::' + model.id,
+												}, model.name);
+											}));
+									}))),
+							organizeEfforts === null
+								? null
+								: h('span', { className: 'evrHint' }, t('settings.organize.effort')),
+							organizeEfforts === null
+								? null
+								: h('select', {
+									className: 'evrInput',
+									value: draftModel?.reasoningEffort ?? '',
+									onChange: function (event) {
+										var next = { ...draftModel };
+										if (event.target.value === '') delete next.reasoningEffort;
+										else next.reasoningEffort = event.target.value;
+										props.onOrganizeDraft({ model: next });
+									},
+								},
+									[h('option', { key: '__default', value: '' }, t('settings.organize.effortDefault'))].concat(
+										organizeEfforts.efforts.map(function (effort) {
+											return h('option', { key: effort.id, value: effort.id }, effort.name);
+										}))),
+							h('span', { style: { flex: '1' } }),
+							h('button', {
+								type: 'button',
+								className: 'evrBtn',
+								onClick: function () { props.onOrganizeSave(organizeDraft); },
+							}, t('action.save'))),
+						h('div', { className: 'evrHint' }, t('settings.organize.modelEffective') + ': '
+							+ (effectiveModel === null
+								? '—'
+								: effectiveModel.provider + ' · ' + effectiveModel.model
+									+ (effectiveModel.reasoningEffort === undefined
+										? ''
+										: ' · ' + effectiveModel.reasoningEffort))))
+					: null,
 				ingestReady
 					? h('div', { className: 'evrCard', style: { marginBottom: '12px' } },
 						h('div', { className: 'evrCardHead' },
@@ -3923,6 +4367,100 @@ window.__ModuleLoader__.load({
 
 		//#endregion
 
+		/**
+		 * The plugin's own log: what the background jobs actually did.
+		 *
+		 * A read-only view. The file is written by the host and rotated there,
+		 * so this tab cannot make the log grow; it only shows the tail and how
+		 * much of the ring is in use.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		/** The dictionary key of each log level, spelled out so the i18n guard can see it. */
+		var LOG_LEVEL_LABEL = { info: 'logs.levelInfo', warn: 'logs.levelWarn', error: 'logs.levelError' };
+
+		function LogsTab(props) {
+			var t = props.t;
+			var [section, setSection] = useState('logs');
+			var view = props.view;
+			var health = props.health;
+			var entries = view === null || view === undefined || !Array.isArray(view.entries) ? [] : view.entries;
+			var status = view === null || view === undefined ? null : view.status;
+			var budget = status === null || status === undefined
+				? ''
+				: formatBytes((status.maxBytes ?? 0) * (status.keep ?? 1));
+			var healthText = health === null || health === undefined || typeof health.text !== 'string' ? '' : health.text;
+			var lastRun = health === null || health === undefined || typeof health.lastRunAt !== 'string' ? '' : health.lastRunAt;
+
+			function healthPanel() {
+				return h('div', null,
+					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('logs.health.hint')),
+					h('div', { className: 'evrToolbar' },
+						h('span', { className: 'evrHint' }, lastRun === ''
+							? t('logs.health.never')
+							: t('logs.health.lastRun').replace('{at}', absoluteTime(lastRun, false))),
+						h('span', { style: { flex: '1' } }),
+						h('button', {
+							type: 'button',
+							className: 'evrBtn',
+							disabled: props.busy,
+							onClick: props.onHealthRun,
+						}, t('logs.health.run'))),
+					healthText === ''
+						? h('div', { className: 'evrHint' }, t('logs.health.never'))
+						: h(Markdown, { t: t, text: healthText }));
+			}
+
+			function logPanel() {
+				return h.apply(null, ['div', null].concat([
+					h('div', { className: 'evrHint', style: { marginBottom: '8px' } }, t('logs.hint').replace('{max}', budget)),
+					h('div', { className: 'evrToolbar' },
+						h('span', { className: 'evrHint' }, status === null || status === undefined
+							? ''
+							: t('logs.files')
+								.replace('{files}', String((status.files ?? []).length))
+								.replace('{bytes}', formatBytes(status.bytes ?? 0))),
+						h('span', { style: { flex: '1' } }),
+						h('button', {
+							type: 'button',
+							className: 'evrBtn',
+							disabled: props.busy,
+							onClick: props.onRefresh,
+						}, t('logs.refresh'))),
+					entries.length === 0
+						? h('div', { className: 'evrHint' }, t('logs.empty'))
+						// Newest first: the reason to open this page is the run that
+						// just failed, not the one from an hour ago.
+						: h('div', { className: 'evrLog' }, entries.slice().reverse().map(function (entry, index) {
+							var level = entry.level === 'warn' || entry.level === 'error' ? entry.level : 'info';
+							return h('div', { key: 'log-' + index, className: 'evrLogRow evrLog' + level.charAt(0).toUpperCase() + level.slice(1) },
+								h('span', { className: 'evrLogTime' }, absoluteTime(entry.at, true)),
+								h('span', { className: 'evrLogLevel' }, t(LOG_LEVEL_LABEL[level])),
+								h('span', { className: 'evrLogText' }, entry.message));
+						}))]));
+			}
+
+			// Same sub-tab bar as every other page: a page-level tab strip here
+			// would read as a second navigation level that does not exist.
+			return h('div', null,
+				h('div', { className: 'evrSubTabs', role: 'tablist', 'aria-label': t('logs.title') },
+					[
+						{ id: 'logs', label: t('logs.tab.logs') },
+						{ id: 'health', label: t('logs.tab.health') },
+					].map(function (item) {
+						return h('button', {
+							key: item.id,
+							type: 'button',
+							role: 'tab',
+							'aria-selected': section === item.id,
+							className: 'evrTab' + (section === item.id ? ' evrTabActive' : ''),
+							onClick: function () { setSection(item.id); },
+						}, item.label);
+					})),
+				section === 'health' ? healthPanel() : logPanel());
+		}
+
 		//#region panel
 
 		/**
@@ -3946,6 +4484,14 @@ window.__ModuleLoader__.load({
 			var [ingestDraft, setIngestDraft] = useState(null);
 			var [consolidate, setConsolidate] = useState(null);
 			var [consolidateDraft, setConsolidateDraft] = useState(null);
+			// The organisers' model settings are only needed on the organise page,
+			// and reading them costs an adapter round trip for the catalogue: load
+			// them when that page is shown.
+			var [organize, setOrganize] = useState(null);
+			var [organizeDraft, setOrganizeDraft] = useState(null);
+			var [logsView, setLogsView] = useState(null);
+			var [healthView, setHealthView] = useState(null);
+			var [resourcesView, setResourcesView] = useState(null);
 			var [cards, setCards] = useState(null);
 			// The overview link graph reads its own whole-library payload: the
 			// cards tab narrows its list, and the graph must not inherit that
@@ -4104,6 +4650,19 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, report, t]);
 
+			var saveCardDescCap = useCallback(function (value) {
+				setBusy(true);
+				return call('settings-save', { cardDescriptionMaxChars: value }).then(function (next) {
+					setSettings(next);
+					notify(t('state.saved'), false);
+					return refreshCards();
+				}).catch(function (reason) {
+					notify(messageOf(reason), true);
+				}).then(function () {
+					setBusy(false);
+				});
+			}, [call, notify, t, refreshCards]);
+
 			var saveCardCap = useCallback(function (value) {
 				setBusy(true);
 				return call('settings-save', { cardMaxChars: value }).then(function (next) {
@@ -4250,6 +4809,87 @@ window.__ModuleLoader__.load({
 				}).finally(function () { setBusy(false); });
 			}, [call, notify, t]);
 
+			useEffect(function () {
+				if (tab !== 'organize' || organize !== null) return undefined;
+				call('organize-status').then(function (value) {
+					var status = value ?? { model: null, current: null, providers: [] };
+					setOrganize(status);
+					setOrganizeDraft({ model: status.model ?? null });
+				}).catch(function () {
+					// An empty catalogue still lets the page show "follow the chat":
+					// a failed probe must not hide the rest of the form.
+					setOrganize({ model: null, current: null, providers: [] });
+					setOrganizeDraft({ model: null });
+				});
+				return undefined;
+			}, [tab, organize, call]);
+
+			var loadLogs = useCallback(function () {
+				return call('logs', { limit: 400 }).then(function (value) {
+					setLogsView(value ?? { entries: [], status: null });
+				}).catch(function (reason) {
+					notify(messageOf(reason), true);
+				});
+			}, [call, notify]);
+
+			var loadResources = useCallback(function () {
+				return call('resources-list').then(function (value) {
+					setResourcesView(Array.isArray(value) ? value : []);
+				}).catch(function (reason) {
+					notify(messageOf(reason), true);
+				});
+			}, [call, notify]);
+
+			var loadHealth = useCallback(function () {
+				return call('health-status').then(function (value) {
+					setHealthView(value ?? { rows: [], lastRunAt: '', text: '' });
+				}).catch(function (reason) {
+					notify(messageOf(reason), true);
+				});
+			}, [call, notify]);
+
+			var runHealth = useCallback(function () {
+				setBusy(true);
+				return call('health-run').then(function (value) {
+					setHealthView(value ?? null);
+					notify(t('state.saved'), false);
+				}).catch(function (reason) {
+					notify(messageOf(reason), true);
+				}).then(function () {
+					setBusy(false);
+				});
+			}, [call, notify, t]);
+
+			// Re-read on every visit: the reason to open the page is the run that
+			// just happened, so a cached copy would answer the wrong question.
+			useEffect(function () {
+				if (tab !== 'resources') return undefined;
+				void loadResources();
+				return undefined;
+			}, [tab, loadResources]);
+
+			useEffect(function () {
+				if (tab !== 'logs') return undefined;
+				void loadLogs();
+				void loadHealth();
+				return undefined;
+			}, [tab, loadLogs, loadHealth]);
+
+			var patchOrganizeDraft = useCallback(function (patch) {
+				setOrganizeDraft(function (current) { return { ...(current ?? { model: null }), ...patch }; });
+			}, []);
+
+			var saveOrganize = useCallback(function (form) {
+				setBusy(true);
+				return call('organize-save', { organize: form }).then(function (value) {
+					setOrganize(value);
+					setOrganizeDraft({ model: value?.model ?? null });
+					notify(t('state.saved'), false);
+				}).catch(function (reason) {
+					notify(messageOf(reason), true);
+				}).finally(function () { setBusy(false); });
+			}, [call, notify, t]);
+
 			var patchConsolidateDraft = useCallback(function (patch) {
 				setConsolidateDraft(function (current) { return { ...(current ?? consolidateFormOf(consolidate)), ...patch }; });
 			}, [consolidate]);
@@ -4301,6 +4941,7 @@ window.__ModuleLoader__.load({
 					tags: filter.tag ? [filter.tag] : [],
 					anyTags: filter.anyTags ?? [],
 					archivedOnly: filter.archivedOnly === true,
+					resourcePath: filter.resourcePath ?? '',
 				};
 				var token = requestSeq.current.cards + 1;
 				requestSeq.current.cards = token;
@@ -4539,9 +5180,42 @@ window.__ModuleLoader__.load({
 					onIngestRun: runIngest,
 					consolidate: consolidate,
 					consolidateDraft: consolidateDraft,
+					organize: organize,
+					organizeDraft: organizeDraft,
+					onOrganizeDraft: patchOrganizeDraft,
+					onOrganizeSave: saveOrganize,
 					onConsolidateDraft: patchConsolidateDraft,
 					onConsolidateSave: saveConsolidate,
 					onConsolidateRun: runConsolidate,
+				});
+			} else if (tab === 'resources') {
+				body = h(ResourcesTab, {
+					t: t,
+					rows: resourcesView,
+					busy: busy,
+					onRefresh: loadResources,
+					onPreview: function (id, name) { return call('resource-preview', { id: id, name: name }); },
+					onOpenFile: function (id, name) {
+						return call('resource-open', { id: id, name: name }).catch(function (reason) {
+							notify(messageOf(reason), true);
+						});
+					},
+					// The question a resource raises is "who uses it", not "who owns
+					// it": jump to the filtered card list (the owner is in it too —
+					// a card's body has to reference its own attachment).
+					onFilter: function (patch) {
+						changeCardFilter(patch);
+						setTab('cards');
+					},
+				});
+			} else if (tab === 'logs') {
+				body = h(LogsTab, {
+					t: t,
+					view: logsView,
+					health: healthView,
+					busy: busy,
+					onRefresh: loadLogs,
+					onHealthRun: runHealth,
 				});
 			} else if (tab === 'settings') {
 				body = h(SettingsTab, {
@@ -4552,6 +5226,7 @@ window.__ModuleLoader__.load({
 					onNotify: notify,
 					onSaveBackup: saveBackupSettings,
 					onSaveCardCap: saveCardCap,
+					onSaveCardDescCap: saveCardDescCap,
 					onClearSecret: clearBackupSecret,
 					onMigrate: migrateData,
 					onExport: exportData,

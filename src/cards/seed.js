@@ -9,7 +9,7 @@
 /** The starter documents. */
 const STARTER_CARDS = [
   {
-    "label": "确认插件改动是否生效",
+    "title": "确认插件改动是否生效",
     "summary": "装完插件后用槽查询确认它真的注册上了",
     "tags": [
       "践行/经验",
@@ -19,7 +19,7 @@ const STARTER_CARDS = [
     "resource": "plugin-effective.md"
   },
   {
-    "label": "沉淀纪律与标签优先",
+    "title": "沉淀纪律与标签优先",
     "summary": "判断什么该沉淀、写到哪个标签、怎么验证",
     "tags": [
       "践行/工作流"
@@ -28,13 +28,13 @@ const STARTER_CARDS = [
     "resource": "sinking.md"
   },
   {
-    "label": "注入只给索引与结构摘要，具体内容靠检索",
+    "title": "注入只给索引与结构摘要，具体内容靠检索",
     "summary": "注入关系最多的卡片索引与一段结构摘要，不注入正文；分类用 card_index，内容用 card_query/card_read",
     "tags": [
       "复盘/经验",
       "复盘/验证方法"
     ],
-    "body": "## 现象\n\n把具体卡片或全量标签树塞进 system prompt，预算很快被占满，旧卡片还会互相干扰；卡片一多，注入的内容必然和真实库脱节。\n\n## 做法\n\n运行时上下文只放两样：关系最多的 8 张卡（短 id｜标题｜连接数｜一句话摘要）和一段知识结构摘要。要找具体内容用 `card_query`（关键词/层级标签，graph/within 可沿双链扩散），读全文用 `card_read`；要分类用 `card_index`（大库可按 `tag` 逐枝钻取）。每日整理负责重写索引快照，写卡不会让注入立刻失效。\n\n## 边界\n\n索引保证\"知道从哪进\"，保证不了\"一定找得到\"：标签要分层、描述要稳定，搜索命中后仍要读正文和它链到的卡。\n",
+    "body": "## 现象\n\n把具体卡片或全量标签树塞进 system prompt，预算很快被占满，旧卡片还会互相干扰；卡片一多，注入的内容必然和真实库脱节。\n\n## 做法\n\n运行时上下文只放两样：12 张卡（10 个枢纽 + 2 张最近写的，短 id｜一句话描述）和一段知识结构摘要。要找具体内容用 `card_query`（关键词/层级标签，graph/within 可沿双链扩散），读全文用 `card_read`；要分类用 `card_index`（大库可按 `tag` 逐枝钻取）。每日整理负责重写索引快照，写卡不会让注入立刻失效。\n\n## 边界\n\n索引保证\"知道从哪进\"，保证不了\"一定找得到\"：标签要分层、描述要稳定，搜索命中后仍要读正文和它链到的卡。\n",
     "resource": "tag-map.md"
   }
 ]
@@ -51,9 +51,12 @@ export async function seedStarterCards(store) {
 	for (const entry of STARTER_CARDS) {
 		try {
 			const related = entry.tags.map((tag) => '#' + tag).join(' ')
-			const body = `[${entry.label}]({{resource}})：用途：${entry.summary}；入口：阅读附件文档；输入：无；输出：可复用的步骤；关联流程：${related || '#践行'}。`
+			const body = `[${entry.title}]({{resource}})：用途：${entry.summary}；入口：阅读附件文档；输入：无；输出：可复用的步骤；关联流程：${related || '#践行'}。`
 			await store.put({
 				body,
+				// The summary is the card's one-sentence index; the starter cards
+				// follow the same rule as every other card.
+				description: entry.summary,
 				tags: entry.tags,
 			}, { resourceInputs: [{ name: entry.resource, data: entry.body }] })
 			count += 1

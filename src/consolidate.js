@@ -14,9 +14,15 @@
  *   - delete what has no future use;
  *   - keep the tag tree growing in order instead of sideways.
  *
- * It is one direct model call, not an agent session: the model only returns
- * JSON actions, the plugin validates every one of them, and anything removed
- * lands in a trash log first so nothing disappears without a copy.
+ * It is one direct model call per batch, not an agent session: the model only
+ * returns JSON actions, the plugin validates every one of them, and anything
+ * removed lands in a trash log first so nothing disappears without a copy.
+ *
+ * A day is a quota, not a single batch. A fixed batch size assumes the library
+ * grows slower than the reviewer walks it; when it does not — a burst of work
+ * is exactly when the library is most useful — the queue grows by the
+ * difference every day. The daily quota therefore follows the inflow, and the
+ * quota is spent in batches of the configured size.
  */
 
 import { appendFile, mkdir } from 'node:fs/promises'
@@ -27,6 +33,7 @@ import { isCardId } from './cards/ids.js'
 import { refreshCardIndex } from './cards/injection-index.js'
 import { enforceTagPolicy, hasSettledTag } from './cards/tag-policy.js'
 import { coerceCardTags, MAX_TAGS, normalizeTag, rootOf, sanitizeTagDescription, TOP_TAGS } from './cards/tags.js'
+import { resolveOrganizerModel } from './organize.js'
 import { findSecret } from './secrets.js'
 
 /** How often the daily check runs. */
@@ -37,6 +44,18 @@ const REWIND_DAYS = 60
 
 /** How many times one day may try before giving up until tomorrow. */
 const MAX_DAILY_ATTEMPTS = 2
+
+/**
+ * How many batches one day may spend, whatever the inflow.
+ *
+ * The quota follows growth, but a burst of a hundred cards in one afternoon
+ * must not turn into an unbounded number of model calls: this is the ceiling
+ * on the day's cost, and the quota only ever spends below it.
+ */
+const MAX_DAILY_BATCHES = 4
+
+/** The window the daily quota counts new cards over. */
+const QUOTA_WINDOW_MS = 86_400_000
 
 /** The most actions one run may apply. */
 const MAX_ACTIONS = 60
@@ -245,12 +264,12 @@ function tagTreePrompt(tree, descriptions, budget = TAG_TREE_BUDGET) {
  */
 /** @internal exported for tests */
 export function consolidationPrompt(batch, neighbours, tree, descriptions) {
-	const neighbourLines = neighbours.map((card) => `- ${card.id} | ${(card.tags ?? []).join(', ')} | ${card.label}`)
+	const neighbourLines = neighbours.map((card) => `- ${card.id} | ${(card.tags ?? []).join(', ')} | ${card.description ?? ''}`)
 	return [
 		'现有标签树（请沿用，除非确实需要一个新分支）：',
 		tagTreePrompt(tree, descriptions),
 		'',
-		'候选链接目标（id | 标签 | 标题）：',
+		'候选链接目标（id | 标签 | 描述）：',
 		neighbourLines.join('\n') || '（无）',
 		'',
 		'今天要整理的卡片：',
@@ -610,19 +629,23 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 	 * Ask the model for the review of one batch.
 	 *
 	 * @param {string} prompt - The review input.
-	 * @returns {Promise<string>} The raw model text.
+	 * @returns {Promise<{text: string, truncated: boolean}>} The raw model text, and whether the cap cut it.
 	 */
 	async function callModel(prompt) {
-		const selection = modelSelection?.currentSelection?.() ?? {}
-		const provider = typeof selection.provider === 'string' ? selection.provider : ''
-		const model = typeof selection.model === 'string' ? selection.model : ''
+		const selection = resolveOrganizerModel(settings, modelSelection)
+		const provider = selection.provider
+		const model = selection.model
 		if (provider === '' || model === '') throw new Error('没有可用的默认模型；请先在聊天里选择模型。')
 		const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(180_000) : undefined
 		let text = ''
 		let failure
+		// `max-tokens` ends the stream normally: what arrived is what fit, and a
+		// reasoning model can spend the whole budget before the JSON starts.
+		let truncated = false
 		for await (const chunk of llm.stream({
 			provider,
 			model,
+			...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
 			sessionId: 'evolver-consolidate',
 			system: SYSTEM_PROMPT,
 			messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
@@ -631,12 +654,53 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 			...(signal === undefined ? {} : { signal }),
 		})) {
 			if (chunk.type === 'text-delta') text += chunk.text
-			if (chunk.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
-				failure = chunk.reason.failure ?? chunk.reason
-			}
+			if (chunk.type !== 'finish') continue
+			const kind = chunk.reason?.kind
+			if (kind === 'error' || kind === 'aborted') failure = chunk.reason.failure ?? chunk.reason
+			if (kind === 'max-tokens') truncated = true
 		}
 		if (failure !== undefined) throw new Error(failure.message || '模型调用失败')
-		return text
+		return { text, truncated }
+	}
+
+	/**
+	 * Whether a card is due for a review.
+	 *
+	 * A card reviewed within REWIND_DAYS is not, and an archived one never is.
+	 * The scheduler and the batch picker share this one predicate, so "the day
+	 * has work" and "the batch has cards" can never disagree.
+	 *
+	 * @param {object} card - The card.
+	 * @param {Record<string, string>} reviewed - The review ledger.
+	 * @param {number} clock - Milliseconds.
+	 * @returns {boolean} True when the card is due.
+	 */
+	function isDue(card, reviewed, clock) {
+		if ((card.tags ?? []).some((tag) => tag.endsWith('/归档'))) return false
+		const at = Date.parse(reviewed[card.id] ?? '')
+		return !Number.isFinite(at) || at < clock - REWIND_DAYS * 86_400_000
+	}
+
+	/**
+	 * How many cards today may review, given how fast the library is growing.
+	 *
+	 * One batch is always allowed, so a quiet library still gets its sweep; past
+	 * that the quota is one card per card written in the last day, capped at
+	 * MAX_DAILY_BATCHES. A day whose inflow exceeds the walk is then reviewed
+	 * at the pace it is written instead of falling behind by the difference.
+	 *
+	 * @param {{dailyCards: number}} config - The consolidation settings.
+	 * @param {object[]} cards - Every active card.
+	 * @param {number} clock - Milliseconds.
+	 * @returns {number} The day's quota, in cards.
+	 */
+	function dailyQuota(config, cards, clock) {
+		const since = clock - QUOTA_WINDOW_MS
+		const fresh = cards.reduce((count, card) => {
+			const created = Date.parse(card.created ?? '')
+			return Number.isFinite(created) && created >= since ? count + 1 : count
+		}, 0)
+		return Math.min(config.dailyCards * MAX_DAILY_BATCHES, Math.max(config.dailyCards, fresh))
 	}
 
 	/**
@@ -660,7 +724,6 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 	 */
 	function pickBatch(cards, reviewed, count, accessed = {}) {
 		const clock = now()
-		const floor = clock - REWIND_DAYS * 86_400_000
 		const hotFloor = clock - ACCESS_HOT_DAYS * 86_400_000
 		const reviewedAtOf = (card) => {
 			const at = Date.parse(reviewed[card.id] ?? '')
@@ -670,11 +733,7 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 			const at = Date.parse(accessed?.[card.id]?.lastAt ?? '')
 			return Number.isFinite(at) && at >= hotFloor
 		}
-		const eligible = cards.filter((card) => {
-			if ((card.tags ?? []).some((tag) => tag.endsWith('/归档'))) return false
-			const at = reviewedAtOf(card)
-			return at === 0 || at < floor
-		})
+		const eligible = cards.filter((card) => isDue(card, reviewed, clock))
 		const rankOf = (card) => {
 			const at = reviewedAtOf(card)
 			if (!isHot(card)) return at
@@ -708,7 +767,7 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 			if (inBatch.has(card.id)) continue
 			const related = (card.tags ?? []).some((tag) => tags.has(tag)) || linked.has(card.id)
 			if (!related) continue
-			neighbours.push({ id: card.id, tags: card.tags, label: card.label })
+			neighbours.push({ id: card.id, tags: card.tags, description: card.description })
 			if (neighbours.length >= MAX_NEIGHBOURS) break
 		}
 		return neighbours
@@ -726,16 +785,17 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 	/**
 	 * Run one consolidation over the next batch.
 	 *
+	 * @param {number} [limit] - How many cards this batch may take; defaults to one full batch.
 	 * @returns {Promise<object>} What was done.
 	 */
-	async function runNow() {
+	async function runNow(limit) {
 		if (busy()) throw new Error('数据目录操作正在进行，整理已跳过。')
 		// The panel button and the timer reach the same job. Without a shared
 		// guard two clicks (or a click during the nightly run) would both call
 		// the model on the same batch — double the tokens, and two writers
 		// racing over the same cards and ledger.
 		if (inFlight !== null) throw new Error('整理正在进行，请等它结束。')
-		inFlight = performRun()
+		inFlight = performRun(limit)
 		try {
 			return await inFlight
 		} finally {
@@ -746,9 +806,10 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 	/**
 	 * The work itself.
 	 *
+	 * @param {number} [limit] - How many cards this batch may take.
 	 * @returns {Promise<object>} The run result.
 	 */
-	async function performRun() {
+	async function performRun(limit = settings.get().consolidate.dailyCards) {
 		// The day this run belongs to is decided when it starts, not when it
 		// ends: a run that began at 23:58 and finished at 00:02 used to stamp
 		// the new day and silently skip the whole of it.
@@ -756,12 +817,11 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 		const current = store()
 		if (current === undefined) throw new Error('卡片库还没有打开。')
 		if (!available()) throw new Error('这个宿主没有提供模型调用能力。')
-		const config = settings.get().consolidate
 		// The access ledger is a derived cache: a missing or corrupt file means
 		// "no card is hot today", never an error.
 		const access = await accessStats(current.dataDir)
 		const ledgerBefore = await readLedger()
-		const batch = pickBatch(current.all(), ledgerBefore.cards, config.dailyCards, access.ids)
+		const batch = pickBatch(current.all(), ledgerBefore.cards, limit, access.ids)
 		if (batch.length === 0) {
 			// Repairs are not model actions: they run even when no note is due,
 			// which is what keeps the link graph clean for a library that grew
@@ -801,13 +861,15 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 			tree,
 			descriptions,
 		)
-		const text = await callModel(prompt)
+		const { text, truncated } = await callModel(prompt)
 		let reply
 		try {
 			reply = parseReply(text)
 		} catch (error) {
-			logger?.warn?.(`dsh-evolver: consolidation rejected (${error instanceof Error ? error.message : String(error)})`)
-			throw error
+			const detail = error instanceof Error ? error.message : String(error)
+			logger?.warn?.(`dsh-evolver: consolidation rejected after ${String(text ?? '').length} chars`
+				+ `, truncated=${truncated === true} (${detail})`)
+			throw new Error(truncated === true ? `模型输出被截断（达到 maxTokens 上限）：${detail}` : detail)
 		}
 		// The model call can take minutes. If the data folder moved meanwhile,
 		// applying this reply would write the old folder (or overwrite edits in
@@ -1229,9 +1291,26 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 
 		const ledger = await readLedger()
 		const stamp = new Date(now()).toISOString()
-		for (const card of batch) ledger.cards[card.id] = stamp
+		const day = dayKeyOf(startedAt)
+		for (const card of batch) {
+			// A card the run looked at but could not settle is not reviewed.
+			// Stamping it anyway hides it for REWIND_DAYS — sixty days — while
+			// it is still exactly the kind of card the next batch should pick
+			// first. What the run spent is counted in `progress` below, so
+			// leaving a card due cannot make the day run without bound.
+			const live = current.get(card.id)
+			if (live === undefined) continue
+			if (mustSettle(live) && !hasSettledTag(live.tags ?? [])) continue
+			ledger.cards[card.id] = stamp
+		}
+		// `reviewed` counts cards taken into a batch, not cards stamped: the
+		// quota bounds the day's work, and a card that needs another look must
+		// still spend one of today's slots every time it comes back.
+		const spent = ledger.progress.day === day ? ledger.progress.reviewed : 0
+		const batches = ledger.progress.day === day ? ledger.progress.batches : 0
 		ledger.lastRunAt = stamp
-		ledger.dayKey = dayKeyOf(startedAt)
+		ledger.dayKey = day
+		ledger.progress = { day, reviewed: spent + batch.length, batches: batches + 1 }
 		await writeLedger(ledger)
 
 		state.lastRunAt = now()
@@ -1253,7 +1332,11 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 	}
 
 	/**
-	 * One daily check: run once the local day reaches the configured hour.
+	 * One check: run the next batch while the day still has quota.
+	 *
+	 * A day is a quota of cards, spent in batches the configured size apart.
+	 * The library therefore keeps up with its own growth instead of falling
+	 * behind by the difference between what is written and what is reviewed.
 	 *
 	 * @returns {Promise<object | null>} The run result, or null when not due.
 	 */
@@ -1268,7 +1351,15 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 		if (new Date(current).getHours() < config.hour) return null
 		const ledger = await readLedger()
 		const today = dayKeyOf(current)
-		if (ledger.dayKey === today) return null
+		const progress = ledger.progress.day === today ? ledger.progress : { day: today, reviewed: 0, batches: 0 }
+		// The ceiling on the day's cost, independent of how fast the library grew.
+		if (progress.batches >= MAX_DAILY_BATCHES) return null
+		const cards = store().all()
+		// An empty day stays open: a card written in the afternoon is still
+		// picked up later instead of waiting for tomorrow.
+		if (!cards.some((card) => isDue(card, ledger.cards, current))) return null
+		const quota = dailyQuota(config, cards, current)
+		if (progress.reviewed >= quota) return null
 		// Only a real failure counts against the day: an empty batch (a library
 		// with nothing due) leaves the whole day open, so a card written later
 		// is still picked up. Without a cap, a reply the model cannot produce
@@ -1277,7 +1368,7 @@ export function createConsolidationController({ settings, store, llm, modelSelec
 		if (attempts >= MAX_DAILY_ATTEMPTS) return null
 		state.running = true
 		try {
-			const result = await runNow()
+			const result = await runNow(Math.min(config.dailyCards, quota - progress.reviewed))
 			return result.batch === 0 ? null : result
 		} catch (error) {
 			state.lastError = error instanceof Error ? error.message : String(error)

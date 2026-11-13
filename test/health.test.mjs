@@ -61,27 +61,37 @@ test('日报正文保留两周，且标题恒定', () => {
 	assert.match(body, /即兴 = ?|\u5373\u5174/)
 })
 
-test('每天只写一行，卡片是同一张', async () => {
+test('每天只记一行，不再往卡片库里写卡', async () => {
 	const { dir, store } = await fixture()
+	const lines = []
 	let clock = new Date(2026, 10, 11, 10, 0, 0).getTime()
-	const job = createHealthJob({ store: () => store, now: () => clock })
+	const job = createHealthJob({
+		store: () => store,
+		now: () => clock,
+		logger: { info: (message) => lines.push(message) },
+	})
 	try {
-		await store.put({ body: '一张即兴卡', tags: ['即兴'] })
-		await store.put({ body: '一张归好枝干的卡', tags: ['践行/经验'] })
+		await store.put({ body: '一张即兴卡', description: '一条还没归枝的记录', tags: ['即兴'] })
+		await store.put({ body: '一张归好枝干的卡', description: '一条归好枝干的记录', tags: ['践行/经验'] })
 		const first = await job.runNow()
-		assert.equal(first.cards, 2, '第一次运行时还没有日报卡')
+		assert.equal(first.cards, 2, '两张卡都算进去，没有日报卡要排除')
 		assert.equal(first.fleeting, 1)
 		assert.equal(first.unfiled, 1)
 		// A second run on the same day replaces the row instead of adding one.
-		await store.put({ body: '又一张卡', tags: ['即兴', '见闻/事实'] })
+		await store.put({ body: '又一张卡', description: '再写一条', tags: ['即兴', '见闻/事实'] })
 		clock += 60 * 60 * 1000
 		await job.runNow()
 		const ledger = JSON.parse(await readFile(join(dir, 'knowledge', 'health.json'), 'utf8'))
 		assert.equal(ledger.rows.length, 1, '同一天只有一行')
-		assert.equal(ledger.rows[0].cards, 3, '日报卡自己不算进去')
-		const card = store.get(ledger.cardId)
-		assert.match(card.body, new RegExp(REPORT_TITLE))
-		assert.equal(store.all().filter((item) => item.label.startsWith(REPORT_TITLE)).length, 1, '只有一张日报卡')
+		assert.equal(ledger.rows[0].cards, 3)
+		assert.equal(store.all().length, 3, '运行不再新增卡片')
+		assert.equal(store.all().every((card) => String(card.body ?? '') !== ''), true)
+		assert.equal(store.all().some((card) => String(card.body ?? '').startsWith(REPORT_TITLE)), false, '库里没有日报卡')
+		// 日志里是完整的一行，grep 就能看趋势。
+		assert.match(lines.join('\n'), /health 2026-11-11 cards=3 improvised=2 unfiled=1 outbound=0 inbound=0 islands=3/)
+		const status = await job.status()
+		assert.equal(status.rows.length, 1)
+		assert.ok(status.text.length > 0)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })
@@ -122,7 +132,7 @@ test('当天接了缓存数据就把命中与重建写进表格', async () => {
 		assert.equal(ledger.rows.length, 2)
 		assert.equal(ledger.rows[0].cacheMisses, 0)
 		assert.equal(Math.round(ledger.rows[0].cacheHit), 97)
-		const body = store.get(ledger.cardId).body
+		const body = (await job.status()).text
 		assert.match(body, /提示词缓存 97%，重建 0 次/)
 		assert.match(body, /命中  重建/)
 		// Two rows keep their positions; the newest is last.
@@ -141,7 +151,7 @@ test('拿不到缓存数据时这两列留空，不写 0 冒充', async () => {
 		await job.runNow()
 		const ledger = JSON.parse(await readFile(join(dir, 'knowledge', 'health.json'), 'utf8'))
 		assert.equal(ledger.rows[0].cacheHit, undefined)
-		const body = store.get(ledger.cardId).body
+		const body = (await job.status()).text
 		// The footer always explains the columns; what must be absent is the
 		// summary sentence that would claim a number we do not have.
 		assert.equal(/提示词缓存 \d+%/.test(body), false)

@@ -18,12 +18,15 @@
  * the Connection service the Host already provides.
  */
 
+import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 
 import { BackupService } from './src/backup/service.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
 import { createConsolidationController } from './src/consolidate.js'
+import { createLogSink } from './src/logs.js'
+import { createOrganizeSettings } from './src/organize.js'
 import { createHealthJob, dayKeyOf } from './src/health.js'
 import { assistantEvents, cacheForDay, summarizeUsage } from './src/cache.js'
 import { createHarnessTools } from './src/harness/tools.js'
@@ -36,11 +39,11 @@ import { createTools } from './src/tools.js'
 import { PROACTIVE_PROTOCOL } from './src/proactive.js'
 import { createCardAgent } from './src/cards/agent.js'
 import { buildCardGraph } from './src/cards/graph.js'
-import { refreshCardIndex } from './src/cards/injection-index.js'
+import { readCardIndex, refreshCardIndex } from './src/cards/injection-index.js'
 import { seedStarterCards } from './src/cards/seed.js'
 import { cardIndexText, cardPrompt, cardSection, DEFAULT_PROMPT_BUDGET } from './src/cards/prompt.js'
 import { MAX_RESOURCE_BYTES } from './src/cards/resources.js'
-import { CardStore } from './src/cards/store.js'
+import { assertRealDescription, CardStore, normalizeDescriptionMaxChars } from './src/cards/store.js'
 import { isDirectory } from './src/workspace.js'
 import { createWorkspaceJobs } from './src/workspace-jobs.js'
 
@@ -136,6 +139,28 @@ function staticSection() {
 }
 
 /**
+ * Hand one file to the desktop.
+ *
+ * The panel can render text and images, but not a PDF viewer or Word: what it
+ * can do is ask the system to open the file the way the user would from Finder.
+ * Detached and unref'd, so a slow viewer never holds the plugin's event loop.
+ *
+ * @param {string} path - An absolute path already validated by the store.
+ * @returns {Promise<void>} Resolves once the opener was spawned.
+ */
+function openWithSystem(path) {
+	const command = process.platform === 'darwin' ? 'open' : (process.platform === 'win32' ? 'explorer' : 'xdg-open')
+	return new Promise((resolvePromise, reject) => {
+		const child = spawn(command, [path], { detached: true, stdio: 'ignore' })
+		child.once('error', reject)
+		child.once('spawn', () => {
+			child.unref()
+			resolvePromise()
+		})
+	})
+}
+
+/**
  * Start the evolver: prepare the folder, publish the injection, register the
  * tools and the API.
  *
@@ -178,6 +203,18 @@ export async function apply(ctx, config) {
 	const cardAgentRef = { current: undefined }
 
 	/**
+	 * The plugin's own log file.
+	 *
+	 * Registered before any job: the reason to keep a log at all is the run
+	 * that failed while nobody was watching, and the host's stdout is gone on
+	 * restart. The folder is read lazily because moving it replaces the store.
+	 */
+	const logs = createLogSink({
+		dataDir: () => cardStoreRef.current?.dataDir ?? evolver.root,
+		forward: ctx.logger,
+	})
+
+	/**
 	 * Build (and initialise) the card store of one data folder.
 	 *
 	 * @param {string} root - The data folder.
@@ -186,8 +223,9 @@ export async function apply(ctx, config) {
 	async function createCards(root) {
 		const store = new CardStore({
 			dataDir: root,
-			logger: ctx.logger,
+			logger: logs,
 			cardMaxChars: settings.get().cardMaxChars,
+			descriptionMaxChars: settings.get().cardDescriptionMaxChars,
 		})
 		await store.init()
 		try {
@@ -243,7 +281,7 @@ export async function apply(ctx, config) {
 		settings,
 		rootState,
 		defaultRoot,
-		logger: ctx.logger,
+		logger: logs,
 		currentStore: () => cardStoreRef.current,
 		openCards,
 		backupRunning: () => backup?.running === true,
@@ -290,7 +328,6 @@ export async function apply(ctx, config) {
 		const days = new Map()
 		let first = Infinity
 		let words = 0
-		let bodyBytes = 0
 		let archived = 0
 		const tags = new Set()
 		for (const card of cards) {
@@ -315,7 +352,6 @@ export async function apply(ctx, config) {
 				continue
 			}
 			words += chars
-			bodyBytes += Buffer.byteLength(String(card.body ?? ''), 'utf8')
 			for (const tag of card.tags) tags.add(tag)
 		}
 		const activity = []
@@ -345,7 +381,6 @@ export async function apply(ctx, config) {
 			tags: tags.size,
 			days: span,
 			words,
-			bodyBytes,
 			activity,
 			year: summarize(activity),
 		}
@@ -379,14 +414,18 @@ export async function apply(ctx, config) {
 			const store = cardStoreRef.current
 			if (store !== undefined) store.cardMaxChars = value
 		},
+		setCardDescriptionMaxChars(value) {
+			const store = cardStoreRef.current
+			if (store !== undefined) store.descriptionMaxChars = normalizeDescriptionMaxChars(value)
+		},
 		async overview() {
 			const store = cardStoreRef.current
 			const base = await evolver.overview()
 			const status = store.status()
 			const all = store.all()
 			const stats = overviewStats(all)
-			// Rendered once and shared by the ratio and the preview: the same
-			// block used to be ranked twice per overview call.
+			// Rendered once for the injection preview below, so the same block is
+			// not ranked twice per overview call.
 			const index = cardIndexText(store, DEFAULT_PROMPT_BUDGET)
 			return {
 				...base,
@@ -395,9 +434,6 @@ export async function apply(ctx, config) {
 					tags: stats.tags,
 					days: stats.days,
 					words: stats.words,
-					// The index is what every request pays for; the notes are what
-					// it is supposed to point at. The ratio is the Borges warning.
-					indexRatio: stats.bodyBytes === 0 ? 0 : Buffer.byteLength(index, 'utf8') / stats.bodyBytes,
 				},
 				year: stats.year,
 				activity: stats.activity,
@@ -413,6 +449,13 @@ export async function apply(ctx, config) {
 				injection: {
 					section: staticSection(),
 					index,
+					// What the index above actually is: today's snapshot, or the live
+					// fallback when there is none. Without this the panel cannot tell
+					// "stale on purpose" from "broken and never updating".
+					snapshot: (() => {
+						const fresh = readCardIndex(store)
+						return fresh === null ? null : { at: fresh.at, day: fresh.day }
+					})(),
 				},
 			}
 		},
@@ -440,9 +483,13 @@ export async function apply(ctx, config) {
 			const includeArchived = payload.includeArchived === true
 			const archivedOnly = payload.archivedOnly === true
 			const query = String(payload.query ?? '').trim()
+			const resourcePath = String(payload.resourcePath ?? '').trim()
 			const page = query === ''
-				? store.listPage({ tags, anyTags, limit, includeArchived, archivedOnly })
-				: { cards: await store.query({ text: query, tags, anyTags, limit, includeArchived, archivedOnly }), total: 0 }
+				? store.listPage({ tags, anyTags, limit, includeArchived, archivedOnly, resourcePath })
+				: {
+					cards: await store.query({ text: query, tags, anyTags, limit, includeArchived, archivedOnly, resourcePath }),
+					total: 0,
+				}
 			return {
 				cards: page.cards,
 				// How many cards the filter matches in total: the panel gets a
@@ -453,15 +500,84 @@ export async function apply(ctx, config) {
 				cardMaxChars: settings.get().cardMaxChars,
 			}
 		},
+		/**
+		 * One attachment, prepared for the preview pane.
+		 *
+		 * @param {object} payload - `{id, name}`.
+		 * @returns {Promise<object>} Kind, MIME and (for renderable kinds) content.
+		 */
+		async resourcePreview(payload = {}) {
+			const store = cardStoreRef.current
+			return store.resourcePreview(String(payload.id ?? ''), String(payload.name ?? ''))
+		},
+		/**
+		 * Open one attachment with the system's own application.
+		 *
+		 * PDFs, Word files, spreadsheets and binaries have no useful in-panel
+		 * renderer, and writing one would be a worse version of the program the
+		 * user already has. The path is resolved here from the card id and file
+		 * name — the client never sends a path.
+		 *
+		 * @param {object} payload - `{id, name}`.
+		 * @returns {Promise<{path: string}>} The file that was opened.
+		 */
+		async resourceOpen(payload = {}) {
+			const store = cardStoreRef.current
+			const path = await store.resourcePath(String(payload.id ?? ''), String(payload.name ?? ''))
+			await openWithSystem(path)
+			return { path }
+		},
+		/**
+		 * Every attachment in the library, with the card that carries it.
+		 *
+		 * Read-only: this is the view the panel needs to show what exists
+		 * without opening eight cards one by one.
+		 *
+		 * @returns {Promise<object[]>} One row per file.
+		 */
+		async resources() {
+			const store = cardStoreRef.current
+			const index = await store.resourcesIndex()
+			const backlinks = store.backlinks()
+			// The page is called "资源", so the file is the row and the card is
+			// its context: one card can carry several files and each gets its own
+			// line, sorted by name.
+			const files = []
+			for (const entry of index) {
+				const card = store.get(entry.id)
+				const owner = {
+					id: entry.id,
+					description: card?.description ?? '',
+					tags: card?.tags ?? [],
+					links: (backlinks[entry.id] ?? []).length,
+				}
+				for (const file of entry.files) {
+					files.push({
+						name: file.name,
+						bytes: file.bytes,
+						executable: file.executable,
+						path: file.path,
+						// The cards whose body mentions this file — the owner always
+						// is one of them, because the body has to reference it.
+						referenced: file.referencing,
+						card: owner,
+					})
+				}
+			}
+			files.sort((left, right) => left.name.localeCompare(right.name) || left.card.id.localeCompare(right.card.id))
+			return files
+		},
 		async read(payload = {}) {
 			const store = cardStoreRef.current
 			const card = await store.read(String(payload.id ?? ''))
 			if (card === undefined) return { card: null, links: [], backlinks: [] }
+			// A card has no title: what identifies it in the panel is its id and
+			// its description, so that is what the link lists carry.
 			const describe = (id) => {
 				const found = store.get(id)
 				return found === undefined
-					? { id, label: '(missing)', tags: [] }
-					: { id, label: found.label, tags: found.tags }
+					? { id, description: '', tags: [] }
+					: { id, description: found.description, tags: found.tags }
 			}
 			const incoming = store.backlinks()[card.id] ?? []
 			return {
@@ -481,7 +597,12 @@ export async function apply(ctx, config) {
 			return buildCardGraph(store.all(), { limit: Number(payload?.limit) })
 		},
 		write(payload = {}) {
-			return committed((store) => store.put(payload.card ?? {}))
+			// A card is an id plus a description: the panel writes through here
+			// too, so the rule is enforced at the one entrance they share.
+			return committed((store) => store.put({
+				...(payload.card ?? {}),
+				description: assertRealDescription(payload.card?.description, store.descriptionMaxChars),
+			}))
 		},
 		promote(payload = {}) {
 			return committed((store) => store.promote(String(payload.id ?? ''), payload))
@@ -594,7 +715,7 @@ export async function apply(ctx, config) {
 		save: (item) => cardAgent.saveFleeting(item),
 		llm: ctx.get('llm'),
 		modelSelection: ctx.get('agentDefaultModel'),
-		logger: ctx.logger,
+		logger: logs,
 		// A data-folder move closes the store; a job that writes during that
 		// window lands in the folder being left behind.
 		isBusy: () => workspace.busy(),
@@ -605,7 +726,7 @@ export async function apply(ctx, config) {
 		store: () => cardStoreRef.current,
 		llm: ctx.get('llm'),
 		modelSelection: ctx.get('agentDefaultModel'),
-		logger: ctx.logger,
+		logger: logs,
 		// A card that carries its source session can be checked against the
 		// words around the quote instead of being polished on trust.
 		excerpt: (id, quote) => readSessionExcerpt({ query: ctx.get('sessionQuery'), id, quote }),
@@ -614,7 +735,7 @@ export async function apply(ctx, config) {
 
 	const health = createHealthJob({
 		store: () => cardStoreRef.current,
-		logger: ctx.logger,
+		logger: logs,
 		// The daily row also records how the prompt cache behaved, which only
 		// the session service can answer.
 		cache: (day) => cacheForDay({ query: ctx.get('sessionQuery'), day, dayKeyOf }),
@@ -624,7 +745,7 @@ export async function apply(ctx, config) {
 	backup = new BackupService({
 		settings,
 		root: () => evolver.root,
-		logger: ctx.logger,
+		logger: logs,
 		flush: () => cardStoreRef.current?.flush(),
 	})
 
@@ -735,7 +856,38 @@ export async function apply(ctx, config) {
 		save: (patch) => consolidate.save(patch),
 		run: () => consolidate.run(),
 	}
-	const handler = createEvolverHandler({ evolver, settings, backup, workspace, view, ingest: ingestApi, consolidate: consolidateApi, cards: cardsApi })
+
+	const organize = createOrganizeSettings({
+		settings,
+		llm: ctx.get('llm'),
+		modelSelection: ctx.get('agentDefaultModel'),
+	})
+
+	const organizeApi = {
+		status: () => organize.status(),
+		save: (patch) => organize.save(patch),
+	}
+
+	const logsApi = {
+		/**
+		 * The newest log entries plus the ring's shape.
+		 *
+		 * @param {object} payload - `limit`.
+		 * @returns {Promise<object>} `{entries, status}`.
+		 */
+		async read(payload) {
+			const entries = await logs.tail(payload?.limit)
+			return { entries, status: await logs.status() }
+		},
+	}
+	const healthApi = {
+		status: () => health.status(),
+		run: async () => {
+			await health.runNow()
+			return health.status()
+		},
+	}
+	const handler = createEvolverHandler({ evolver, settings, backup, workspace, view, ingest: ingestApi, consolidate: consolidateApi, organize: organizeApi, logs: logsApi, health: healthApi, cards: cardsApi })
 	for (const endpoint of ENDPOINTS) {
 		disposers.push(connection.fetch.register({
 			path: `${API_PREFIX}/${endpoint}`,

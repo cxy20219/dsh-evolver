@@ -60,7 +60,7 @@ function assertShape(graph) {
 	for (const node of graph.nodes) {
 		assert.deepEqual(
 			Object.keys(node).sort(),
-			['branch', 'degree', 'description', 'id', 'label', 'tags', 'updated'],
+			['branch', 'degree', 'description', 'id', 'tags', 'updated'],
 		)
 		assert.equal(typeof node.branch, 'string')
 		assert.equal(Number.isInteger(node.degree), true)
@@ -189,6 +189,20 @@ test('link 与 tag 冲突时保留 link，跨标签同一对只留较大权重',
 	assert.equal(overlapped[0].weight, 0.5, '取较大的权重 0.5，而不是 0.25')
 	assert.equal(pairEdges(graph, 'p1', 'p3').length, 1)
 	assert.ok(graph.edges.some((edge) => edge.kind === 'tag' && (edge.source === 'p1' || edge.target === 'p1') && /^g/.test(edge.source === 'p1' ? edge.target : edge.source)), '大组窗口仍把 p1 连进同组')
+})
+
+test('同时挂 #即兴 和落定枝干的卡，画在落定枝干里', () => {
+	// #即兴 是收件箱不是分类。按第一个标签画，这批卡会落在即兴簇里，而它们的
+	// 标签组仍在各自的枝干里，于是每个组都横跨两个簇——真实库里 39/106 张卡是
+	// 这种卡，长跨全图的边就是这么来的。
+	const graph = buildCardGraph([
+		card('inbox', { tags: ['即兴', '践行/约定'] }),
+		card('only-inbox', { tags: ['即兴'] }),
+		card('plain', { tags: ['见闻/事实'] }),
+	])
+	assert.equal(nodeOf(graph, 'inbox').branch, '践行', '有落定枝干就按落定枝干归属')
+	assert.equal(nodeOf(graph, 'only-inbox').branch, '即兴', '只有即兴的卡仍留在收件箱')
+	assert.equal(nodeOf(graph, 'plain').branch, '见闻')
 })
 
 test('孤立卡按 branch 接成链，无标签卡进空枝干链', () => {
@@ -325,7 +339,6 @@ test('脏数据与缺省参数不抛错', () => {
 	assert.equal(dirty.totals.cards, 2)
 	assert.deepEqual(dirty.nodes.find((node) => node.id === 'ok'), {
 		id: 'ok',
-		label: '',
 		description: '',
 		tags: [],
 		branch: '',

@@ -32,7 +32,15 @@ export const ENDPOINTS = [
 	'consolidate-status',
 	'consolidate-save',
 	'consolidate-run',
+	'organize-status',
+	'organize-save',
+	'logs',
+	'health-status',
+	'health-run',
 	'card-list',
+	'resources-list',
+	'resource-preview',
+	'resource-open',
 	'card-read',
 	'card-write',
 	'card-promote',
@@ -79,10 +87,12 @@ function text(payload, field, fallback = '') {
  * @param {Function} deps.view - The panel's settings view.
  * @param {object} deps.ingest - Session-ingest controller.
  * @param {object} deps.consolidate - Daily consolidation controller.
+ * @param {object} deps.organize - The organisers' shared model settings.
+ * @param {object} deps.logs - The plugin log file.
  * @param {object} deps.cards - The card API the panel calls.
  * @returns {(endpoint: string, payload: unknown) => Promise<object>} The handler.
  */
-export function createEvolverHandler({ evolver, settings, backup, workspace, view, ingest, consolidate, cards }) {
+export function createEvolverHandler({ evolver, settings, backup, workspace, view, ingest, consolidate, organize, logs, health, cards }) {
 	return async function handleEvolver(endpoint, payload) {
 		try {
 			switch (endpoint) {
@@ -113,8 +123,12 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 					// copy and reopen.
 					const patch = { backup: payload?.backup ?? {} }
 					if (payload?.cardMaxChars !== undefined) patch.cardMaxChars = payload.cardMaxChars
+					if (payload?.cardDescriptionMaxChars !== undefined) {
+						patch.cardDescriptionMaxChars = payload.cardDescriptionMaxChars
+					}
 					await settings.update(patch)
 					cards.setCardMaxChars?.(settings.get().cardMaxChars)
+					cards.setCardDescriptionMaxChars?.(settings.get().cardDescriptionMaxChars)
 					return { ok: true, value: view() }
 				}
 				case 'data-migrate': {
@@ -163,8 +177,32 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 				case 'consolidate-run': {
 					return { ok: true, value: await consolidate.run() }
 				}
+				case 'organize-status': {
+					return { ok: true, value: await organize.status() }
+				}
+				case 'organize-save': {
+					return { ok: true, value: await organize.save(payload?.organize ?? {}) }
+				}
+				case 'logs': {
+					return { ok: true, value: await logs.read(payload ?? {}) }
+				}
+				case 'health-status': {
+					return { ok: true, value: await health.status() }
+				}
+				case 'health-run': {
+					return { ok: true, value: await health.run() }
+				}
 				case 'card-list': {
 					return { ok: true, value: await cards.list(payload ?? {}) }
+				}
+				case 'resources-list': {
+					return { ok: true, value: await cards.resources() }
+				}
+				case 'resource-preview': {
+					return { ok: true, value: await cards.resourcePreview(payload ?? {}) }
+				}
+				case 'resource-open': {
+					return { ok: true, value: await cards.resourceOpen(payload ?? {}) }
 				}
 				case 'card-read': {
 					return { ok: true, value: await cards.read(payload ?? {}) }
