@@ -67,10 +67,12 @@ node scripts/bench.mjs 500     # 500 文件基准
 node scripts/compare.mjs       # 与 evolver 1.0.0 分场景对比
 ```
 
-安装到研究 profile（不要动 desktop profile）：
+安装到目标 profile（先不要动 desktop profile）：
 
 ```bash
-dsh plugin --profile research add /path/to/dsh-evolver/yuanshi
+dsh plugin --profile <profile> add /path/to/dsh-evolver/yuanshi
 ```
+
+装完重启 DSH；左侧边栏会出现「元始」。
 
 设计稿与决策记录见 [DESIGN.md](DESIGN.md)。
