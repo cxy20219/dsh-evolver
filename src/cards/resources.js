@@ -9,7 +9,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
 import { isCardId } from './ids.js'
@@ -224,6 +224,36 @@ export class ResourceStore {
 	 */
 	async removeCard(cardId) {
 		await rm(this.folderOf(cardId), { recursive: true, force: true }).catch(() => {})
+	}
+
+	/**
+	 * Keep one resource file before it is replaced or dropped.
+	 *
+	 * `copy` is for a replacement: the old bytes go to the trash, the original
+	 * stays in place until the new write succeeds. Without it the file is moved,
+	 * which is what a rename needs (the old name must disappear from the card).
+	 *
+	 * @param {string} cardId - The card id.
+	 * @param {string} name - The resource name.
+	 * @param {string} trashRoot - Where the copy goes.
+	 * @param {{copy?: boolean}} [options] - Copy instead of move.
+	 * @returns {Promise<string | undefined>} The trashed path, or undefined.
+	 */
+	async archiveFile(cardId, name, trashRoot, { copy = false } = {}) {
+		const safe = safeResourceName(name)
+		if (safe === '') return undefined
+		const folder = this.folderOf(cardId)
+		if (!(await isReallyInside(this.root, folder))) throw new Error('资源目录不在数据目录内。')
+		const source = join(folder, safe)
+		const info = await lstat(source).catch(() => undefined)
+		if (info === undefined || !info.isFile() || info.isSymbolicLink()) return undefined
+		const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+		const target = join(trashRoot, `${cardId}.${stamp}`)
+		await mkdir(target, { recursive: true, mode: 0o700 })
+		const destination = join(target, safe)
+		if (copy) await copyFile(source, destination)
+		else await rename(source, destination)
+		return destination
 	}
 
 	/**

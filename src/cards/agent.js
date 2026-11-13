@@ -103,9 +103,15 @@ export function createCardAgent(cards) {
 		// the full id so the graph and the backlink map stay unambiguous.
 		const links = Array.isArray(input.links) ? [...new Set(input.links.map(String))] : []
 		const resolvedLinks = []
+		const warnings = []
 		for (const link of links) {
 			const target = cards.resolveId(link)
-			if (target === undefined) throw new Error(`链接目标不存在：${link}`)
+			// A stale link is a smaller loss than the card: keep the knowledge,
+			// drop the edge, and say so in the result instead of failing the write.
+			if (target === undefined) {
+				warnings.push(`链接目标不存在，已跳过：${link}`)
+				continue
+			}
 			resolvedLinks.push(target)
 		}
 		const quote = typeof input.quote === 'string' ? input.quote.trim() : ''
@@ -123,14 +129,30 @@ export function createCardAgent(cards) {
 			throw new Error('提供 resourceContent 时必须同时提供 resourceName。')
 		}
 		if (resourceContent !== '') assertNoSecret(resourceContent)
-		return cards.put({
-			...(typeof input.id === 'string' && input.id !== '' ? { id: resolve(input.id) } : {}),
+		const updated = typeof input.id === 'string' && input.id !== ''
+		const beforeNames = updated
+			? new Set((await cards.attachments(resolve(input.id))).map((item) => item.name))
+			: new Set()
+		const saved = await cards.put({
+			...(updated ? { id: resolve(input.id) } : {}),
 			body,
 			...(description === '' ? {} : { description }),
 			tags,
 			links: resolvedLinks,
 			...(quote === '' ? {} : { source: { quote } }),
-		}, resourceName === '' ? {} : { resourceInputs: [{ name: resourceName, data: resourceContent }] })
+		}, {
+			...(resourceName === '' ? {} : { resourceInputs: [{ name: resourceName, data: resourceContent }] }),
+			// An update that regenerates an attachment in place may replace the
+			// exact same file name; the store keeps the old bytes in the trash.
+			...(updated ? { replaceResources: true } : {}),
+		})
+		if (updated) {
+			const afterNames = new Set((await cards.attachments(saved.id)).map((item) => item.name))
+			for (const name of beforeNames) {
+				if (!afterNames.has(name)) warnings.push(`正文不再引用旧附件，已移入回收站：${name}`)
+			}
+		}
+		return warnings.length === 0 ? saved : { ...saved, warnings }
 	}
 
 	/**

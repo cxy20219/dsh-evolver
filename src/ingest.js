@@ -109,13 +109,14 @@ function extractionPrompt(digest) {
  * @param {object} options.digest - The digest to extract from.
  * @returns {Promise<{text: string, truncated: boolean}>} The raw model text, and whether the cap cut it.
  */
-async function callModel({ settings, llm, modelSelection, digest }) {
+async function callModel({ settings, llm, modelSelection, digest, reminder = '' }) {
+	const prompt = reminder === '' ? extractionPrompt(digest) : `${extractionPrompt(digest)}\n\n${reminder}`
 	return callOrganizerModel({
 		settings,
 		llm,
 		modelSelection,
 		system: SYSTEM_PROMPT,
-		prompt: extractionPrompt(digest),
+		prompt,
 		sessionId: 'evolver-ingest',
 		maxTokens: MAX_OUTPUT_TOKENS,
 		timeoutMs: 120_000,
@@ -269,7 +270,12 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 		// The three numbers that answer "why did nothing happen": how many
 		// sessions were candidates, how many were only noise, and whether the
 		// scan hit its own bound instead of the library's end.
-		logger?.info?.(`dsh-evolver: ingest digest (${source}) — ${digest.sessions.length} session(s), ${digest.empty.length} without user text, truncated=${digest.truncated === true}`)
+		const digestChars = digest.sessions.reduce(
+			(sum, session) => sum + (session.messages ?? []).reduce((count, message) => count + String(message.text ?? '').length, 0),
+			0,
+		)
+		logger?.info?.(`dsh-evolver: ingest digest (${source}) — ${digest.sessions.length} session(s), ${digest.empty.length} without user text,`
+			+ ` chars=${digestChars}, scanned=${digest.scanned ?? '?'}, pending=${digest.pending ?? 0}, truncated=${digest.truncated === true}`)
 		if (digest.sessions.length === 0) {
 			// Sessions with no real user text (runtime context, reminders, the
 			// ingest itself) are cleared without spending a model call.
@@ -290,20 +296,38 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 		}
 		const selection = resolveOrganizerModel(settings, modelSelection)
 		logger?.info?.(`dsh-evolver: ingest model ${selection.provider || '?'}/${selection.model || '?'}${selection.reasoningEffort === undefined ? '' : ` (${selection.reasoningEffort})`}`)
-		const { text, truncated } = await callModel({ settings, llm, modelSelection, digest })
+		let { text, truncated } = await callModel({ settings, llm, modelSelection, digest })
 		let parsed
 		try {
 			parsed = parseMemories(text)
-		} catch (error) {
-			// Never log the excerpt itself: it comes from conversations and may
-			// contain personal or sensitive text. The reply length is safe, and
-			// it is what separates "the model rambled" from "the model was cut off".
-			const detail = error instanceof Error ? error.message : String(error)
+		} catch (firstError) {
+			// Reasoning models occasionally narrate instead of answering. A bad
+			// reply used to fail the whole run and arm the six-hour cooldown, so
+			// one recoverable miss could hide new knowledge for a day. Ask once
+			// more with a JSON-only reminder; only a second failure is a failure.
+			const firstDetail = firstError instanceof Error ? firstError.message : String(firstError)
 			logger?.warn?.(`dsh-evolver: ingest extraction rejected after ${String(text ?? '').length} chars`
-				+ `, truncated=${truncated === true}, effort=${selection.reasoningEffort ?? 'default'} (${detail})`)
-			throw new Error(truncated === true
-				? `模型输出被截断（上限 ${MAX_OUTPUT_TOKENS} token，思考强度 ${selection.reasoningEffort ?? '默认'}）：把整理模型换成更低的思考强度，或减少一次整理的会话数。`
-				: detail)
+				+ `, truncated=${truncated === true}, effort=${selection.reasoningEffort ?? 'default'}`
+				+ ` (${firstDetail}); retrying once`)
+			const retry = await callModel({
+				settings,
+				llm,
+				modelSelection,
+				digest,
+				reminder: '上一次回复没有可解析的 JSON。请只输出一个 JSON 对象：{"memories":[...]}；不要解释，不要 Markdown 代码块。',
+			})
+			text = retry.text
+			truncated = retry.truncated
+			try {
+				parsed = parseMemories(text)
+			} catch (secondError) {
+				const detail = secondError instanceof Error ? secondError.message : String(secondError)
+				logger?.warn?.(`dsh-evolver: ingest extraction rejected twice after ${String(text ?? '').length} chars`
+					+ `, truncated=${truncated === true} (${detail})`)
+				throw new Error(truncated === true
+					? `模型输出被截断（上限 ${MAX_OUTPUT_TOKENS} token，思考强度 ${selection.reasoningEffort ?? '默认'}）：把整理模型换成更低的思考强度，或减少一次整理的会话数。`
+					: detail)
+			}
 		}
 		let saved = 0
 		let quoted = 0

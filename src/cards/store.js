@@ -748,10 +748,10 @@ export class CardStore {
 	 * Validate and store one card.
 	 *
 	 * @param {object} input - The card fields.
-	 * @param {{resourceInputs?: Array<{name: string, data: string | Buffer}>, tagsLimit?: number}} [options] - Files to attach and the tag cap (archive/promote need one extra slot).
+	 * @param {{resourceInputs?: Array<{name: string, data: string | Buffer}>, tagsLimit?: number, replaceResources?: boolean}} [options] - Files to attach, the tag cap (archive/promote need one extra slot), and whether an exact same-name attachment may be replaced.
 	 * @returns {Promise<object>} The stored card.
 	 */
-	async put(input = {}, { resourceInputs = [], tagsLimit = MAX_TAGS } = {}) {
+	async put(input = {}, { resourceInputs = [], tagsLimit = MAX_TAGS, replaceResources = false } = {}) {
 		const id = input.id === undefined ? cardId() : input.id
 		if (!isCardId(id)) throw new Error('卡片 id 不合法。')
 		const existing = this.cards.getEntry(id)
@@ -819,18 +819,30 @@ export class CardStore {
 				throw new Error(`描述超过 ${this.descriptionMaxChars} 字上限；它是一句话索引，不是摘要。`)
 			}
 		}
-		const resourceNames = new Set((await this.resources.list(id)).map((item) => item.name))
+		const existingFiles = await this.resources.list(id)
+		const existingNames = existingFiles.map((item) => item.name)
+		const existingSet = new Set(existingNames)
+		const resourceNames = new Set(existingNames)
 		// macOS and Windows file systems are case-insensitive: `A.md` and
 		// `a.md` are one file there. The sanitised name can also collide with an
 		// existing one (`a b.md` and `a-b.md` both become `a-b.md`). Either way
 		// the later write would silently replace the earlier file, so a taken
-		// name is a refusal, not an overwrite.
-		const takenNames = new Set([...resourceNames].map((name) => name.toLowerCase()))
+		// name is a refusal, not an overwrite — unless the caller is updating the
+		// card and the name is exactly the one already stored (regenerating a
+		// script in place is a normal edit; the old bytes still go to the trash).
+		const takenNames = new Set(existingNames.map((name) => name.toLowerCase()))
+		const replacedNames = new Set()
 		const inputNames = []
 		for (const resource of resourceInputs) {
 			const name = safeResourceName(resource.name)
 			if (name === '') throw new Error(`资源文件名不合法：${String(resource.name)}`)
+			if (inputNames.includes(name)) throw new Error(`附件名重复：${name}`)
 			if (takenNames.has(name.toLowerCase())) {
+				if (replaceResources && existingSet.has(name)) {
+					replacedNames.add(name)
+					inputNames.push(name)
+					continue
+				}
 				throw new Error(`同名附件已存在：${name}；请换个名字，避免覆盖已有文件。`)
 			}
 			takenNames.add(name.toLowerCase())
@@ -843,11 +855,42 @@ export class CardStore {
 		}
 		if (inputNames.length === 1) body = body.replaceAll('{{resource}}', resourceRelativePath(id, inputNames[0]))
 		if (body.includes('{{resource')) throw new Error('正文里有未解析的附件占位符；请用 {{resource}} 或 {{resource:文件名}}。')
-		assertResourceReferences(body, id, [...resourceNames])
+		// The files this write adds must be referenced by the body. Existing
+		// files are different: an update may rename or drop an attachment, and
+		// refusing that used to make the card impossible to save until the old
+		// file was deleted by hand. The old bytes are moved to the trash below.
+		assertResourceReferences(body, id, inputNames)
 		if (charCount(body) > this.cardMaxChars) {
-			throw new Error(`卡片正文超过 ${this.cardMaxChars} 字上限；请拆成多张卡，或把长内容放入资源附件。`)
+			throw new Error(`卡片正文超过 ${this.cardMaxChars} 字上限（当前 ${charCount(body)} 字）；请拆成多张卡，或把长内容放入资源附件。`)
+		}
+		const trashRoot = join(this.dataDir, 'knowledge', 'trash-resources')
+		if (previous !== undefined) {
+			for (const name of existingNames) {
+				if (inputNames.includes(name)) continue
+				if (hasResourceReference(body, resourceRelativePath(id, name))) continue
+				try {
+					const moved = await this.resources.archiveFile(id, name, trashRoot)
+					resourceNames.delete(name)
+					this.attachmentCache.delete(id)
+					this.logger?.warn?.(`dsh-evolver: archived unreferenced attachment ${name} on ${id}${moved === undefined ? '' : ` → ${moved}`}`)
+				} catch (error) {
+					// A failed archive must not block the write; the file is still
+					// referenced nowhere, but it is recoverable and the next write
+					// tries again.
+					this.logger?.warn?.(`dsh-evolver: could not archive ${name} on ${id}: ${error instanceof Error ? error.message : String(error)}`)
+				}
+			}
+		} else if (resourceNames.size > 0) {
+			// A brand-new card with files already on disk must reference them too;
+			// this is the orphan left by an earlier failed write.
+			assertResourceReferences(body, id, [...resourceNames])
 		}
 		for (const resource of resourceInputs) {
+			const name = safeResourceName(resource.name)
+			if (replacedNames.has(name)) {
+				// Keep the bytes that are about to be replaced.
+				await this.resources.archiveFile(id, name, trashRoot, { copy: true }).catch(() => {})
+			}
 			await this.resources.put(id, resource.name, resource.data)
 			this.attachmentCache.delete(id)
 		}

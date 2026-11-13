@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -1173,6 +1173,67 @@ test('附件同名不覆盖：净化后同名与仅大小写不同都拒绝', as
 		assert.deepEqual(files.map((file) => file.name), ['a-b.md'])
 		const preview = await store.resourcePreview(card.id, 'a-b.md')
 		assert.equal(preview.text, 'FIRST', '旧文件内容不能被后一次上传覆盖')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('card_write 更新附件：同名替换留旧档、改名自动归档、死链降级为警告', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const agent = createCardAgent(store)
+		const line = (name) => `[${name}]({{resource}})：用途：跑测试；入口：bash；输入：无；输出：结果；关联流程：#践行/工具。`
+		const card = await agent.write({
+			body: line('run.sh'),
+			description: '带脚本的卡片',
+			tags: ['践行/工具'],
+			resourceName: 'run.sh',
+			resourceContent: '#!/bin/sh\necho v1\n',
+		})
+
+		// Regenerating the same file name used to be refused as a collision; an
+		// update may replace it, and the old bytes must survive in the trash.
+		const replaced = await agent.write({
+			id: card.id,
+			body: line('run.sh'),
+			description: '带脚本的卡片',
+			tags: ['践行/工具'],
+			resourceName: 'run.sh',
+			resourceContent: '#!/bin/sh\necho v2\n',
+		})
+		assert.equal(replaced.id, card.id)
+		assert.deepEqual((await store.attachments(card.id)).map((file) => file.name), ['run.sh'])
+		assert.match((await store.resourcePreview(card.id, 'run.sh')).text, /v2/)
+		const trashRoot = join(dir, 'knowledge', 'trash-resources')
+		const trashed = await readdir(trashRoot)
+		assert.ok(trashed.some((folder) => folder.startsWith(card.id)), '旧附件副本应在回收站')
+		const backupFolder = trashed.find((folder) => folder.startsWith(card.id))
+		assert.match(await readFile(join(trashRoot, backupFolder, 'run.sh'), 'utf8'), /v1/)
+
+		// Renaming the attachment leaves the old name unreferenced. That used to
+		// make every later write fail; it is now archived instead.
+		const renamed = await agent.write({
+			id: card.id,
+			body: line('run2.sh'),
+			description: '带脚本的卡片',
+			tags: ['践行/工具'],
+			resourceName: 'run2.sh',
+			resourceContent: '#!/bin/sh\necho v3\n',
+		})
+		assert.deepEqual((await store.attachments(card.id)).map((file) => file.name), ['run2.sh'])
+		assert.ok(renamed.warnings.some((text) => text.includes('run.sh')), '被归档的旧附件要在结果里说明')
+
+		// A stale link is not worth losing the card over.
+		const withDeadLink = await agent.write({
+			body: '一条带死链的新知识，仍然应该保存。',
+			description: '死链不影响卡片保存',
+			tags: ['即兴'],
+			links: [cardId()],
+		})
+		assert.deepEqual(withDeadLink.links, [])
+		assert.equal(withDeadLink.warnings.length, 1)
+		assert.match(withDeadLink.warnings[0], /链接目标不存在/)
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })

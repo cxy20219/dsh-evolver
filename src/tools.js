@@ -88,7 +88,7 @@ export function createTools({ cards, sessions }) {
 		},
 		{
 			name: 'card_write',
-			description: '写入或更新一张卡。顶层标签只允许 #践行 #见闻 #即兴 #复盘 #觉察 #试错；新卡默认 #即兴，落定后摘掉 #即兴。标签先复用树里已有的路径，确实没有再新建子标签；最多三层（枝干/主题/子题），名字用中文名词/动宾短语，不带标点空格。带附件时必须同时给 resourceName 和 resourceContent；body 必须包含 `[标题]({{resource}})：用途、入口命令、输入输出、关联流程`，写入时 {{resource}} 替换为相对数据目录的 knowledge/resources/<card-id>/<文件名>，缺少引用会被拒绝。脚本附件会自动设为可执行。写前先 card_query 查重；不写流水账、一次性命令、猜测、密钥。links 只能是卡片 id。',
+			description: '写入或更新一张卡。顶层标签只允许 #践行 #见闻 #即兴 #复盘 #觉察 #试错；新卡默认 #即兴，落定后摘掉 #即兴。标签先复用树里已有的路径，确实没有再新建子标签；最多三层（枝干/主题/子题），名字用中文名词/动宾短语，不带标点空格。更新已有卡片时同名附件会替换（旧文件进回收站）；正文里没引用到的旧附件会归档。链接目标不存在会跳过并在 warnings 说明，不影响卡片保存。带附件时必须同时给 resourceName 和 resourceContent；body 必须包含 `[标题]({{resource}})：用途、入口命令、输入输出、关联流程`，写入时 {{resource}} 替换为相对数据目录的 knowledge/resources/<card-id>/<文件名>，缺少引用会被拒绝。脚本附件会自动设为可执行。写前先 card_query 查重；不写流水账、一次性命令、猜测、密钥。links 只能是卡片 id。',
 			parameters: {
 				type: 'object',
 				properties: {

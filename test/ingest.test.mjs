@@ -302,3 +302,27 @@ test('数据目录操作进行中时，会话整理直接跳过：不探测、�
 	assert.equal(llm.calls.length, 0)
 	assert.equal(commits.length, 0)
 })
+
+
+test('模型第一次只回叙述、不给 JSON 时自动重试一次，而不是整轮失败', async () => {
+	const { query, ledger, commits } = fakeSession()
+	const memory = fakeMemory()
+	let calls = 0
+	const llm = {
+		async *stream() {
+			calls += 1
+			if (calls === 1) {
+				yield { type: 'text-delta', text: '我先解释一下这些会话，然后……（没有 JSON）' }
+			} else {
+				yield { type: 'text-delta', text: JSON.stringify({ memories: [{ text: '重试后仍然保存了这条记忆。', kind: 'convention' }] }) }
+			}
+			yield { type: 'finish', reason: { kind: 'stop' } }
+		},
+	}
+	const settings = fakeSettings({ enabled: true, idleMinutes: 15 })
+	const controller = createIngestController({ settings, query, ledger, save: memory.save, llm, modelSelection: fakeSelection(), now: () => NOW })
+	const result = await controller.run()
+	assert.equal(result.saved, 1)
+	assert.equal(calls, 2, '重试只发生一次')
+	assert.equal(commits.length, 1, '重试成功后照常推进游标')
+})
