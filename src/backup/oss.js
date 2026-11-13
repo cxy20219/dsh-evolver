@@ -138,7 +138,7 @@ export function stringToSign({ method, contentMd5 = '', contentType = '', date, 
  * @param {object} request - The same parts `stringToSign` takes.
  * @returns {string} The base64 signature.
  */
-export function signRequest(secret, request) {
+function signRequest(secret, request) {
 	return createHmac('sha1', secret).update(stringToSign(request)).digest('base64')
 }
 

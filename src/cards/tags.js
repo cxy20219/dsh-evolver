@@ -339,7 +339,10 @@ export function settleTags(values, targets = []) {
 	if (!isSettled(merged)) {
 		throw new Error(`请选择六大枝干之一：${TOP_TAGS.filter((tag) => tag !== '即兴').map((tag) => `#${tag}`).join(' / ')}`)
 	}
-	return normalizeCardTags(merged, { limit: MAX_TAGS + (added.length > 0 ? 1 : 0) })
+	// Every accepted target gets a slot next to the existing tags; one extra
+	// slot was not enough for a promote that names two branches, and the
+	// normaliser then dropped one without saying so.
+	return normalizeCardTags(merged, { limit: MAX_TAGS + Math.min(2, added.length) })
 }
 
 /**

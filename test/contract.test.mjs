@@ -21,6 +21,7 @@ import test from 'node:test'
 
 import { API_PREFIX, apply } from '../index.js'
 import { ENDPOINTS } from '../src/remote.js'
+import { createTools } from '../src/tools.js'
 
 /** The repository root, from this file. */
 const ROOT = new URL('..', import.meta.url)
@@ -218,3 +219,115 @@ test('locale 的插件展示文案与 package.json 元数据一致，不各写�
 	assert.equal(typeof en.meta?.description, 'string')
 	assert.equal(en.meta.description, pkg.description, 'locale/en.json 的 meta.description 应与 package.json description 同一份文案')
 })
+
+test('API_PREFIX 两边同值，card_write 的 schema 与运行时都要求 description', async () => {
+	const client = await readSource('client.js')
+	const match = /var API_PREFIX = '([^']+)'/.exec(client)
+	assert.ok(match !== null, '没有从 client.js 里抽到 API_PREFIX')
+	assert.equal(match[1], API_PREFIX, '浏览器半边与宿主的接口前缀必须同一份')
+
+	const tools = Object.fromEntries(createTools({ cards: {} }).map((tool) => [tool.name, tool]))
+	const write = tools.card_write
+	assert.ok(Array.isArray(write.parameters.required), 'card_write 缺少 required')
+	assert.deepEqual([...write.parameters.required].sort(), ['body', 'description'], '运行时强制 description，schema 也要要求它')
+	assert.equal(typeof write.parameters.properties.description?.description, 'string')
+
+	const clientZh = localeKeys(client, 'zh')
+	const clientEn = localeKeys(client, 'en')
+	assert.ok(clientZh.size > 0 && clientEn.size > 0, '没有从 client.js 里抽到中英字典')
+	assert.deepEqual([...clientZh].sort(), [...clientEn].sort(), '中英字典的 key 必须一一对应')
+})
+
+test('面板读取的其余端点字段在真实宿主响应里存在', async () => {
+	await withHome(async (home) => {
+		const { ctx, routes, effects } = fakeContext()
+		await apply(ctx, { dataDir: join(home, 'evolver') })
+		try {
+			// One card with one text attachment, through the real write path.
+			const writeResponse = await post(routes, 'card-write', {
+				card: {
+					body: '契约测试卡片',
+					description: '契约测试用的一张卡片',
+					tags: ['践行/工具'],
+				},
+			})
+			assert.equal(writeResponse.status, 200)
+			const written = await writeResponse.json()
+			const id = written.card?.id ?? written.id
+			assert.ok(typeof id === 'string' && id !== '', 'card-write 没有返回卡片 id')
+			const attachResponse = await post(routes, 'card-attach', {
+				id,
+				name: 'note.md',
+				data: Buffer.from('# 附件\n\n正文。', 'utf8').toString('base64'),
+			})
+			assert.equal(attachResponse.status, 200)
+
+			const list = await (await post(routes, 'card-list', { limit: 10 })).json()
+			assert.ok(Array.isArray(list.cards), 'card-list.cards 不是数组')
+			assert.equal(typeof list.total, 'number', 'card-list.total 不是数字')
+			assert.ok(Array.isArray(list.tree), 'card-list.tree 不是数组')
+			assert.equal(typeof list.status?.cards, 'number', 'card-list.status 不完整')
+
+			const read = await (await post(routes, 'card-read', { id, metadataOnly: true })).json()
+			assert.equal(read.card?.id, id)
+			assert.ok(Array.isArray(read.links) && Array.isArray(read.backlinks), 'card-read 的 links/backlinks 不是数组')
+			assert.ok(Array.isArray(read.card.resources), 'card-read 缺少 resources 元数据')
+			assert.deepEqual(read.card.resourceContents, [], 'metadataOnly 时不应回传附件正文')
+
+			const graph = await (await post(routes, 'graph', { limit: 50 })).json()
+			assert.ok(Array.isArray(graph.nodes) && Array.isArray(graph.edges), 'graph 的形状不对')
+			assert.equal(typeof graph.totals?.cards, 'number', 'graph.totals 缺少卡片总数')
+
+			const resources = await (await post(routes, 'resources-list')).json()
+			assert.ok(Array.isArray(resources), 'resources-list 不是数组')
+			const row = resources.find((entry) => entry.name === 'note.md')
+			assert.ok(row !== undefined, 'resources-list 没有列出附件')
+			for (const field of ['name', 'bytes', 'path', 'card']) {
+				assert.notEqual(row[field], undefined, `resources-list 行缺少 ${field}`)
+			}
+
+			const preview = await (await post(routes, 'resource-preview', { id, name: 'note.md' })).json()
+			assert.equal(preview.kind, 'text')
+			assert.equal(typeof preview.text, 'string')
+
+			const settings = await (await post(routes, 'settings')).json()
+			for (const field of ['dataDir', 'backup', 'organize', 'ingest', 'consolidate', 'backupRunning']) {
+				assert.notEqual(settings[field], undefined, `settings 响应缺 ${field}`)
+			}
+			assert.equal(typeof settings.backupRunning, 'boolean')
+
+			const logs = await (await post(routes, 'logs', { limit: 20 })).json()
+			assert.ok(Array.isArray(logs.entries), 'logs.entries 不是数组')
+			assert.ok(Array.isArray(logs.status?.files), 'logs.status.files 不是数组')
+
+			const health = await (await post(routes, 'health-status')).json()
+			assert.ok(Array.isArray(health.rows), 'health-status.rows 不是数组')
+			assert.equal(typeof health.text, 'string')
+
+			const organize = await (await post(routes, 'organize-status')).json()
+			assert.ok(Array.isArray(organize.providers), 'organize-status.providers 不是数组')
+			assert.equal(typeof organize.catalogFailed, 'boolean')
+
+			const descriptions = await (await post(routes, 'tag-descriptions')).json()
+			assert.equal(typeof descriptions.descriptions, 'object')
+			assert.ok(Array.isArray(descriptions.missing), 'tag-descriptions.missing 不是数组')
+		} finally {
+			await disposeEffects(effects)
+		}
+	})
+})
+
+/**
+ * The dictionary keys of one inline locale block in `client.js`.
+ *
+ * @param {string} source - `client.js` text.
+ * @param {'zh' | 'en'} name - Which dictionary.
+ * @returns {Set<string>} The keys.
+ */
+function localeKeys(source, name) {
+	const start = source.indexOf(`var ${name} = {`)
+	if (start < 0) return new Set()
+	const end = source.indexOf('\n\t\t};', start)
+	const block = source.slice(start, end < 0 ? source.length : end)
+	return new Set([...block.matchAll(/^\t\t\t'([^']+)':/gm)].map((match) => match[1]))
+}

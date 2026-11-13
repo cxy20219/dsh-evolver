@@ -151,7 +151,15 @@ export function createCardAgent(cards) {
 		const cardTags = normalizeCardTags(['即兴', semantic, ...(Array.isArray(tags) ? tags : [])])
 		const twin = cards.list({ tags: ['即兴'], limit: 200 }).find((card) => textOverlap(card.body, text) >= MERGE_THRESHOLD)
 		if (twin !== undefined) {
-			const saved = await cards.put({ ...twin, body: text, tags: cardTags, ...(source === undefined ? {} : { source }) })
+			// The description describes the body; a merge replaces the body, so
+			// the index entry is regenerated instead of keeping the old one.
+			const saved = await cards.put({
+				...twin,
+				body: text,
+				description: clipDescription(text, cards.descriptionMaxChars),
+				tags: cardTags,
+				...(source === undefined ? {} : { source }),
+			})
 			return { success: true, id: saved.id, message: '已更新 #即兴 卡。' }
 		}
 		// Ingested memories are one sentence already: the same sentence, cut to
@@ -438,8 +446,10 @@ function neighborList(cards, ids) {
 		if (seen.has(id)) continue
 		seen.add(id)
 		const card = cards.get(id)
+		// `missing` is explicit: an empty description alone reads like a card
+		// that has none, and the model would try to open a card that is gone.
 		list.push(card === undefined
-			? { id, description: '', tags: [] }
+			? { id, description: '', tags: [], missing: true }
 			: { id: card.id, description: card.description, tags: card.tags })
 	}
 	// Neighbours are named by description now: sort by that, then by id so the

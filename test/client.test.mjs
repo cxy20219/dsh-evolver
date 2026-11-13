@@ -51,8 +51,38 @@ function linkSimulationFactory() {
  */
 function createRuntime() {
 	const instances = new Map()
+	const classInstances = new Map()
 	let currentInstance = null
 	let scheduled = false
+
+	/**
+	 * The base class of the panel's error boundary.
+	 *
+	 * Only what the boundary uses: props, state and setState. The runtime
+	 * renders class components with `new` and catches their child errors, the
+	 * way a real error boundary does.
+	 */
+	class Component {
+		/**
+		 * @param {object} props - Component props.
+		 */
+		constructor(props) {
+			this.props = props
+			this.state = {}
+		}
+
+		/**
+		 * Merge state and schedule a re-render.
+		 *
+		 * @param {object | Function} patch - The state patch.
+		 * @returns {void}
+		 */
+		setState(patch) {
+			const next = typeof patch === 'function' ? patch(this.state) : patch
+			this.state = { ...this.state, ...next }
+			scheduled = true
+		}
+	}
 
 	/**
 	 * Compare two dependency arrays.
@@ -182,7 +212,27 @@ function createRuntime() {
 		const { type, props } = node
 		if (typeof type === 'function') {
 			const name = type.name || 'component'
-			const instanceKey = `${key}/${name}`
+			// A changing `key` remounts in real React; the panel relies on that
+			// for the per-tab error boundary.
+			const keyed = props.key === undefined ? '' : `#${String(props.key)}`
+			const instanceKey = `${key}/${name}${keyed}`
+			if (type.prototype instanceof Component) {
+				let component = classInstances.get(instanceKey)
+				if (component === undefined) {
+					component = new type(props)
+					classInstances.set(instanceKey, component)
+				} else {
+					component.props = props
+				}
+				try {
+					return renderNode(component.render(), instanceKey)
+				} catch (error) {
+					if (typeof type.getDerivedStateFromError !== 'function') throw error
+					component.state = { ...component.state, ...type.getDerivedStateFromError(error) }
+					if (typeof component.componentDidCatch === 'function') component.componentDidCatch(error, {})
+					return renderNode(component.render(), instanceKey)
+				}
+			}
 			const instance = instanceFor(instanceKey)
 			const previous = currentInstance
 			currentInstance = instance
@@ -250,7 +300,7 @@ function createRuntime() {
 		return tree
 	}
 
-	return { createElement, useState, useEffect, useCallback, useMemo, useRef, renderNode, settle }
+	return { Component, createElement, useState, useEffect, useCallback, useMemo, useRef, renderNode, settle }
 }
 
 /**
@@ -329,9 +379,12 @@ function textOf(node) {
  * Load the browser half and hand back the panel component.
  *
  * @param {object} runtime - The React runtime.
- * @returns {Promise<{Panel: Function, ctx: object}>} The component and its context.
+ * @returns {Promise<{Panel: Function, ctx: object, t: Function}>} The component, its context and one stable translator.
  */
 async function loadPanel(runtime) {
+	// One translator for the whole test: a fresh function on every render
+	// would refresh every useCallback dependency and hide stale closures.
+	const t = (key) => key
 	let definition
 	globalThis.window = {
 		__ModuleLoader__: {
@@ -361,7 +414,7 @@ async function loadPanel(runtime) {
 				return () => {}
 			},
 			bind() {
-				return (key) => key
+				return t
 			},
 		},
 		slots: {
@@ -389,7 +442,7 @@ async function loadPanel(runtime) {
 	}
 	await api.apply(ctx)
 	assert.ok(Panel !== null, '主面板没有注册')
-	return { Panel, ctx }
+	return { Panel, ctx, t }
 }
 
 /**
@@ -677,8 +730,8 @@ test('点击导出后面板显示可见的成功提示', async () => {
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 
 		// switch to the settings tab
@@ -730,8 +783,8 @@ test('两个整理器在独立整理页，卡片页与设置页都不再自带�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 
 		// The cards tab no longer carries the organiser.
@@ -780,8 +833,8 @@ test('卡片和偏好是独立标签，卡片页有筛选、列表和新建入�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		const tabs = findAll(tree, (node) => node.props?.role === 'tab').map((node) => textOf(node))
 		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.stats').length >= 1)
@@ -1016,8 +1069,8 @@ test('卡片筛选切到践行后保持选中，搜索和新建都在工具栏',
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -1052,8 +1105,8 @@ test('导出目录为空时点击给出明确提示，而不是静默', async ()
 		return { ok: true, status: 200, json: async () => body }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -1086,8 +1139,8 @@ test('搜索框边输入边过滤，没有搜索按钮', async () => {
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -1123,8 +1176,8 @@ test('关系图按六大枝干成簇：节点与边分层、没有区域名、�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		const svgOf = () => findAll(tree, (node) => node.props?.className === 'evrLinkGraph')[0]
 		const svg = svgOf()
@@ -1241,8 +1294,8 @@ test('关系图静止时不显示名称；悬停一张卡只显示它和邻居�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		let svg = findAll(tree, (node) => node.props?.className === 'evrLinkGraph')[0]
 		// At rest the picture is dots and lines: no card name, no branch name.
@@ -1312,8 +1365,8 @@ test('关系图只有图谱本身：悬停高亮 1 跳邻居、缩放与拖拽�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		const svgOf = () => findAll(tree, (node) => node.props?.className === 'evrLinkGraph')[0]
 		const groupOf = (label) => findAll(svgOf(), (node) => node.type === 'g'
@@ -1343,8 +1396,9 @@ test('关系图只有图谱本身：悬停高亮 1 跳邻居、缩放与拖拽�
 		assert.equal(typeof svgOf().props.onPointerLeave, 'function')
 		const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 		assert.ok(source.includes("addEventListener('wheel'"), '滚轮缩放没有挂上')
-		// No toolbar, legend, counters, activity row or export/reset controls at
-		// all: the pane is the title plus the drawing.
+		// No toolbar, legend, activity row or export/reset controls at all: the
+		// pane is the title plus the drawing, and the only added text is the
+		// hidden-card count that a capped payload cannot go without.
 		const pane = findAll(tree, (node) => typeof node.props?.className === 'string'
 			&& node.props.className.includes('evrOverviewTree'))[0]
 		assert.ok(pane !== undefined, '找不到图谱所在的概览栏')
@@ -1448,8 +1502,8 @@ test('节点可拖拽：按下不冒泡成平移、移动改坐标、松手结�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		const svgOf = () => findAll(tree, (node) => node.props?.className !== undefined
 			&& typeof node.props.className === 'string' && node.props.className.split(' ').includes('evrLinkGraph'))[0]
@@ -1515,8 +1569,8 @@ test('浏览器动画路径：首帧是种子，rAF 推进后停住，拖拽能�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		const svgOf = () => findAll(tree, (node) => node.props?.className !== undefined
 			&& typeof node.props.className === 'string' && node.props.className.split(' ').includes('evrLinkGraph'))[0]
@@ -1629,8 +1683,8 @@ test('非关键端点失败只提示部分失败，其它页签照常可用', as
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		assert.equal(findAll(tree, (node) => textOf(node) === 'state.error').length, 0, '单个非关键端点失败不应出现错误页')
 		assert.ok(findAll(tree, (node) => textOf(node) === 'state.partial').length >= 1, '应有部分失败提示')
@@ -1662,8 +1716,8 @@ test('首屏端点失败显示错误页与重试按钮，重试后恢复；非 J
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		assert.ok(findAll(tree, (node) => node.props?.className === 'evrEmpty').length >= 1, '应显示错误页')
 		assert.match(textOf(findAll(tree, (node) => node.props?.className === 'evrEmpty')[0]), /HTTP 502/)
@@ -1712,8 +1766,8 @@ test('链接图的 Hook 数量不随布局有无翻转（真实 React 白屏回�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		const refresh = () => findAll(tree, (node) => node.type === 'button' && textOf(node) === 'action.refresh')[0]
 		const graphNodeCount = () => findAll(tree, (node) => typeof node.props?.className === 'string'
@@ -1760,8 +1814,8 @@ test('快速连点两张卡时，后点的卡片不会被先前的慢响应覆�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -1794,8 +1848,8 @@ test('220ms 内点标签筛选时，搜索防抖不会丢掉标签条件', async
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -1842,8 +1896,8 @@ test('概览链接图与卡片页筛选解耦，自己按 limit 300 拉整库', 
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		const graphNodeCount = () => findAll(tree, (node) => typeof node.props?.className === 'string'
 			&& node.props.className.split(' ').includes('evrLinkNode')).length
@@ -1880,8 +1934,8 @@ test('超过 8MB 的附件在读取前就被拒绝', async () => {
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -1921,8 +1975,8 @@ test('Markdown 预览不把 //host 变成可点的站外链接', async () => {
 		return { ok: true, status: 200, json: async () => body }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.info')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -1952,8 +2006,8 @@ test('整理页顶部的模型卡片和两个整理器并列，默认跟随聊�
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.organize')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -2011,8 +2065,8 @@ test('日志页在设置右边，倒序列出条目并显示轮转预算', async
 		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 
 		// 标签顺序：日志排在设置右边。
@@ -2077,8 +2131,8 @@ test('热力图按最忙的一天分档：忙的日子才变深，不会一律�
 		return { ok: true, status: 200, json: async () => value }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const tree = await runtime.settle(() => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root'))
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const tree = await runtime.settle(() => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root'))
 		const grid = findAll(tree, (node) => node.props?.className === 'evrHeatmap')[0]
 		const cellsOf = (level) => findAll(grid, (node) => node.props?.className === 'evrHeatCell evrHeat' + level).length
 		// 40 张是峰值，1 张和 2 张都属于低档：这就是"不全是最深"的意思。
@@ -2122,8 +2176,8 @@ test('注入预览标出快照时间：看得懂"为什么这里是旧的"，也
 		return { ok: true, status: 200, json: async () => value }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'overview.info')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -2158,8 +2212,8 @@ test('资源可以预览：点「预览」拉原文，在浮层里渲染', async
 		return { ok: true, status: 200, json: async () => value }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.resources')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -2202,8 +2256,8 @@ test('设置页有「卡片描述上限」，保存时带上这个字段', async
 		return { ok: true, status: 200, json: async () => value }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -2245,8 +2299,8 @@ test('日志页有「库健康」子页：读记录的系列，不写卡片', as
 		return { ok: true, status: 200, json: async () => value }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.logs')[0].props.onClick()
 		tree = await runtime.settle(render)
@@ -2283,8 +2337,8 @@ test('「资源」是顶层标签，排在卡片右边：列出全部附件，�
 		return { ok: true, status: 200, json: async () => value }
 	}
 	try {
-		const { Panel, ctx } = await loadPanel(runtime)
-		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t: (key) => key }), 'root')
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
 		let tree = await runtime.settle(render)
 		const tabs = findAll(tree, (node) => node.props?.role === 'tab')
 			.map((node) => textOf(node))
@@ -2327,4 +2381,581 @@ test('「资源」是顶层标签，排在卡片右边：列出全部附件，�
 	} finally {
 		globalThis.fetch = previousFetch
 	}
+})
+
+test('保存卡片描述上限后，卡片列表仍按当前筛选拉取', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const cardListPayloads = []
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-list') cardListPayloads.push(payload)
+		if (endpoint === 'settings-save') {
+			return { ok: true, status: 200, json: async () => ({ ...apiPayload('settings', {}), ...payload }) }
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.execution')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.deepEqual(cardListPayloads[cardListPayloads.length - 1].tags, ['践行'], '筛选先要生效')
+
+		// The settings page saves the description limit: that callback must
+		// re-read the list through the filter the user actually selected, not
+		// through the empty filter it closed over on the first render.
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.settings')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const block = findAll(tree, (node) => textOf(node).includes('settings.cardDescCap')
+			&& findAll(node, (child) => child.type === 'button').length === 1
+			&& findAll(node, (child) => child.props?.type === 'number').length === 1).pop()
+		assert.ok(block !== undefined, '设置页没有卡片描述上限')
+		findAll(block, (node) => node.props?.type === 'number')[0].props.onChange({ target: { value: '96' } })
+		tree = await runtime.settle(render)
+		const again = findAll(tree, (node) => textOf(node).includes('settings.cardDescCap')
+			&& findAll(node, (child) => child.type === 'button').length === 1
+			&& findAll(node, (child) => child.props?.type === 'number').length === 1).pop()
+		findAll(again, (node) => node.type === 'button')[0].props.onClick()
+		tree = await runtime.settle(render)
+
+		const last = cardListPayloads[cardListPayloads.length - 1]
+		assert.deepEqual(last.tags, ['践行'], '保存上限后的列表刷新丢了筛选')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('有筛选时点全局刷新，卡片列表请求仍带筛选', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const cardListPayloads = []
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-list') cardListPayloads.push(payload)
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.filter.input')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const before = cardListPayloads.length
+
+		// The header refresh reloads every block; the card list must keep the
+		// filter that is on screen, not fall back to the whole library.
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'action.refresh')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(cardListPayloads.length > before, '全局刷新没有重新拉列表')
+		assert.deepEqual(cardListPayloads[cardListPayloads.length - 1].tags, ['见闻'], '全局刷新丢了筛选')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('资源预览：请求未完成时关闭，迟到的响应不会再打开浮层；失败要有提示', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	let previewMode = 'slow'
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'resource-preview') {
+			if (previewMode === 'fail') throw new Error('预览服务不可用')
+			await new Promise((resolve) => setTimeout(resolve, 400))
+			return { ok: true, status: 200, json: async () => apiPayload('resource-preview', payload) }
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.resources')[0].props.onClick()
+		tree = await runtime.settle(render)
+
+		// Open and close before the answer arrives.
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.resources.preview')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrPreview').length, 1, '浮层要先打开')
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.resources.close')[0].props.onClick()
+		tree = await runtime.settle(render)
+		await new Promise((resolve) => setTimeout(resolve, 450))
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrPreview').length, 0, '迟到的响应把浮层又打开了')
+
+		// A failed preview is reported instead of silently doing nothing.
+		previewMode = 'fail'
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.resources.preview')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const toast = findAll(tree, isToast)
+		assert.equal(toast.length, 1, '预览失败没有提示')
+		assert.match(String(toast[0].props.className), /evrToastError/)
+		assert.match(textOf(toast[0]), /预览服务不可用/)
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('SVG 预览走 image 分支：base64 原样拼成 data URL', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'resource-preview') {
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({
+					kind: 'image',
+					mime: 'image/svg+xml',
+					base64: 'PHN2Zy8+',
+					name: 'icon.svg',
+					bytes: 8,
+					truncated: false,
+				}),
+			}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.resources')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.resources.preview')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const img = findAll(tree, (node) => node.type === 'img')[0]
+		assert.ok(img !== undefined, '图片没有渲染成 img')
+		assert.equal(img.props.src, 'data:image/svg+xml;base64,PHN2Zy8+', 'SVG 不能被渲染成 data:...;base64,undefined')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('打开被改为定位的附件时，面板提示文件管理器已定位', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'resource-open') {
+			return { ok: true, status: 200, json: async () => ({ path: '/data/evolver/knowledge/resources/x/run.sh', mode: 'revealed' }) }
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.resources')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.resources.open')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const toast = findAll(tree, isToast)
+		assert.equal(toast.length, 1, '改为定位后没有提示')
+		assert.match(String(toast[0].props.className), /evrToastOk/)
+		assert.match(textOf(toast[0]), /cards\.resources\.revealed/)
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('面板读取卡片详情只要求元数据', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const reads = []
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-read') reads.push(payload)
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.className === 'evrRow')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(reads.length, 1)
+		assert.equal(reads[0].metadataOnly, true, '面板不该把附件正文一起拉回来')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('卡片详情的出链也可以点开', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const reads = []
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'card-read') {
+			reads.push(payload)
+			if (payload.id !== 'c2') {
+				return {
+					ok: true,
+					status: 200,
+					json: async () => ({
+						card: { id: 'c1', description: '起点卡', body: '正文', tags: ['践行'], links: ['c2'], resources: [] },
+						links: [{ id: 'c2', description: '被指向的卡', tags: [] }],
+						backlinks: [],
+					}),
+				}
+			}
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({
+					card: { id: 'c2', description: '目标卡', body: '正文', tags: ['见闻'], links: [], resources: [] },
+					links: [],
+					backlinks: [],
+				}),
+			}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.className === 'evrRow')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const outgoing = findAll(tree, (node) => node.type === 'button' && textOf(node).includes('被指向的卡'))
+		assert.equal(outgoing.length, 1, '出链要渲染成可点的按钮')
+		outgoing[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(reads[reads.length - 1].id, 'c2', '点出链要打开目标卡')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('保存卡片后概览统计会重新拉取', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	let overviewCalls = 0
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'overview') overviewCalls += 1
+		if (endpoint === 'card-write') {
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({ id: 'card-new', description: '新卡', body: '正文', tags: ['即兴'], links: [], resources: [] }),
+			}
+		}
+		if (endpoint === 'card-read') {
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({
+					card: { id: payload.id, description: '新卡', body: '正文', tags: ['即兴'], links: [], resources: [] },
+					links: [],
+					backlinks: [],
+				}),
+			}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.new')[0].props.onClick()
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.type === 'textarea')[0].props.onChange({ target: { value: '正文' } })
+		tree = await runtime.settle(render)
+		findAll(tree, (node) => node.type === 'input' && node.props?.placeholder === 'cards.field.descriptionHint')[0]
+			.props.onChange({ target: { value: '新卡' } })
+		tree = await runtime.settle(render)
+		const before = overviewCalls
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.save')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.ok(overviewCalls > before, '写卡后概览统计没有刷新')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('链接图在隐藏卡片时显示「显示 X / 共 N 张」', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	let hidden = 2
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'graph') {
+			const body = apiPayload('graph', payload)
+			body.totals = { ...body.totals, hiddenCards: hidden }
+			return { ok: true, status: 200, json: async () => body }
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx } = await loadPanel(runtime)
+		// A translator that keeps the placeholders, so the numbers can be asserted.
+		const t = (key) => (key === 'overview.linkGraph.count' ? '显示 {shown} / 共 {total} 张' : key)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		const capOf = () => findAll(tree, (node) => node.props?.className === 'evrGraphCap')
+		assert.equal(capOf().length, 1, '有卡片被隐藏时要说明')
+		assert.equal(textOf(capOf()[0]), '显示 10 / 共 12 张')
+
+		hidden = 0
+		findAll(tree, (node) => node.type === 'button' && textOf(node) === 'action.refresh')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(capOf().length, 0, '没有隐藏时不该出现计数')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('单个页签渲染抛错只降级该页，其它页签照常切换', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		const body = apiPayload(endpoint, payload)
+		if (endpoint === 'overview') {
+			// A tree node without a name makes the tag graph layout throw: one
+			// page is broken by a host shape the panel did not expect.
+			body.tree = [{}]
+		}
+		return { ok: true, status: 200, json: async () => body }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => textOf(node) === 'state.error').length, 1, '坏页要显示错误而不是整面板白屏')
+		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'action.retry').length, 1, '错误页要有重试')
+
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.cards')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => textOf(node) === 'state.error').length, 0, '切到别的页签要能正常渲染')
+		assert.equal(findAll(tree, (node) => node.type === 'button' && textOf(node) === 'cards.new').length, 1, '其它页签仍可用')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('注入载荷缺 preferences 时概览只降级该块，不整页白屏', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'injection') {
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({ cards: { text: '[卡片]', bytes: 10, budget: 2048, entries: 3, dropped: 0 }, totalBytes: 10 }),
+			}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => textOf(node) === 'state.error').length, 0, '缺一个可选字段不该让概览白屏')
+		assert.ok(findAll(tree, (node) => textOf(node) === 'overview.stats').length >= 1, '概览统计仍要渲染')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('资源页默认只渲染前 200 行，并提示用搜索收窄', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	const rows = Array.from({ length: 205 }, (_, index) => ({
+		name: `f${String(index).padStart(3, '0')}.md`,
+		bytes: 12,
+		executable: false,
+		path: `knowledge/resources/card-c/f${index}.md`,
+		referenced: ['card-c'],
+		card: { id: 'card-c', tags: ['践行'], description: '持有附件的卡', links: 0 },
+	}))
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'resources-list') return { ok: true, status: 200, json: async () => rows }
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.resources')[0].props.onClick()
+		tree = await runtime.settle(render)
+		assert.equal(findAll(tree, (node) => node.props?.className === 'evrRow').length, 200, '只渲染前 200 行')
+		assert.ok(textOf(tree).includes('cards.resources.more'), '超出时要提示用搜索收窄')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('偏好读不出来或只读到前 64 KB 时，禁止保存，避免把空内容写回去', async () => {
+	const runtime = createRuntime()
+	const previousFetch = globalThis.fetch
+	globalThis.fetch = async (url, options) => {
+		const endpoint = String(url).split('/').pop()
+		let payload = {}
+		try {
+			payload = JSON.parse(options?.body ?? '{}')
+		} catch {
+			payload = {}
+		}
+		if (endpoint === 'preferences') {
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({ content: '', bytes: 0, fullBytes: 90000, readable: false, truncated: true, link: { kind: 'missing' } }),
+			}
+		}
+		return { ok: true, status: 200, json: async () => apiPayload(endpoint, payload) }
+	}
+	try {
+		const { Panel, ctx, t } = await loadPanel(runtime)
+		const render = () => runtime.renderNode(runtime.createElement(Panel, { ctx, t }), 'root')
+		let tree = await runtime.settle(render)
+		findAll(tree, (node) => node.props?.role === 'tab' && textOf(node) === 'tab.preferences')[0].props.onClick()
+		tree = await runtime.settle(render)
+		const textarea = findAll(tree, (node) => node.type === 'textarea')[0]
+		assert.equal(textarea.props.readOnly, true, '读不出来时不允许编辑')
+		const save = findAll(tree, (node) => node.type === 'button' && textOf(node) === 'action.save')
+		assert.ok(save.length >= 1)
+		assert.equal(save.every((node) => node.props.disabled === true), true, '保存必须禁用')
+		assert.ok(textOf(tree).includes('prefs.readFailed'), '要说明为什么不能保存')
+	} finally {
+		globalThis.fetch = previousFetch
+	}
+})
+
+test('safeUrl 拒绝脚本协议、data:、vbscript、协议相对与反斜杠地址', () => {
+	const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+	const body = extractFunction(source, 'function safeUrl(url) {')
+	const safeUrl = new Function(`${body}; return safeUrl`)()
+	for (const bad of [
+		'javascript:alert(1)',
+		'JaVaScRiPt:alert(1)',
+		'data:text/html,<script>alert(1)</script>',
+		'vbscript:msgbox(1)',
+		'//evil.example',
+		'/\\evil.example',
+		'\\\\evil.example',
+	]) {
+		assert.equal(safeUrl(bad), false, `应拒绝：${bad}`)
+	}
+	for (const good of ['https://ok.example', 'mailto:a@b.c', '#frag', '/same/origin', './rel']) {
+		assert.equal(safeUrl(good), true, `应放行：${good}`)
+	}
+})
+
+test('computeLinkLayout 在固定图上真正结算：坐标有限、重跑逐点一致', () => {
+	const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+	const simulation = extractFunction(source, 'function createLinkSimulation(cards, edges) {')
+	const layout = extractFunction(source, 'function computeLinkLayout(cards, edges) {')
+	const compute = new Function('linkColorOf', `${simulation}\n${layout}; return computeLinkLayout`)(() => '#8a8f98')
+	const cards = [
+		{ id: 'card-a', description: 'A', tags: ['践行/工具'], links: ['card-b'] },
+		{ id: 'card-b', description: 'B', tags: ['践行/工具'], links: [] },
+		{ id: 'card-c', description: 'C', tags: ['见闻/事实'], links: [] },
+	]
+	const first = compute(cards)
+	assert.ok(first !== null)
+	// With no graph payload only the cards involved in an explicit link are
+	// laid out (the old behaviour the tool documents); the point here is that
+	// the engine really runs and is deterministic, not the node filter.
+	assert.equal(first.nodes.length, 2)
+	for (const node of first.nodes) {
+		assert.equal(Number.isFinite(node.x) && Number.isFinite(node.y) && Number.isFinite(node.r), true)
+	}
+	const again = compute(cards)
+	assert.deepEqual(
+		again.nodes.map((node) => [node.id, node.x, node.y, node.r]),
+		first.nodes.map((node) => [node.id, node.x, node.y, node.r]),
+		'同一份输入必须得到同一张图',
+	)
 })

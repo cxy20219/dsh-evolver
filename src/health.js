@@ -11,8 +11,10 @@
  * ledger, the once-a-day decision and the line it writes.
  */
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
+import { writeJsonAtomic } from './atomic.js'
 
 import { MAX_ROWS, healthMetrics, renderReport } from './cards/health.js'
 
@@ -22,21 +24,17 @@ const CHECK_INTERVAL_MS = 10 * 60_000
 /** The hour the day's row is written, local time. */
 const REPORT_HOUR = 9
 
-/** The local calendar key of a date. */
-export function dayKeyOf(stamp) {
-	const date = new Date(stamp)
-	const month = String(date.getMonth() + 1).padStart(2, '0')
-	const day = String(date.getDate()).padStart(2, '0')
-	return `${date.getFullYear()}-${month}-${day}`
-}
+import { dayKeyOf } from './time.js'
+// Kept as a re-export for the callers that import the health job's day key.
+export { dayKeyOf }
 
 /**
  * Create the daily health card job.
  *
- * @param {{store: Function, logger?: object, now?: Function, cache?: Function, isBusy?: () => boolean}} deps - The services the job uses.
+ * @param {{store: Function, logger?: object, now?: Function, cache?: Function, isBusy?: () => boolean, maintainIndex?: Function}} deps - The services the job uses.
  * @returns {{check: Function, runNow: Function, start: Function}} The job.
  */
-export function createHealthJob({ store, logger, now = () => Date.now(), cache, isBusy }) {
+export function createHealthJob({ store, logger, now = () => Date.now(), cache, isBusy, maintainIndex }) {
 	let timer
 	let inFlight = null
 
@@ -78,11 +76,7 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache, 
 	 * @returns {Promise<void>} Resolves once it is on disk.
 	 */
 	async function writeLedger(ledger) {
-		const path = ledgerPath()
-		await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-		const temp = `${path}.${process.pid}.tmp`
-		await writeFile(temp, `${JSON.stringify(ledger, null, '\t')}\n`, { mode: 0o600 })
-		await rename(temp, path)
+		await writeJsonAtomic(ledgerPath(), ledger)
 	}
 
 	/**
@@ -132,6 +126,9 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache, 
 	 * @returns {Promise<object>} The result.
 	 */
 	async function runNow() {
+		if (typeof isBusy === 'function' && isBusy() === true) {
+			throw new Error('数据目录操作正在进行，健康度日报已跳过。')
+		}
 		if (inFlight !== null) throw new Error('健康度日报正在生成，请稍等。')
 		inFlight = performRun()
 		try {
@@ -152,6 +149,18 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache, 
 		// the library the user is looking at. The job is retryable, so it skips.
 		if (typeof isBusy === 'function' && isBusy() === true) return null
 		if (store() === undefined) return null
+		// The injected index is a daily snapshot, and the organiser that
+		// rewrites it can be switched off. Keeping it fresh here means the
+		// prompt does not fall back to a live ranking (which a single card
+		// write invalidates) from midnight until the next open. It is a
+		// no-op when today's snapshot already exists.
+		if (typeof maintainIndex === 'function') {
+			try {
+				await maintainIndex()
+			} catch (error) {
+				logger?.warn?.(`dsh-evolver: index heartbeat skipped: ${error instanceof Error ? error.message : String(error)}`)
+			}
+		}
 		const current = now()
 		if (new Date(current).getHours() < REPORT_HOUR) return null
 		const ledger = await readLedger()
@@ -188,5 +197,3 @@ export function createHealthJob({ store, logger, now = () => Date.now(), cache, 
 
 	return { check, runNow, start, status }
 }
-
-export { MAX_ROWS }

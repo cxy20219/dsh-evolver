@@ -277,3 +277,38 @@ test('早停不影响找不到引文时的退回首段', async () => {
 	assert.ok(head.length <= 200)
 	assert.match(head, /第 1 条普通消息/)
 })
+
+test('超大会话不触发参数上限：13 万事件仍能把游标算到最后一条', async () => {
+	const huge = [user(1, '[evolver-ingest] 整理任务')]
+	for (let seq = 2; seq <= 130_000; seq += 1) {
+		huge.push({ type: 'tool/result', seq, time: NOW - 60_000, data: {} })
+	}
+	const events = { huge }
+	const query = fakeQuery(events, [{ header: { id: 'huge', createdAt: NOW - 3_600_000 } }])
+	const dir = await mkdtemp(join(tmpdir(), 'evr-ledger-'))
+	try {
+		const result = await digestSessions({ query, ledger: new SessionLedger({ dataDir: dir }), now: NOW })
+		assert.equal(result.empty.length, 1)
+		assert.equal(result.empty[0].id, 'huge')
+		assert.equal(result.empty[0].seq, 130_000, '游标要落在最后一条事件，而不是栈溢出')
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('并发提交会话游标不会撞临时文件名', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'evr-ledger-'))
+	try {
+		const ledger = new SessionLedger({ dataDir: dir })
+		const results = await Promise.allSettled([
+			ledger.commit([{ id: 's1', seq: 3 }], new Date(NOW).toISOString()),
+			ledger.commit([{ id: 's2', seq: 5 }], new Date(NOW).toISOString()),
+			ledger.commit([{ id: 's3', seq: 7 }], new Date(NOW).toISOString()),
+		])
+		assert.deepEqual(results.filter((result) => result.status === 'rejected'), [])
+		const snapshot = await new SessionLedger({ dataDir: dir }).snapshot()
+		assert.ok(snapshot.processed >= 1)
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})

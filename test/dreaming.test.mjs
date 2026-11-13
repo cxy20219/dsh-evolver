@@ -30,6 +30,28 @@ const BRANCH_CARDS = 5
 const modelSelection = { currentSelection: () => ({ provider: 'p', model: 'm' }) }
 
 /**
+ * Put a dead link back into a card's record, the way an imported or hand-edited
+ * log can carry one. Deletion prunes links now, so the repair path needs a
+ * record that never went through `remove`.
+ *
+ * @param {object} store - The card store.
+ * @param {object} card - The card to point at a missing id.
+ * @param {string} targetId - The id that no longer exists.
+ * @returns {Promise<void>} Resolves once written.
+ */
+async function injectDanglingLink(store, card, targetId) {
+	const record = store.records().find((item) => item.id === card.id)
+	await store.cards.putMemory({
+		...record,
+		id: card.id,
+		body: card.body,
+		tags: card.tags,
+		links: [targetId],
+		updated: new Date(Date.now() + 1).toISOString(),
+	})
+}
+
+/**
  * A card store plus a settings stub on a temporary folder.
  *
  * @param {object} [consolidate] - The consolidation settings.
@@ -206,6 +228,8 @@ test('修复轮清掉历史死链，正文和标签一个字不动', async () =>
 		const holder = await store.put({ body: '还指着幽灵卡的一条笔记', tags: ['践行/经验'], links: [target.id] })
 		const clean = await store.put({ body: '没有链接的干净卡片', tags: ['践行/经验'] })
 		await store.remove(target.id)
+		// 删除会剪掉链接；这里模拟一份导入/手改过的历史日志，死链还在。
+		await injectDanglingLink(store, holder, target.id)
 		assert.deepEqual(store.get(holder.id).links, [target.id], '历史数据里死链还在')
 
 		assert.deepEqual(await refreshRepairs(store), { repaired: 1, skipped: 0 })
@@ -261,6 +285,7 @@ test('整理在一次运行里跑完动作和修复轮', async () => {
 		const target = await store.put({ body: '将要被删掉的目标卡', tags: ['见闻/事实'] })
 		const holder = await store.put({ body: '指着幽灵卡的笔记', tags: ['见闻/事实'], links: [target.id] })
 		await store.remove(target.id)
+		await injectDanglingLink(store, holder, target.id)
 		// 让持卡人成为今天唯一要整理的卡片。
 		await store.saveConsolidationLedger({
 			lastRunAt: '',

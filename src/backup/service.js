@@ -63,8 +63,9 @@ export class BackupService {
 	 * @param {() => object} [deps.client] - Client factory, injectable for tests.
 	 * @param {() => Date} [deps.now] - Clock, injectable for tests.
 	 * @param {number} [deps.heartbeatMs] - Heartbeat interval.
+	 * @param {() => boolean} [deps.isBusy] - Whether a data-folder operation is running.
 	 */
-	constructor({ settings, root, logger, client, flush, now = () => new Date(), heartbeatMs = HEARTBEAT_MS }) {
+	constructor({ settings, root, logger, client, flush, now = () => new Date(), heartbeatMs = HEARTBEAT_MS, isBusy }) {
 		this.settings = settings
 		this.root = typeof root === 'function' ? root : () => root
 		this.logger = logger
@@ -75,6 +76,7 @@ export class BackupService {
 		this.timer = undefined
 		this.startup = undefined
 		this.running = false
+		this.isBusy = typeof isBusy === 'function' ? isBusy : undefined
 		// Failures in a row: the retry wait doubles so a broken endpoint does
 		// not re-pack the whole folder every five minutes.
 		this.failures = 0
@@ -119,6 +121,9 @@ export class BackupService {
 	 */
 	async runNow({ force = false, reason = 'manual' } = {}) {
 		if (this.running) throw new Error('备份正在进行中，请稍后再试。')
+		// The folder is being copied/replaced: a snapshot taken now would be
+		// half old and half new, and retention may then drop the last good one.
+		if (this.isBusy?.() === true) throw new Error('数据目录操作正在进行，备份已取消。')
 		const config = this.settings.get().backup
 		if (!config.enabled && !force) throw new Error('自动备份未启用，先打开开关并保存。')
 		const readiness = this.readiness()
@@ -222,6 +227,8 @@ export class BackupService {
 	async tick() {
 		const config = this.settings.get().backup
 		if (!config.enabled || this.running) return
+		// Not a failure: the next heartbeat tries again once the folder is free.
+		if (this.isBusy?.() === true) return
 		// An incomplete configuration is not retried every minute: there is
 		// nothing to retry until the user saves the missing fields.
 		if (!this.readiness().ready) return

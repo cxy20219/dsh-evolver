@@ -92,6 +92,10 @@ export function createWorkspaceJobs({
 	async function exclusive(label, action) {
 		const blocked = blockedMessage()
 		if (blocked !== undefined) throw new Error(blocked)
+		// A backup reads the folder while these operations rewrite it: a
+		// snapshot taken across an import can upload a half-migrated library
+		// and, with `keep` set to one, replace the last good copy.
+		if (backupRunning() === true) throw new Error('云备份正在进行，请等它结束后再试。')
 		operation = label
 		try {
 			return await action()
@@ -146,23 +150,42 @@ export function createWorkspaceJobs({
 			} else if (!(await isDirectory(dirname(requested)))) {
 				throw new Error(`目标目录的上级不存在：${dirname(requested)}`)
 			}
-			// Flush first: the copy has to see the newest card writes.
-			await currentStore()?.close().catch(() => {})
+			const previousRoot = evolver.root
+			const previousSetting = settings.get().dataDir
+			// Flush first: the copy has to see the newest card writes. A close
+			// that fails means the log is behind memory, and the copy would be
+			// missing exactly the writes the user was just told were saved.
+			try {
+				await currentStore()?.close()
+			} catch (error) {
+				await openCards(previousRoot).catch(() => {})
+				throw new Error(`当前数据无法落盘，迁移已取消：${error instanceof Error ? error.message : String(error)}`)
+			}
 			let copied
 			try {
-				copied = await copyTree(evolver.root, requested, { force })
+				copied = await copyTree(previousRoot, requested, { force })
 			} catch (error) {
 				// The old folder is untouched; reopen it so the plugin keeps
 				// answering with the data it had before the attempt.
-				await openCards(evolver.root).catch(() => {})
+				await openCards(previousRoot).catch(() => {})
 				throw error
 			}
 			// Persist the new location *before* switching: if the switch fails,
 			// the next start still lands on the folder that already holds the
 			// copy, instead of silently drifting back to the old one.
-			await settings.update({ dataDir: requested })
-			await evolver.switchRoot(requested)
-			await openCards(requested)
+			try {
+				await settings.update({ dataDir: requested })
+				await evolver.switchRoot(requested)
+				await openCards(requested)
+			} catch (error) {
+				// Half a migration is worse than none: the setting and the
+				// evolver root can already point at the new folder while the
+				// store still serves the old one. Put all three back.
+				await settings.update({ dataDir: previousSetting }).catch(() => {})
+				await evolver.switchRoot(previousRoot).catch(() => {})
+				await openCards(previousRoot).catch(() => {})
+				throw new Error(`迁移未完成，已回到原数据目录：${error instanceof Error ? error.message : String(error)}`)
+			}
 			rootState.source = 'settings'
 			rootState.warning = ''
 			logger?.info?.(`dsh-evolver: data folder moved to ${requested}`)
@@ -205,13 +228,19 @@ export function createWorkspaceJobs({
 			}
 			// Flush first so the archive contains the newest card writes. The
 			// store is reopened afterwards: an export must not leave the plugin
-			// without its read path.
-			await currentStore()?.close().catch(() => {})
+			// without its read path. A failed close means the archive would be
+			// missing debounced writes, so it cancels the export instead.
+			try {
+				await currentStore()?.close()
+			} catch (error) {
+				await openCards(evolver.root).catch(() => {})
+				throw new Error(`当前数据无法落盘，导出已取消：${error instanceof Error ? error.message : String(error)}`)
+			}
 			try {
 				const packed = await writeArchiveFile(evolver.root, target)
 				return { file: target, bytes: packed.bytes, files: packed.files }
 			} finally {
-				await openCards(evolver.root).catch(() => {})
+				await openCards(evolver.root)
 			}
 		},
 
@@ -259,7 +288,12 @@ export function createWorkspaceJobs({
 			if (isInsidePath(current, await canonicalPath(source))) {
 				throw new Error('导入文件不能是数据目录里的文件。')
 			}
-			await currentStore()?.close().catch(() => {})
+			try {
+				await currentStore()?.close()
+			} catch (error) {
+				await openCards(evolver.root).catch(() => {})
+				throw new Error(`当前数据无法落盘，导入已取消：${error instanceof Error ? error.message : String(error)}`)
+			}
 			let restored
 			try {
 				restored = await extractArchiveFile(source, evolver.root, { force })
@@ -270,12 +304,8 @@ export function createWorkspaceJobs({
 				const message = error instanceof Error ? error.message : String(error)
 				throw new Error(message.includes('压缩包') ? message : `不能读取压缩包：${message}`)
 			}
-			try {
-				await evolver.switchRoot(evolver.root)
-			} catch (error) {
-				await openCards(evolver.root).catch(() => {})
-				throw error
-			}
+			// The folder did not move; only the store has to be reopened over
+			// the files that just landed.
 			await openCards(evolver.root)
 			return restored
 		},

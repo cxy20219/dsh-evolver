@@ -1,15 +1,14 @@
 /**
- * A daily snapshot of the two things that make the library harder to use as
- * it grows.
+ * The numbers behind the daily health row.
  *
- *   - how much of it is still sitting in #即兴
+ *   - how much of the library is still sitting in #即兴
  *   - how much of it is connected
  *
  * Neither number is visible anywhere else: the panel shows totals, but a card
  * alone in the fleeting branch looks exactly like a card that was filed
- * properly, and an unlinked card looks exactly like a linked one. Both are
- * measured here and written into one card that keeps a short history, so a
- * change to the writing rules can be read as a trend instead of a hunch.
+ * properly, and an unlinked card looks exactly like a linked one. This module
+ * only computes the metrics and renders the table; `src/health.js` owns the
+ * daily job and writes the series to `knowledge/health.json`.
  */
 
 import { isArchived, rootOf } from './tags.js'

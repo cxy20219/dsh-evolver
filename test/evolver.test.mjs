@@ -176,3 +176,26 @@ test('偏好有大小上限，外部超限文件读取时截断', async () => {
 		await rm(home, { recursive: true, force: true })
 	}
 })
+
+test('退链时把接管前的全局指令放回去，而不是让 DSH 失去全局指令', async () => {
+	const { evolver, home } = await fixture()
+	try {
+		await evolver.ensure()
+		const original = '# 用户自己的全局指令\n\n不要动这一行。\n'
+		await writeFile(join(home, 'AGENTS.md'), original, 'utf8')
+
+		const linked = await evolver.linkGlobal()
+		assert.equal(linked.linked, true)
+		assert.equal((await evolver.globalLinkState()).kind, 'link')
+
+		const unlinked = await evolver.unlinkGlobal()
+		assert.equal(unlinked.linked, false)
+		assert.equal(unlinked.restored, true)
+		assert.equal((await lstat(join(home, 'AGENTS.md'))).isFile(), true, '退链后应是普通文件')
+		assert.equal(await readFile(join(home, 'AGENTS.md'), 'utf8'), original)
+		// The plugin's own preferences are untouched by the restore.
+		assert.match((await evolver.preferencesRead()).content, /个人偏好/)
+	} finally {
+		await rm(home, { recursive: true, force: true })
+	}
+})

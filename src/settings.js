@@ -11,7 +11,7 @@
  */
 
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 /** How many searches may be stored remotely. */
 const KEEP_MIN = 1
@@ -182,12 +182,8 @@ export function normalizeConsolidate(value, fallback = defaultConsolidate()) {
 function defaultCardMaxChars() {
 	return 1000
 }
-/**
- * Normalise the card body budget.
- *
- * @param {unknown} value - The raw value.
- * @returns {number} A number between 200 and 4000.
- */
+
+/** The default description budget, in Unicode code points. */
 function defaultCardDescriptionMaxChars() {
 	return 80
 }
@@ -208,6 +204,12 @@ function normalizeCardDescriptionMaxChars(value) {
 	return Math.min(200, Math.max(20, size))
 }
 
+/**
+ * Normalise the card body budget.
+ *
+ * @param {unknown} value - The raw value.
+ * @returns {number} A number between 200 and 4000.
+ */
 function normalizeCardMaxChars(value) {
 	const size = Math.round(Number(value))
 	if (!Number.isFinite(size)) return defaultCardMaxChars()
@@ -314,6 +316,15 @@ function normalizeEndpoint(value) {
 			const url = new URL(raw)
 			if (url.username !== '' || url.password !== '') return ''
 			if (url.protocol !== 'http:' && url.protocol !== 'https:') return ''
+			// The signature covers `/<bucket>/<key>`: a gateway prefix or a
+			// query string would change the request path and every upload would
+			// answer 403 forever. Only a bare origin is a valid endpoint.
+			if (url.pathname !== '/' || url.search !== '' || url.hash !== '') return ''
+			// Plain http is kept for a loopback gateway only; anywhere else the
+			// signature would travel in clear text, so it is refused instead of
+			// being silently rewritten behind the panel's back.
+			const loopback = url.hostname === 'localhost' || url.hostname === '::1' || /^127\./.test(url.hostname)
+			if (url.protocol === 'http:' && !loopback) return ''
 			return raw
 		} catch {
 			return ''
@@ -474,6 +485,13 @@ export class SettingsStore {
 		}
 		const backup = patch.backup
 		if (backup !== null && typeof backup === 'object') {
+			// An empty endpoint is "not configured"; a non-empty one that
+			// normalises away is a typo, and silently storing '' would look
+			// like the user never typed anything.
+			const rawEndpoint = backup.endpoint
+			if (typeof rawEndpoint === 'string' && rawEndpoint.trim() !== '' && normalizeEndpoint(rawEndpoint) === '') {
+				throw new Error('备份 endpoint 不合法：只填主机名（如 oss-cn-hangzhou.aliyuncs.com）或 https://主机名；不要带路径、查询、账号或明文 http。')
+			}
 			const next = normalizeBackup({ ...this.data.backup, ...backup })
 			// The secret is write-only from the browser's point of view.
 			if (backup.clearAccessKeySecret === true) {
@@ -541,6 +559,7 @@ export class SettingsStore {
 			cardMaxChars: this.data.cardMaxChars,
 			cardDescriptionMaxChars: this.data.cardDescriptionMaxChars,
 			dataDirSource: rootInfo.source,
+			backupRunning: rootInfo.backupRunning === true,
 			dataDirWarning: rootInfo.warning ?? '',
 			defaultDataDir: rootInfo.defaultRoot,
 			storedDataDir: this.data.dataDir,

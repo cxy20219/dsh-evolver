@@ -20,7 +20,7 @@
 
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { isAbsolute, join, resolve } from 'node:path'
+import { dirname, extname, isAbsolute, join, resolve } from 'node:path'
 
 import { BackupService } from './src/backup/service.js'
 import { Evolver, resolveDshHome } from './src/evolver.js'
@@ -60,6 +60,8 @@ export const API_PREFIX = '/api/evolver'
  * a `requestBody: 'buffered'` route into memory before this handler runs (its
  * own cap is 300 MB). 16 MB leaves room for a base64 attachment while keeping
  * the panel's JSON small; see `MAX_RESOURCE_BYTES` for the decoded limit.
+ * It is checked against `content-length`, so a chunked body without that
+ * header is not stopped here — the Host's buffer is the real bound.
  */
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
@@ -139,6 +141,33 @@ function staticSection() {
 }
 
 /**
+ * Extensions that are documents first.
+ *
+ * Handing everything to the system opener turned one click into "execute the
+ * attachment": on macOS `.command`/`.jar`, on Windows `.bat`/`.exe`. The
+ * allowlist is what the panel can actually show and what a person expects to
+ * open; anything else is revealed in the file manager instead, so the user
+ * still finds it without this plugin launching it.
+ */
+const OPENABLE_EXTENSIONS = new Set([
+	'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'key', 'pages', 'numbers', 'rtf',
+	'txt', 'md', 'markdown', 'csv', 'json', 'yaml', 'yml', 'png', 'jpg', 'jpeg', 'gif',
+	'webp', 'bmp', 'tif', 'tiff', 'svg',
+])
+
+/**
+ * How one attachment may be opened: by its app, or by the file manager.
+ *
+ * @param {string} path - The validated absolute path.
+ * @returns {'opened' | 'revealed'} The mode.
+ */
+/** @internal exported for tests */
+export function openModeOf(path) {
+	const extension = extname(path).slice(1).toLowerCase()
+	return OPENABLE_EXTENSIONS.has(extension) ? 'opened' : 'revealed'
+}
+
+/**
  * Hand one file to the desktop.
  *
  * The panel can render text and images, but not a PDF viewer or Word: what it
@@ -146,12 +175,25 @@ function staticSection() {
  * Detached and unref'd, so a slow viewer never holds the plugin's event loop.
  *
  * @param {string} path - An absolute path already validated by the store.
+ * @param {'opened' | 'revealed'} [mode] - Open the file or reveal it.
  * @returns {Promise<void>} Resolves once the opener was spawned.
  */
-function openWithSystem(path) {
-	const command = process.platform === 'darwin' ? 'open' : (process.platform === 'win32' ? 'explorer' : 'xdg-open')
+function openWithSystem(path, mode = 'opened') {
+	const reveal = mode === 'revealed'
+	let command
+	let args
+	if (process.platform === 'darwin') {
+		command = 'open'
+		args = reveal ? ['-R', path] : [path]
+	} else if (process.platform === 'win32') {
+		command = 'explorer'
+		args = reveal ? [`/select,${path}`] : [path]
+	} else {
+		command = 'xdg-open'
+		args = reveal ? [dirname(path)] : [path]
+	}
 	return new Promise((resolvePromise, reject) => {
-		const child = spawn(command, [path], { detached: true, stdio: 'ignore' })
+		const child = spawn(command, args, { detached: true, stdio: 'ignore' })
 		child.once('error', reject)
 		child.once('spawn', () => {
 			child.unref()
@@ -301,6 +343,9 @@ export async function apply(ctx, config) {
 	function guardedWrite(work) {
 		const blocked = workspace.blockedMessage()
 		if (blocked !== undefined) return Promise.reject(new Error(blocked))
+		if (cardStoreRef.current?.closed === true) {
+			return Promise.reject(new Error('数据目录操作正在进行，请稍后再试。'))
+		}
 		return work()
 	}
 
@@ -403,6 +448,9 @@ export async function apply(ctx, config) {
 		// behind and still answered success.
 		const blocked = workspace.blockedMessage()
 		if (blocked !== undefined) throw new Error(blocked)
+		// A close during a folder move leaves the ref on the old store: writing
+		// through it would land in the folder being left behind.
+		if (cardStoreRef.current?.closed === true) throw new Error('数据目录操作正在进行，请稍后再试。')
 		const store = cardStoreRef.current
 		const result = await work(store)
 		await store.flush()
@@ -470,7 +518,6 @@ export async function apply(ctx, config) {
 					entries: status.cards,
 					bytes: Buffer.byteLength(text, 'utf8'),
 					budget: DEFAULT_PROMPT_BUDGET,
-					dropped: 0,
 					text,
 				},
 			}
@@ -486,15 +533,12 @@ export async function apply(ctx, config) {
 			const resourcePath = String(payload.resourcePath ?? '').trim()
 			const page = query === ''
 				? store.listPage({ tags, anyTags, limit, includeArchived, archivedOnly, resourcePath })
-				: {
-					cards: await store.query({ text: query, tags, anyTags, limit, includeArchived, archivedOnly, resourcePath }),
-					total: 0,
-				}
+				: await store.queryPage({ text: query, tags, anyTags, limit, includeArchived, archivedOnly, resourcePath })
 			return {
 				cards: page.cards,
 				// How many cards the filter matches in total: the panel gets a
 				// page, and without this number a truncated list looks complete.
-				total: page.total === 0 ? page.cards.length : page.total,
+				total: page.total,
 				tree: store.tagTree(),
 				status: store.status(),
 				cardMaxChars: settings.get().cardMaxChars,
@@ -519,13 +563,14 @@ export async function apply(ctx, config) {
 		 * name — the client never sends a path.
 		 *
 		 * @param {object} payload - `{id, name}`.
-		 * @returns {Promise<{path: string}>} The file that was opened.
+		 * @returns {Promise<{path: string, mode: 'opened' | 'revealed'}>} The file that was opened.
 		 */
 		async resourceOpen(payload = {}) {
 			const store = cardStoreRef.current
 			const path = await store.resourcePath(String(payload.id ?? ''), String(payload.name ?? ''))
-			await openWithSystem(path)
-			return { path }
+			const mode = openModeOf(path)
+			await openWithSystem(path, mode)
+			return { path, mode }
 		},
 		/**
 		 * Every attachment in the library, with the card that carries it.
@@ -569,7 +614,10 @@ export async function apply(ctx, config) {
 		},
 		async read(payload = {}) {
 			const store = cardStoreRef.current
-			const card = await store.read(String(payload.id ?? ''))
+			// The panel shows attachment metadata only; the tool keeps the
+			// contents. Without this flag a card with a large attachment sent
+			// up to 256 KB of text over HTTP just to be dropped by the client.
+			const card = await store.read(String(payload.id ?? ''), { text: payload.metadataOnly !== true })
 			if (card === undefined) return { card: null, links: [], backlinks: [] }
 			// A card has no title: what identifies it in the panel is its id and
 			// its description, so that is what the link lists carry.
@@ -719,6 +767,8 @@ export async function apply(ctx, config) {
 		// A data-folder move closes the store; a job that writes during that
 		// window lands in the folder being left behind.
 		isBusy: () => workspace.busy(),
+		// The extracted cards are debounced; the cursor must not move first.
+		flush: () => cardStoreRef.current?.flush(),
 	})
 
 	const consolidate = createConsolidationController({
@@ -740,6 +790,14 @@ export async function apply(ctx, config) {
 		// the session service can answer.
 		cache: (day) => cacheForDay({ query: ctx.get('sessionQuery'), day, dayKeyOf }),
 		isBusy: () => workspace.busy(),
+		// Keep the injected snapshot on today's date even when the organiser
+		// is switched off: otherwise the fallback re-ranks on every write.
+		maintainIndex: async () => {
+			const current = cardStoreRef.current
+			if (current === undefined || current.closed === true) return
+			if (readCardIndex(current) !== null) return
+			await refreshCardIndex(current)
+		},
 	})
 
 	backup = new BackupService({
@@ -747,6 +805,9 @@ export async function apply(ctx, config) {
 		root: () => evolver.root,
 		logger: logs,
 		flush: () => cardStoreRef.current?.flush(),
+		// A data-folder operation owns the folder; a snapshot taken across it
+		// would be neither the old library nor the new one.
+		isBusy: () => workspace.busy(),
 	})
 
 	/** Everything that has to be undone, in registration order. */
@@ -763,7 +824,10 @@ export async function apply(ctx, config) {
 		// Writing out the debounced saves is part of shutting down; so is the
 		// access ledger, whose last few reads still live in memory.
 		const flushAccess = cardAgentRef.current?.flushAccess?.() ?? Promise.resolve()
-		return flushAccess
+		return Promise.resolve(flushAccess)
+			.catch(() => {})
+			// The last lines of a log explain the shutdown that produced them.
+			.then(() => logs.flush())
 			.then(() => cardStoreRef.current?.close().catch(() => {}))
 			.catch(() => {})
 	}, 'dsh-evolver: resources')

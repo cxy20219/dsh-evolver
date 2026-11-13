@@ -89,6 +89,7 @@ function text(payload, field, fallback = '') {
  * @param {object} deps.consolidate - Daily consolidation controller.
  * @param {object} deps.organize - The organisers' shared model settings.
  * @param {object} deps.logs - The plugin log file.
+ * @param {object} deps.health - The daily health job.
  * @param {object} deps.cards - The card API the panel calls.
  * @returns {(endpoint: string, payload: unknown) => Promise<object>} The handler.
  */
@@ -139,7 +140,7 @@ export function createEvolverHandler({ evolver, settings, backup, workspace, vie
 					return {
 						ok: true,
 						value: await workspace.exportTo({
-									dir: text(payload, 'dir'),
+							dir: text(payload, 'dir'),
 							name: text(payload, 'name'),
 							force: payload?.force === true,
 						}),

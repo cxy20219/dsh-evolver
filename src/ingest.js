@@ -14,6 +14,7 @@
  */
 
 import { EXTRACT_KINDS } from './cards/extract-kinds.js'
+import { callOrganizerModel } from './llm-call.js'
 import { resolveOrganizerModel } from './organize.js'
 import { findSecret } from './secrets.js'
 import { digestSessions, probeSessions } from './sessions.js'
@@ -109,39 +110,16 @@ function extractionPrompt(digest) {
  * @returns {Promise<{text: string, truncated: boolean}>} The raw model text, and whether the cap cut it.
  */
 async function callModel({ settings, llm, modelSelection, digest }) {
-	const selection = resolveOrganizerModel(settings, modelSelection)
-	const provider = selection.provider
-	const model = selection.model
-	if (provider === '' || model === '') throw new Error('没有可用的默认模型；请先在聊天里选择模型。')
-	const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(120_000) : undefined
-	let text = ''
-	let failure
-	// `max-tokens` is not an error to the adapter: the stream ends normally and
-	// whatever arrived is whatever fit. Reporting that as a plain "no JSON" is
-	// how a truncated reply reads as a parsing bug.
-	let truncated = false
-	for await (const chunk of llm.stream({
-		provider,
-		model,
-		...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
-		// Some adapters route on the session header even though the call is
-		// not part of a session; a stable synthetic id keeps the request
-		// routable without creating a visible session.
-		sessionId: 'evolver-ingest',
+	return callOrganizerModel({
+		settings,
+		llm,
+		modelSelection,
 		system: SYSTEM_PROMPT,
-		messages: [{ role: 'user', content: [{ type: 'text', text: extractionPrompt(digest) }] }],
-		temperature: 0,
+		prompt: extractionPrompt(digest),
+		sessionId: 'evolver-ingest',
 		maxTokens: MAX_OUTPUT_TOKENS,
-		...(signal === undefined ? {} : { signal }),
-	})) {
-		if (chunk.type === 'text-delta') text += chunk.text
-		if (chunk.type !== 'finish') continue
-		const kind = chunk.reason?.kind
-		if (kind === 'error' || kind === 'aborted') failure = chunk.reason.failure ?? chunk.reason
-		if (kind === 'max-tokens') truncated = true
-	}
-	if (failure !== undefined) throw new Error(failure.message || '模型调用失败')
-	return { text, truncated }
+		timeoutMs: 120_000,
+	})
 }
 
 /**
@@ -227,9 +205,10 @@ export function quoteFromDigest(quote, digest) {
  * @param {object} [options.logger] - The logger.
  * @param {() => number} [options.now] - Clock.
  * @param {() => boolean} [options.isBusy] - Whether a data-folder operation is running.
+ * @param {() => Promise<void>} [options.flush] - Puts pending card writes on disk.
  * @returns {object} The controller.
  */
-export function createIngestController({ settings, query, ledger, save: saveCard, llm, modelSelection, logger, now = () => Date.now(), isBusy }) {
+export function createIngestController({ settings, query, ledger, save: saveCard, llm, modelSelection, logger, now = () => Date.now(), isBusy, flush }) {
 	const state = {
 		lastActivityAt: now(),
 		lastAutoAt: 0,
@@ -272,7 +251,7 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 			return await inFlight
 		} catch (error) {
 			// The stage logs above say how far it got; this one says why it stopped.
-			logger?.warn?.(`dsh-evolver: ingest run failed (${source}): ${error instanceof Error ? error.message : String(error)}`)
+			logger?.error?.(`dsh-evolver: ingest run failed (${source}): ${error instanceof Error ? error.message : String(error)}`)
 			throw error
 		} finally {
 			inFlight = null
@@ -343,6 +322,10 @@ export function createIngestController({ settings, query, ledger, save: saveCard
 				if (source !== undefined) quoted += 1
 			}
 		}
+		// The store debounces writes, so "the saves landed" has to mean "on
+		// disk" before the cursor moves: otherwise a crash inside the window
+		// leaves the sessions marked processed with no cards to show for it.
+		if (typeof flush === 'function') await flush()
 		// Only after the saves landed is the cursor advanced: a crash in the
 		// middle leaves the sessions pending and the next run retries.
 		await ledger.commit([

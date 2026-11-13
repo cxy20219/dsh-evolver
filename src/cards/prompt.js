@@ -25,7 +25,7 @@ import {
 /**
  * The default byte budget of the injected card index.
  *
- * The index is bounded by construction (8 cards + one paragraph), but the
+ * The index is bounded by construction (12 cards + one paragraph), but the
  * budget still exists so a branch with pathological descriptions cannot push the
  * runtime context past its share of the window.
  */

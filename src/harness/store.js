@@ -23,7 +23,9 @@
  */
 
 import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
+
+import { writeFileAtomic } from '../atomic.js'
 
 /** The four resource layers, in the order the index lists them. */
 export const LAYERS = ['workflow', 'experience', 'tool', 'resources']
@@ -76,6 +78,57 @@ const OVERVIEW_TEMPLATE = `# Harness 项目资源总览
 function isNoise(entry) {
 	const parts = entry.split(/[\\/]/)
 	return parts.some((part) => part.startsWith('.') || part === '__pycache__' || part === 'node_modules')
+}
+
+/**
+ * The files under one folder, as relative POSIX paths.
+ *
+ * `readdir(..., { recursive: true })` also returns the directories it walks
+ * through. Treating those as resources put folder links in the index, and a
+ * migration that renamed the folder first then failed on the files inside it.
+ * Only files are returned, sorted, so every caller sees the same order.
+ *
+ * @param {string} dir - The folder.
+ * @returns {Promise<string[]>} The relative file paths.
+ */
+async function listFiles(dir) {
+	const entries = await readdir(dir, { recursive: true }).catch(() => [])
+	const files = []
+	for (const entry of entries) {
+		const name = String(entry).split('\\').join('/')
+		if (isNoise(name)) continue
+		const info = await lstat(join(dir, name)).catch(() => undefined)
+		if (info === undefined || info.isDirectory()) continue
+		files.push(name)
+	}
+	return files.sort()
+}
+
+/**
+ * A destination that does not collide with a planned move or a file already
+ * on disk.
+ *
+ * The first file keeps the plain name; a later one is suffixed with the folder
+ * it came from, so `references/x.md` and `assets/x.md` both survive the move
+ * and the path says which is which. Silently overwriting one of them is the
+ * one outcome a migration must never produce.
+ *
+ * @param {string} candidate - The preferred absolute path.
+ * @param {string} origin - The retired layer the file came from.
+ * @param {Set<string>} claimed - Destinations already planned.
+ * @returns {Promise<string>} A free absolute path.
+ */
+async function freeDestination(candidate, origin, claimed) {
+	const taken = async (path) => claimed.has(path) || (await lstat(path).catch(() => undefined)) !== undefined
+	if (!(await taken(candidate))) return candidate
+	const extension = extname(candidate)
+	const stem = candidate.slice(0, candidate.length - extension.length)
+	for (let index = 1; index <= 100; index += 1) {
+		const suffix = index === 1 ? `from-${origin}` : `from-${origin}-${index}`
+		const next = `${stem}.${suffix}${extension}`
+		if (!(await taken(next))) return next
+	}
+	throw new Error(`无法为 ${candidate} 找到不冲突的迁移目标。`)
 }
 
 /**
@@ -147,6 +200,21 @@ export function splitFrontmatter(text) {
 }
 
 /**
+ * Collapse a field to the single line frontmatter can carry.
+ *
+ * A newline in a title or a summary does not fail loudly: it ends the
+ * frontmatter field early, leaves the rest of the text as body, and makes the
+ * index show half a sentence. The field is a label, so whitespace becomes one
+ * space before anything is written.
+ *
+ * @param {unknown} value - The field.
+ * @returns {string} The single-line text.
+ */
+function singleLine(value) {
+	return String(value ?? '').replace(/[\r\n\u0000]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/**
  * Render a document with frontmatter.
  *
  * @param {Record<string, string>} meta - The fields to write.
@@ -155,8 +223,9 @@ export function splitFrontmatter(text) {
  */
 export function withFrontmatter(meta, body) {
 	const lines = Object.entries(meta)
-		.filter(([, value]) => typeof value === 'string' && value.trim() !== '')
-		.map(([key, value]) => `${key}: ${value.trim()}`)
+		.map(([key, value]) => [key, singleLine(value)])
+		.filter(([, value]) => value !== '')
+		.map(([key, value]) => `${key}: ${value}`)
 	if (lines.length === 0) return String(body ?? '')
 	return `---\n${lines.join('\n')}\n---\n${String(body ?? '')}`
 }
@@ -224,11 +293,7 @@ export async function catalog(root) {
 			state.layers[layer] = []
 			continue
 		}
-		const entries = await readdir(dir, { recursive: true }).catch(() => [])
-		const files = entries
-			.filter((entry) => !isNoise(String(entry)))
-			.map((entry) => `harness/${layer}/${String(entry).split('\\').join('/')}`)
-			.sort()
+		const files = (await listFiles(dir)).map((entry) => `harness/${layer}/${entry}`)
 		state.layers[layer] = files
 		for (const path of files) {
 			const { meta, body } = splitFrontmatter(await readText(join(root, path)))
@@ -389,11 +454,7 @@ export async function ensureIndex(root) {
 		)
 	}
 	const next = documentOf(renderIndex(state))
-	if (next !== current) {
-		const temp = `${agentsPath}.${process.pid}.${Date.now()}.tmp`
-		await writeFile(temp, next, { mode: 0o600 })
-		await rename(temp, agentsPath)
-	}
+	if (next !== current) await writeFileAtomic(agentsPath, next)
 	return { entries: state.resources.length, changed: next !== current }
 }
 
@@ -408,63 +469,86 @@ export async function ensureIndex(root) {
  *
  * @param {string} root - The project root.
  * @param {{dryRun?: boolean}} [options] - Whether to only report.
- * @returns {Promise<{moved: string[], rewritten: number}>} What changed.
+ * @returns {Promise<{moved: string[], rewritten: number, renamed: string[]}>} What changed.
  */
 export async function migrateLayout(root, { dryRun = false } = {}) {
 	const harnessDir = join(root, 'harness')
 	const moved = []
+	const renamed = []
 	const present = await readdir(harnessDir).catch(() => [])
 	const plan = [
 		['scripts', TOOL_LAYER],
 		['references', RESOURCE_LAYER],
 		['assets', RESOURCE_LAYER],
 	]
+	// Plan every move before touching the disk. `scripts/` can only collide
+	// with itself, but `references/` and `assets/` merge into one folder: two
+	// files named the same used to overwrite each other silently, and the
+	// source folder was then deleted.
+	const moves = []
+	const claimed = new Set()
 	for (const [from, to] of plan) {
 		if (!present.includes(from)) continue
 		const source = join(harnessDir, from)
 		const target = join(harnessDir, to)
-		const files = await readdir(source, { recursive: true }).catch(() => [])
-		const items = files.map((entry) => String(entry).split('\\').join('/')).filter((entry) => !isNoise(entry))
+		const items = await listFiles(source)
 		moved.push(`${from}/ → ${to}/ (${items.length})`)
-		if (dryRun) continue
-		await mkdir(target, { recursive: true, mode: 0o700 })
 		for (const entry of items) {
-			const destination = join(target, entry)
-			await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
-			await rename(join(source, entry), destination)
+			const destination = await freeDestination(join(target, entry), from, claimed)
+			claimed.add(destination)
+			if (destination !== join(target, entry)) {
+				renamed.push(`${from}/${entry} → ${to}/${destination.slice(target.length + 1)}`)
+			}
+			moves.push({ source: join(source, entry), destination })
 		}
-		await rm(source, { recursive: true, force: true })
 	}
-
-	if (!dryRun) {
-		// A layer that never held anything still has to exist: the structure is
-		// half the contract, and an empty folder is cheaper than a special case.
-		for (const layer of LAYERS) {
-			await mkdir(join(harnessDir, layer), { recursive: true, mode: 0o700 })
+	if (dryRun) {
+		return {
+			moved,
+			rewritten: 0,
+			renamed,
 		}
-		const files = await readdir(harnessDir, { recursive: true }).catch(() => [])
-		for (const entry of files) {
-			const path = join(harnessDir, String(entry))
-			if (!/\.(md|txt|ya?ml|json)$/i.test(path)) continue
-			const text = await readFile(path, 'utf8').catch(() => undefined)
-			if (text === undefined) continue
-			const next = rewritePaths(text)
-			if (next !== text) await writeFile(path, next, { mode: 0o600 })
-		}
-		// The index lives at the project root, not under harness/. Rewriting it
-		// here is what lets the migration keep each entry's label and purpose:
-		// they are looked up by path, and the path just changed.
-		const agentsPath = join(root, 'AGENTS.md')
-		const agents = await readFile(agentsPath, 'utf8').catch(() => undefined)
-		if (agents !== undefined) {
-			const next = rewritePaths(agents)
-			if (next !== agents) await writeFile(agentsPath, next, { mode: 0o600 })
-		}
+	}
+	for (const move of moves) {
+		await mkdir(dirname(move.destination), { recursive: true, mode: 0o700 })
+		await rename(move.source, move.destination)
+	}
+	// Only the now-empty source folders are left; removing them keeps the
+	// layer list clean without touching a file that was skipped as noise.
+	for (const [from] of plan) {
+		if (!present.includes(from)) continue
+		await rm(join(harnessDir, from), { recursive: true, force: true })
+	}
+	// A layer that never held anything still has to exist: the structure is
+	// half the contract, and an empty folder is cheaper than a special case.
+	for (const layer of LAYERS) {
+		await mkdir(join(harnessDir, layer), { recursive: true, mode: 0o700 })
+	}
+	const files = await readdir(harnessDir, { recursive: true }).catch(() => [])
+	for (const entry of files) {
+		const path = join(harnessDir, String(entry))
+		const info = await lstat(path).catch(() => undefined)
+		if (info === undefined || info.isDirectory()) continue
+		if (!/\.(md|txt|ya?ml|json)$/i.test(path)) continue
+		const text = await readFile(path, 'utf8').catch(() => undefined)
+		if (text === undefined) continue
+		const next = rewritePaths(text)
+		if (next !== text) await writeFile(path, next, { mode: 0o600 })
+	}
+	// The index lives at the project root, not under harness/. Rewriting it
+	// here is what lets the migration keep each entry's label and purpose:
+	// they are looked up by path, and the path just changed.
+	const agentsPath = join(root, 'AGENTS.md')
+	const agents = await readFile(agentsPath, 'utf8').catch(() => undefined)
+	if (agents !== undefined) {
+		const next = rewritePaths(agents)
+		if (next !== agents) await writeFile(agentsPath, next, { mode: 0o600 })
 	}
 
 	return {
 		moved,
 		rewritten: dryRun ? 0 : await countRewrites(harnessDir),
+		renamed,
 	}
 }
 

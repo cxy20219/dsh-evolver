@@ -7,11 +7,14 @@
  * a consistent folder is undone rather than reported as done.
  */
 
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+
+import { writeFileAtomic } from '../atomic.js'
 
 import { LAYERS, RESOURCE_LAYER, TOOL_LAYER, catalog, documentOf, isBareIndex, renderIndex, withFrontmatter } from './store.js'
 import { validate } from './validate.js'
+import { isReallyInside } from '../workspace.js'
 
 /** The name a resource file may have: one segment, no traversal. */
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9._-]{0,80}$/
@@ -31,19 +34,6 @@ export function slugOf(value) {
 		.replace(/^-+|-+$/g, '')
 		.slice(0, 60)
 	return SLUG_PATTERN.test(source) ? source : ''
-}
-
-/**
- * Write one AGENTS.md without leaving a half-written file.
- *
- * @param {string} path - The file.
- * @param {string} text - The content.
- * @returns {Promise<void>} Resolves once it is in place.
- */
-async function writeAtomic(path, text) {
-	const temp = `${path}.${process.pid}.${Date.now()}.tmp`
-	await writeFile(temp, text, { mode: 0o600 })
-	await rename(temp, path)
 }
 
 /**
@@ -75,30 +65,41 @@ export async function writeResource({ root, layer, slug, title, summary, body, p
 	)
 
 	const previous = await readFile(target, 'utf8').catch(() => undefined)
+	const agentsPath = join(root, 'AGENTS.md')
+	const agents = await readFile(agentsPath, 'utf8').catch(() => '')
+	// Preflight the index before anything is written. The check used to run
+	// after the resource file had landed, so a refusal left an unindexed file
+	// behind and the tool reported "nothing written".
+	if (agents.trim() !== '' && !isBareIndex(agents)) {
+		throw new Error('AGENTS.md 里有不是索引的内容，没有写入。先把它挪到 harness/harness.md 再重试。')
+	}
+
 	await mkdir(dirname(target), { recursive: true, mode: 0o700 })
-	await writeAtomic(target, `${document.trimEnd()}\n`)
+	await writeFileAtomic(target, `${document.trimEnd()}\n`)
 
 	// The index is rebuilt from the folder, never edited by hand: that is what
 	// makes "every resource is indexed" a property instead of a hope.
 	const state = await catalog(root)
-	const agentsPath = join(root, 'AGENTS.md')
-	const agents = await readFile(agentsPath, 'utf8').catch(() => '')
-	if (agents.trim() !== '' && !isBareIndex(agents)) {
-		// Nothing is written: replacing the file would drop whatever a person
-		// put in it, and rewriting it half-way would leave two indexes.
+	const agentsNow = await readFile(agentsPath, 'utf8').catch(() => '')
+	if (agentsNow.trim() !== '' && !isBareIndex(agentsNow)) {
+		// Another writer changed the file between the check and the write.
+		// Nothing is written: replacing it would drop whatever a person put in
+		// it, and rewriting it half-way would leave two indexes.
+		if (previous === undefined) await rm(target, { force: true }).catch(() => {})
+		else await writeFileAtomic(target, previous).catch(() => {})
 		throw new Error('AGENTS.md 里有不是索引的内容，没有写入。先把它挪到 harness/harness.md 再重试。')
 	}
-	await writeAtomic(agentsPath, documentOf(renderIndex(state)))
+	await writeFileAtomic(agentsPath, documentOf(renderIndex(state)))
 
 	const report = await validate(root)
 	if (!report.ok) {
 		if (previous === undefined) {
 			await rm(target, { force: true }).catch(() => {})
 		} else {
-			await writeAtomic(target, previous)
+			await writeFileAtomic(target, previous)
 		}
 		const restored = await catalog(root)
-		await writeAtomic(agentsPath, documentOf(renderIndex(restored)))
+		await writeFileAtomic(agentsPath, documentOf(renderIndex(restored)))
 		throw new Error(`校验未通过，已回滚：${report.errors.slice(0, 3).join('；')}`)
 	}
 
@@ -124,6 +125,12 @@ async function resolveTarget({ root, layer, slug, path }) {
 		if (clean.includes('..')) throw new Error(`路径不合法：${path}`)
 		const absolute = join(root, clean)
 		if (!absolute.startsWith(join(root, 'harness'))) throw new Error(`路径不合法：${path}`)
+		// A lexical prefix check cannot see a symlinked folder: `harness/tmp`
+		// pointing outside would let a write through it reach the project's
+		// siblings. Resolve the real path before accepting the target.
+		if (!(await isReallyInside(join(root, 'harness'), absolute))) {
+			throw new Error(`路径不合法（越过了 harness/ 的真实目录）：${path}`)
+		}
 		if ((await readFile(absolute, 'utf8').catch(() => undefined)) === undefined) {
 			throw new Error(`没有这个资源：${clean}`)
 		}
@@ -137,6 +144,9 @@ async function resolveTarget({ root, layer, slug, path }) {
 	// A workflow or an experience is a document; a tool or a resource is
 	// whatever the file is, extension included.
 	const extension = layer === TOOL_LAYER || layer === RESOURCE_LAYER ? '' : '.md'
-	const file = extension === '' ? name : `${name}${extension}`
+	// A document layer names its files itself: `foo.md` as a slug would have
+	// produced `foo.md.md`, which then looks like a different resource.
+	const stem = extension === '.md' ? name.replace(/\.md$/i, '') : name
+	const file = extension === '' ? stem : `${stem}${extension}`
 	return join(root, 'harness', String(layer), file)
 }

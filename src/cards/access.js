@@ -33,6 +33,27 @@ const ACCESS_TOP_LIMIT = 10
 let tempSequence = 0
 
 /**
+ * The cards that were read most often.
+ *
+ * Ties fall back to the newest read and then the id, so the same data gives
+ * the same order twice. Not on the request path; the idle review reads it.
+ *
+ * @param {string} dataDir - The data folder.
+ * @param {number} [limit] - How many entries to return.
+ * @returns {Promise<Array<{id: string, count: number, lastAt: string}>>} The ranking, hottest first.
+ */
+/** @internal exported for tests */
+export async function topAccessed(dataDir, limit = ACCESS_TOP_LIMIT) {
+	const stats = await accessStats(dataDir)
+	const size = Math.max(1, Math.min(100, Math.round(Number(limit) || ACCESS_TOP_LIMIT)))
+	return Object.entries(stats.ids)
+		.map(([id, entry]) => ({ id, count: entry.count, lastAt: entry.lastAt }))
+		.sort((left, right) => right.count - left.count || right.lastAt.localeCompare(left.lastAt) || left.id.localeCompare(right.id))
+		.slice(0, size)
+}
+
+
+/**
  * Where the access ledger of one data folder lives.
  *
  * @param {string} dataDir - The data folder.
@@ -108,25 +129,6 @@ export async function accessStats(dataDir) {
 	return { version: ACCESS_VERSION, ids }
 }
 
-/**
- * The cards that were read most often.
- *
- * Ties fall back to the newest read and then the id, so the same data gives
- * the same order twice.
- *
- * @param {string} dataDir - The data folder.
- * @param {number} [limit] - How many entries to return.
- * @returns {Promise<Array<{id: string, count: number, lastAt: string}>>} The ranking, hottest first.
- */
-/** @internal exported for tests */
-export async function topAccessed(dataDir, limit = ACCESS_TOP_LIMIT) {
-	const stats = await accessStats(dataDir)
-	const size = Math.max(1, Math.min(100, Math.round(Number(limit) || ACCESS_TOP_LIMIT)))
-	return Object.entries(stats.ids)
-		.map(([id, entry]) => ({ id, count: entry.count, lastAt: entry.lastAt }))
-		.sort((left, right) => right.count - left.count || right.lastAt.localeCompare(left.lastAt) || left.id.localeCompare(right.id))
-		.slice(0, size)
-}
 
 /**
  * An access ledger bound to one data folder.
@@ -248,7 +250,7 @@ export function createAccessLog({
 	 * @returns {Promise<Array<{id: string, count: number, lastAt: string}>>} The ranking.
 	 */
 	function top(limit = ACCESS_TOP_LIMIT) {
-		return root === undefined ? Promise.resolve([]) : topAccessed(root, limit)
+
 	}
 
 	return { dataDir: root, recordAccess, flushAccess, accessStats: stats, topAccessed: top }

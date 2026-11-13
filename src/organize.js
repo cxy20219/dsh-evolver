@@ -43,15 +43,17 @@ export function resolveOrganizerModel(settings, modelSelection) {
  * ones behind an empty select.
  *
  * @param {object | undefined} llm - The Host `llm` service.
- * @returns {Promise<object[]>} The provider groups, possibly empty.
+ * @returns {Promise<{providers: object[], failed: boolean}>} The provider
+ * groups, and whether the catalogue itself could not be read. An empty list
+ * from a failure must not be cached as "this host has no models".
  */
 async function readProviders(llm) {
-	if (typeof llm?.listProviders !== 'function') return []
+	if (typeof llm?.listProviders !== 'function') return { providers: [], failed: true }
 	let listed = []
 	try {
 		listed = await llm.listProviders()
 	} catch {
-		return []
+		return { providers: [], failed: true }
 	}
 	const providers = []
 	for (const provider of Array.isArray(listed) ? listed : []) {
@@ -80,7 +82,7 @@ async function readProviders(llm) {
 		}
 		providers.push({ id: String(provider.id), name: String(provider.name ?? provider.id), models })
 	}
-	return providers
+	return { providers, failed: false }
 }
 
 /**
@@ -109,11 +111,19 @@ export function createOrganizeSettings({ settings, llm, modelSelection, now = ()
 		const current = effective.provider === '' || effective.model === ''
 			? null
 			: { ...effective }
-		const providers = cache !== null && now() - cache.at < MODEL_CACHE_MS
-			? cache.providers
-			: await readProviders(llm)
-		if (cache === null || now() - cache.at >= MODEL_CACHE_MS) cache = { at: now(), providers }
-		return { model: saved, current, providers }
+		const fresh = cache !== null && now() - cache.at < MODEL_CACHE_MS
+		let providers = fresh ? cache.providers : []
+		let catalogFailed = false
+		if (!fresh) {
+			const read = await readProviders(llm)
+			catalogFailed = read.failed
+			// A failed read keeps the last good catalogue (and does not replace
+			// it with the empty list), so one adapter hiccup does not make the
+			// panel claim there are no models for five minutes.
+			providers = read.failed && cache !== null ? cache.providers : read.providers
+			if (!read.failed) cache = { at: now(), providers }
+		}
+		return { model: saved, current, providers, catalogFailed }
 	}
 
 	/**

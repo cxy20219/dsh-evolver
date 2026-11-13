@@ -82,7 +82,7 @@ node harness/tool/link-layout-metrics.mjs --graph /tmp/graph.json --svg /tmp/gra
 
 探针从 `client.js` 里直接抽 `createLinkSimulation` + `computeLinkLayout`（不复制代码，不会漂移）；`--graph` 模式喂完整 `graph` 载荷，预览与面板一致：无区域名、冗余弱边不画。判据同上；`overlaps` 或 `branchCohesion` 破了就是布局回退，别只看「看起来差不多」。
 
-`test/client.test.mjs`（24 条用例）另外钉住：引擎 alpha 单调冷却到静止且两次结算一致、`fx/fy` 固定节点不动/松手后弹簧接管、节点拖拽不冒泡成平移且坐标跟随、mock rAF 下首帧是种子→推进后停住→拖拽重新唤醒、静止时零文字、悬停只显示 focus + 邻居/无区域名/冗余弱边静止不画而聚焦回来/无工具栏/缩放平移不回归。
+`test/client.test.mjs`（44 条用例）另外钉住：引擎 alpha 单调冷却到静止且两次结算一致、`fx/fy` 固定节点不动/松手后弹簧接管、节点拖拽不冒泡成平移且坐标跟随、mock rAF 下首帧是种子→推进后停住→拖拽重新唤醒、静止时零文字、悬停只显示 focus + 邻居/无区域名/冗余弱边静止不画而聚焦回来/无工具栏/缩放平移不回归。
 
 ## 已知边界
 

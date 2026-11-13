@@ -11,9 +11,11 @@
  * The folder is the unit of migration and backup: copy it and everything moves.
  */
 
-import { lstat, mkdir, open, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, readdir, readlink, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
+
+import { writeFileAtomic } from './atomic.js'
 
 /**
  * Whether a path exists, without following the last link.
@@ -84,8 +86,6 @@ export class Evolver {
 		// The version is read from package.json by the caller; the evolver
 		// itself must not reach for its own package.
 		this.version = typeof version === 'string' ? version : ''
-		/** Counts temp files so two writes in one millisecond cannot collide. */
-		this.writeSequence = 0
 	}
 
 	/** The global preferences file's path. */
@@ -203,15 +203,7 @@ export class Evolver {
 	 * @returns {Promise<void>} Resolves once the rename is committed.
 	 */
 	async writeDocument(path, text) {
-		this.writeSequence += 1
-		const temp = `${path}.${process.pid}.${this.writeSequence}.tmp`
-		try {
-			await writeFile(temp, text, { encoding: 'utf8', mode: 0o600 })
-			await rename(temp, path)
-		} catch (error) {
-			await rm(temp, { force: true }).catch(() => {})
-			throw error
-		}
+		await writeFileAtomic(path, text)
 	}
 
 	/**
@@ -223,18 +215,24 @@ export class Evolver {
 		let content = ''
 		let truncated = false
 		let fullBytes = 0
+		// "Empty file" and "could not read" used to look identical to the
+		// panel, which then offered a Save button that wrote the empty string
+		// over the real preferences.
+		let readable = true
 		try {
 			const info = await lstat(this.preferencesPath)
 			fullBytes = info.size
 			truncated = info.size > MAX_PREFERENCES_BYTES
 			content = truncated ? await readHead(this.preferencesPath, MAX_PREFERENCES_BYTES) : await readFile(this.preferencesPath, 'utf8')
-		} catch {
+		} catch (error) {
+			readable = error !== null && typeof error === 'object' && error.code === 'ENOENT'
 			content = ''
 		}
 		return {
 			path: 'preferences/AGENTS.md',
 			globalPath: this.globalPath,
 			content,
+			readable,
 			bytes: Buffer.byteLength(content, 'utf8'),
 			fullBytes,
 			truncated: truncated || undefined,
@@ -320,7 +318,46 @@ export class Evolver {
 			}
 		}
 		await rm(this.globalPath, { force: true })
-		return { linked: false, message: '已移除全局链接。' }
+		// Taking the file over moved whatever was there into the data folder;
+		// just removing the link would leave DSH with no global instructions at
+		// all. Put the newest pre-takeover copy back, and say where it came from.
+		const backup = await this.newestImportedCopy()
+		if (backup === undefined) return { linked: false, message: '已移除全局链接。' }
+		try {
+			const original = await readFile(backup, 'utf8')
+			await mkdir(dirname(this.globalPath), { recursive: true })
+			await writeFile(this.globalPath, original, { encoding: 'utf8', mode: 0o600 })
+			return {
+				linked: false,
+				restored: true,
+				backup,
+				message: `已移除链接，并把接管前的原文件恢复到 ${this.globalPath}（副本仍留在数据和备份目录中）。`,
+			}
+		} catch (error) {
+			return {
+				linked: false,
+				restored: false,
+				backup,
+				message: `已移除链接，但接管前的原文件没能写回：${error instanceof Error ? error.message : String(error)}。原文在 ${backup}。`,
+			}
+		}
+	}
+
+	/**
+	 * The newest copy saved when a global AGENTS.md was taken over.
+	 *
+	 * @returns {Promise<string | undefined>} The path, or undefined when there
+	 * is no such copy.
+	 */
+	async newestImportedCopy() {
+		const folder = dirname(this.preferencesPath)
+		const names = await readdir(folder).catch(() => [])
+		const prefix = `${basename(this.preferencesPath)}.imported-`
+		const candidates = names
+			.filter((name) => name.startsWith(prefix))
+			.sort()
+			.reverse()
+		return candidates.length === 0 ? undefined : join(folder, candidates[0])
 	}
 
 	/**

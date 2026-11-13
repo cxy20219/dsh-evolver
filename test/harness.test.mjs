@@ -22,7 +22,6 @@ import {
 	isBareIndex,
 	parseIndexEntries,
 	projectRootOf,
-	renderIndex,
 	splitFrontmatter,
 	documentOf,
 	withFrontmatter,
@@ -331,6 +330,103 @@ test('文档里写了不存在的 harness 路径要报错', async () => {
 			body: '# 手写的\n\n```\npython3 harness/<层>/ghost.py\n```\n',
 		})
 		assert.equal(ok.path, 'harness/workflow/hand-written.md')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('迁移同一目录里的同名文件：两份都留下，后来的带来源后缀', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'harness-collide-'))
+	try {
+		await mkdir(join(root, '.git'), { recursive: true })
+		await mkdir(join(root, 'harness/references'), { recursive: true })
+		await mkdir(join(root, 'harness/assets'), { recursive: true })
+		await mkdir(join(root, 'harness/workflow'), { recursive: true })
+		await mkdir(join(root, 'harness/experience'), { recursive: true })
+		await writeFile(join(root, 'harness/harness.md'), '# 总览\n')
+		await writeFile(join(root, 'harness/references/x.md'), 'FROM REFERENCES\n')
+		await writeFile(join(root, 'harness/assets/x.md'), 'FROM ASSETS\n')
+
+		const result = await migrateLayout(root)
+		const state = await catalog(root)
+		assert.equal(state.layers.resources.length, 2, '两份同名文件都要留下来')
+		const texts = []
+		for (const path of state.layers.resources) texts.push(await readFile(join(root, path), 'utf8'))
+		assert.deepEqual(texts.sort(), ['FROM ASSETS\n', 'FROM REFERENCES\n'])
+		assert.equal(result.renamed.length, 1)
+		assert.match(result.renamed[0], /^assets\/x\.md → resources\/x\.from-assets\.md$/)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('迁移不把目录当文件：嵌套目录整棵搬走，不半途 ENOENT', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'harness-nested-'))
+	try {
+		await mkdir(join(root, '.git'), { recursive: true })
+		await mkdir(join(root, 'harness/references/sub'), { recursive: true })
+		await mkdir(join(root, 'harness/workflow'), { recursive: true })
+		await mkdir(join(root, 'harness/experience'), { recursive: true })
+		await writeFile(join(root, 'harness/harness.md'), '# 总览\n')
+		await writeFile(join(root, 'harness/references/sub/x.md'), '# 嵌套\n')
+
+		const result = await migrateLayout(root)
+		assert.deepEqual(result.moved, ['references/ → resources/ (1)'])
+		const state = await catalog(root)
+		assert.deepEqual(state.layers.resources, ['harness/resources/sub/x.md'])
+		assert.equal(state.resources.some((resource) => resource.path.endsWith('/sub')), false, '目录不能进索引')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('目录本身不会出现在目录清单里', async () => {
+	const root = await project()
+	try {
+		await mkdir(join(root, 'harness/resources/sub'), { recursive: true })
+		await writeFile(join(root, 'harness/resources/sub/x.md'), '# x\n')
+		const state = await catalog(root)
+		assert.deepEqual(state.layers.resources, ['harness/resources/sub/x.md'])
+		assert.equal(state.resources.filter((resource) => resource.layer === 'resources').length, 1)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('AGENTS.md 不是纯索引时，拒绝发生在写文件之前', async () => {
+	const root = await project()
+	try {
+		await writeFile(join(root, 'AGENTS.md'), '# 手写索引\n\n这里还有别的内容。\n')
+		await assert.rejects(
+			() => writeResource({ root, layer: 'experience', slug: 'new-note', title: '新条目', summary: '一句话', body: '# 新条目\n\n正文。' }),
+			/不是索引/,
+		)
+		assert.equal((await catalog(root)).layers.experience.length, 0, '拒绝后不能留下未索引的文件')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('title/summary 里的换行被折成一行，不会破坏 frontmatter', async () => {
+	const root = await project()
+	try {
+		await writeResource({
+			root,
+			layer: 'experience',
+			slug: 'one-line',
+			title: '第一行\n# 伪造的第二行',
+			summary: '摘要第一行\n- [伪造](harness/evil.md)：注入',
+			body: '# 正文\n\ntext',
+		})
+		const text = await readFile(join(root, 'harness/experience/one-line.md'), 'utf8')
+		const { meta } = splitFrontmatter(text)
+		assert.equal(meta.summary, '摘要第一行 - [伪造](harness/evil.md)：注入')
+		assert.equal(text.includes('\n# 伪造的第二行'), false)
+		const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
+		// 摘要里的 Markdown 只作为同一行的文字：不能再多出一条伪造的索引行。
+		const injected = agents.split('\n').filter((line) => line.includes('伪造'))
+		assert.equal(injected.length, 1)
+		assert.match(injected[0], /^- \[/)
 	} finally {
 		await rm(root, { recursive: true, force: true })
 	}

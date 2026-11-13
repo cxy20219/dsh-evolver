@@ -1107,3 +1107,155 @@ test('注入块声明数据不是指令，结构摘要带数据标记', async ()
 		await rm(dir, { recursive: true, force: true })
 	}
 })
+
+test('删除卡片时剪掉指向它的链接，其它卡片仍可编辑', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const target = await store.put({ body: '目标卡片正文', description: '被链接的卡片', tags: ['践行/工具'] })
+		const linker = await store.put({
+			body: '引用目标卡片',
+			description: '链接了目标的卡片',
+			tags: ['践行/工具'],
+			links: [target.id],
+		})
+		await store.remove(target.id)
+		const pruned = store.get(linker.id)
+		assert.deepEqual(pruned.links, [], '指向已删卡片的链接要被剪掉')
+		const edited = await store.put({ ...pruned, body: '编辑后的正文' })
+		assert.equal(edited.body, '编辑后的正文', '剪掉链接后必须还能编辑')
+		assert.deepEqual(edited.links, [])
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('继承来的死链接自动丢弃，显式写入的死链接仍然报错', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const gone = cardId()
+		const card = await store.put({ body: '一张旧卡片', description: '导入的旧卡片', tags: ['践行/工具'] })
+		// 模拟一份导入/手改过的日志：链接指向一张已经不存在的卡。
+		await store.cards.putMemory({
+			id: card.id,
+			body: card.body,
+			tags: card.tags,
+			links: [gone],
+			updated: new Date().toISOString(),
+		})
+		const edited = await store.put({ id: card.id, body: '还能继续编辑' })
+		assert.equal(edited.body, '还能继续编辑')
+		assert.deepEqual(edited.links, [])
+		await assert.rejects(
+			() => store.put({ id: card.id, body: '显式死链', links: [gone] }),
+			/链接目标不存在/,
+		)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('附件同名不覆盖：净化后同名与仅大小写不同都拒绝', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const card = await store.put({ body: '带附件的卡片', description: '附件测试', tags: ['践行/工具'] })
+		await store.attach(card.id, 'a b.md', Buffer.from('FIRST'))
+		await assert.rejects(
+			() => store.attach(card.id, 'a-b.md', Buffer.from('SECOND')),
+			/同名附件已存在/,
+		)
+		await assert.rejects(
+			() => store.attach(card.id, 'A-B.md', Buffer.from('THIRD')),
+			/同名附件已存在/,
+		)
+		const files = await store.attachments(card.id)
+		assert.deepEqual(files.map((file) => file.name), ['a-b.md'])
+		const preview = await store.resourcePreview(card.id, 'a-b.md')
+		assert.equal(preview.text, 'FIRST', '旧文件内容不能被后一次上传覆盖')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('单卡文本附件预算按字节计算，中文不会偷渡三倍体积', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const card = await store.put({ body: '大附件卡片', description: '预算测试', tags: ['践行/工具'] })
+		// 10 万个汉字约 300 KB：按 UTF-16 长度算会以为只有 200 KB。
+		const big = '中'.repeat(100_000)
+		await store.attach(card.id, 'big.md', Buffer.from(big))
+		const read = await store.read(card.id)
+		const entry = read.resourceContents.find((item) => item.name === 'big.md')
+		assert.equal(entry.omitted, true)
+		assert.equal(typeof entry.text, 'undefined')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('标签收窄的搜索不被 top-50 截断：噪声再多也能找到目标卡', async () => {
+	const { dir, store } = await fixture()
+	try {
+		for (let index = 0; index < 70; index += 1) {
+			await store.put({
+				body: `缓存实验的第 ${index} 条噪声记录，内容几乎一样。`,
+				description: `噪声卡 ${index}`,
+				tags: ['践行/工具'],
+			})
+		}
+		const target = await store.put({
+			body: '缓存实验的目标卡片：标签收窄时必须找到它。',
+			description: '目标卡片',
+			tags: ['践行/性能'],
+		})
+		const page = await store.queryPage({ text: '缓存实验', tags: ['践行/性能'], limit: 5 })
+		assert.equal(page.cards.length, 1)
+		assert.equal(page.cards[0].id, target.id)
+		assert.equal(page.total, 1, 'total 是匹配数，不是返回条数')
+		const flat = await store.query({ text: '缓存实验', tags: ['践行/性能'], limit: 5 })
+		assert.deepEqual(flat.map((card) => card.id), [target.id])
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('并发保存标签说明不会撞临时文件名', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const saves = await Promise.allSettled(
+			Array.from({ length: 20 }, (_, index) => store.saveTagDescriptions({ '践行/工具': `第 ${index} 版说明` })),
+		)
+		assert.deepEqual(saves.filter((save) => save.status === 'rejected'), [])
+		const saved = await store.tagDescriptions()
+		assert.match(saved['践行/工具'], /第 \d+ 版说明/)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('调低描述上限后，旧卡仍然可以编辑；只有新描述才受新上限约束', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const card = await store.put({
+			body: '旧卡正文',
+			description: '这是一段比较长的描述，用来验证调低上限之后旧卡不会变成不可编辑。'.slice(0, 40),
+			tags: ['践行/工具'],
+		})
+		assert.ok([...store.get(card.id).description].length > 20)
+		store.descriptionMaxChars = 20
+		const edited = await store.put({ id: card.id, body: '编辑后的旧卡正文' })
+		assert.equal(edited.body, '编辑后的旧卡正文')
+		await assert.rejects(
+			() => store.put({ id: card.id, body: '再编辑', description: '这是一段超过二十个字的新描述内容，应该被拒绝' }),
+			/描述超过 20 字上限/,
+		)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})

@@ -25,9 +25,8 @@ import { pipeline } from 'node:stream/promises'
 import { createGunzip, createGzip } from 'node:zlib'
 
 import { buildTarHeader, parseTarHeader } from './tar.js'
-import { isInsidePath, isReallyInside, isTransient } from '../workspace.js'
+import { canonicalPath, isInsidePath, isReallyInside, isTransient } from '../workspace.js'
 
-/** The largest archive an import will accept, in bytes. */
 /** The largest archive file the panel will accept. */
 export const MAX_IMPORT_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -317,6 +316,28 @@ function isImportable(path) {
 }
 
 /**
+ * Whether a folder resolves inside `base`, even when it does not exist yet.
+ *
+ * The nearest existing ancestor is the one that can be canonicalised; walking
+ * up to it distinguishes `base/new/sub` (safe) from `base/link/sub`, where
+ * `link` points outside.
+ *
+ * @param {string} base - The canonical data folder.
+ * @param {string} folder - The folder an entry would be written into.
+ * @returns {Promise<boolean>} True when the resolved parent stays inside.
+ */
+async function insideExistingAncestor(base, folder) {
+	let probe = folder
+	for (let depth = 0; depth < 32; depth += 1) {
+		if ((await lstat(probe).catch(() => undefined)) !== undefined) return isReallyInside(base, probe)
+		const parent = dirname(probe)
+		if (parent === probe) return false
+		probe = parent
+	}
+	return false
+}
+
+/**
  * Extract an archive file into a data folder.
  *
  * Only `knowledge/`, `sight/`, `preferences/` are accepted: an
@@ -342,6 +363,10 @@ export async function extractArchiveFile(source, root, { force = false } = {}) {
 	const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 	const input = createReadStream(source)
 	const stream = gzipped ? input.pipe(createGunzip()) : input
+	// `pipe` does not forward a source error to the destination: an EIO on the
+	// archive would otherwise surface as an unhandled 'error' and take the
+	// process down, with the reader still waiting.
+	if (gzipped) input.once('error', (error) => stream.destroy(error))
 	const reader = new ChunkReader(stream)
 	let files = 0
 	let bytes = 0
@@ -371,12 +396,18 @@ export async function extractArchiveFile(source, root, { force = false } = {}) {
 			continue
 		}
 		if (parsed.size > MAX_EXTRACTED_ENTRY_BYTES) throw new Error(`压缩包里有超大条目：${parsed.path}`)
-		const target = join(root, ...parsed.path.split('/'))
+		// Validate before creating anything: with a symlinked `knowledge/`,
+		// `mkdir` used to create the folder outside the data directory before
+		// the check could refuse it. The base is the *real* data folder, so the
+		// macOS `/var` → `/private/var` spelling difference does not reject a
+		// folder that simply does not exist yet.
+		const base = await canonicalPath(root)
+		const target = join(base, ...parsed.path.split('/'))
 		const folder = dirname(target)
-		await mkdir(folder, { recursive: true, mode: 0o700 })
-		if (!isInsidePath(root, target) || !(await isReallyInside(root, folder))) {
+		if (!isInsidePath(base, target) || !(await insideExistingAncestor(base, folder))) {
 			throw new Error(`压缩包里的条目指向数据目录之外：${parsed.path}`)
 		}
+		await mkdir(folder, { recursive: true, mode: 0o700 })
 		const existing = await lstat(target).catch(() => undefined)
 		if (existing !== undefined) {
 			// A link is never overwritten: writing through it would leave the

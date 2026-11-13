@@ -13,9 +13,10 @@
  * being re-digested from the start.
  */
 
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
+import { writeJsonAtomic } from './atomic.js'
 import { redactSecrets } from './secrets.js'
 
 /** Marks the scheduled ingest session so it is never digested itself. */
@@ -116,15 +117,7 @@ export class SessionLedger {
 			ids.sort((left, right) => String(data.sessions[left].processedAt).localeCompare(String(data.sessions[right].processedAt)))
 			for (const id of ids.slice(0, ids.length - MAX_LEDGER_ENTRIES)) delete data.sessions[id]
 		}
-		await mkdir(dirname(this.path), { recursive: true, mode: 0o700 })
-		const temp = `${this.path}.${process.pid}.${Date.now()}.tmp`
-		try {
-			await writeFile(temp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 })
-			await rename(temp, this.path)
-		} catch (error) {
-			await rm(temp, { force: true }).catch(() => {})
-			throw error
-		}
+		await writeJsonAtomic(this.path, data, { indent: 2 })
 	}
 
 	/**
@@ -182,7 +175,7 @@ function isMessageEvent(event) {
  * @param {object} record - A SessionRecord.
  * @returns {boolean} True for a top-level, user-visible session.
  */
-export function eligible(record) {
+function eligible(record) {
 	const header = record?.header
 	if (header === null || typeof header !== 'object' || typeof header.id !== 'string') return false
 	if (header.isSeeded === true) return false
@@ -265,7 +258,14 @@ export async function digestSessions({ query, ledger, sinceDays = 0, limit = 5, 
 			through = Number(event.seq)
 			if (totalChars + text.length >= MAX_TOTAL_CHARS) break
 		}
-		const lastSeq = Math.max(...snapshot.events.map((event) => Number(event.seq)).filter((seq) => Number.isFinite(seq)))
+		// A spread is limited by the engine's argument count: a long session
+		// (hundreds of thousands of events) throws RangeError here, and one
+		// such session used to fail the whole batch.
+		let lastSeq = 0
+		for (const event of snapshot.events) {
+			const seq = Number(event.seq)
+			if (Number.isFinite(seq) && seq > lastSeq) lastSeq = seq
+		}
 		if (marked || !hasUser || messages.length === 0) {
 			// Nothing a memory can come from (or the ingest's own conversation):
 			// mark it done so it does not stay in the pending count forever.

@@ -134,6 +134,10 @@ export function parseTarHeader(header) {
 		throw new Error('tar 条目大小不合法')
 	}
 	const path = prefix === '' ? name : `${prefix}/${name}`
+	// Backslashes are path separators on Windows: a segment like `a\..\..\x`
+	// passes the `/` split and then normalises outside the data folder when
+	// joined with the platform separator.
+	if (path.includes('\\')) throw new Error(`tar 条目路径里不能有反斜杠：${path}`)
 	if (path.split('/').some((segment) => segment === '..' || segment === '')) {
 		throw new Error(`tar 条目路径不安全：${path}`)
 	}

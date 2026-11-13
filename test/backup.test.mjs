@@ -378,3 +378,22 @@ test('OSS 错误响应体过大时只读前几 KB，不把整页吃进内存', a
 		globalThis.fetch = original
 	}
 })
+
+test('数据目录操作期间不备份：手动拒绝，定时静默跳过', async () => {
+	const fixture = await serviceFixture({ keep: 1 })
+	try {
+		const busy = new BackupService({
+			settings: fixture.settings,
+			root: () => fixture.dataDir,
+			client: () => fixture.client,
+			now: () => new Date('2026-11-10T12:00:00.000Z'),
+			isBusy: () => true,
+		})
+		await assert.rejects(() => busy.runNow({ force: true }), /数据目录操作正在进行/)
+		const putsBefore = fixture.calls.filter((call) => call.type === 'put').length
+		await busy.tick()
+		assert.equal(fixture.calls.filter((call) => call.type === 'put').length, putsBefore, '忙时不打包也不上传')
+	} finally {
+		await rm(fixture.dir, { recursive: true, force: true })
+	}
+})

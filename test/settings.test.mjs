@@ -38,6 +38,25 @@ test('设置文件不存在时给出默认值', async () => {
 	}
 })
 
+test('保存不合法的 endpoint 会明确报错，而不是悄悄存成空', async () => {
+	const { store, dir } = await fixture()
+	try {
+		await assert.rejects(
+			() => store.update({ backup: { endpoint: 'https://gateway.example.com/base' } }),
+			/endpoint 不合法/,
+		)
+		await assert.rejects(
+			() => store.update({ backup: { endpoint: 'http://remote.example.com' } }),
+			/endpoint 不合法/,
+		)
+		// 留空表示“不配置”，不报错。
+		await store.update({ backup: { endpoint: '' } })
+		assert.equal(store.get().backup.endpoint, '')
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
 test('闲时整理间隔被夹在 5–240 分钟', async () => {
 	const { store, dir } = await fixture()
 	try {
@@ -228,6 +247,9 @@ test('endpoint 只接受 http(s) URL 或裸 OSS 主机名，拒绝 userinfo 与�
 		assert.equal(normalizeBackup({ endpoint: 'https://user:pass@gateway.example.com' }).endpoint, '', '带凭据的 URL 拒绝')
 		assert.equal(normalizeBackup({ endpoint: 'ftp://gateway.example.com' }).endpoint, '', '非 http(s) 拒绝')
 		assert.equal(normalizeBackup({ endpoint: 'not a url' }).endpoint, '')
+		assert.equal(normalizeBackup({ endpoint: 'https://gateway.example.com/base' }).endpoint, '', '网关前缀会让签名路径对不上')
+		assert.equal(normalizeBackup({ endpoint: 'https://gateway.example.com/?x=1' }).endpoint, '', '查询串会钻进路径')
+		assert.equal(normalizeBackup({ endpoint: 'http://gateway.example.com' }).endpoint, '', '非回环地址不允许明文 http')
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}

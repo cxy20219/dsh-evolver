@@ -132,17 +132,27 @@ export function textOverlap(left, right) {
  * @param {number} [options.limit] - Maximum results.
  * @param {number} [options.minScore] - The hard minimum.
  * @param {Date} [options.now] - Clock.
+ * @param {(id: string) => boolean} [options.accept] - A filter applied to the
+ *   candidate set *before* ranking. Filtering afterwards (the old way) only
+ *   looked at the top 50 matches, so a tagged query could return nothing while
+ *   matching cards sat just below the cut.
+ * @param {(count: number) => void} [options.onTotal] - Receives how many
+ *   candidates passed `accept`, i.e. how many cards match the query at all.
  * @returns {Promise<Array<{id: string, score: number, memory: object}>>} The results.
  */
-export async function hybridRetrieve({ db, query, limit = 8, minScore = HARD_MIN_SCORE, now = new Date() }) {
-	const keyword = db.bm25(query, 50)
-	const keywordScores = new Map(keyword.map(item => [item.id, item.score]))
+export async function hybridRetrieve({ db, query, limit = 8, minScore = HARD_MIN_SCORE, now = new Date(), accept, onTotal }) {
+	// No cut here: the ranking below needs the whole candidate set, and the
+	// caller's own `limit` is enforced by MMR at the end.
+	const keyword = db.bm25(query, Number.POSITIVE_INFINITY)
+	const accepted = typeof accept === 'function' ? keyword.filter(item => accept(item.id)) : keyword
+	if (typeof onTotal === 'function') onTotal(accepted.length)
+	const keywordScores = new Map(accepted.map(item => [item.id, item.score]))
 
 	// BM25 scores are not comparable across queries, so the ranking is scaled
 	// against its own best hit before anything else looks at it. Without this
 	// the hard minimum would throw every result away for a rare-word query.
-	const top = keyword.length === 0 ? 0 : keyword[0].score
-	let scored = keyword.map(item => ({
+	const top = accepted.length === 0 ? 0 : accepted[0].score
+	let scored = accepted.map(item => ({
 		id: item.id,
 		score: top > 0 ? item.score / top : 0,
 		keywordScore: keywordScores.get(item.id) ?? 0,
@@ -162,7 +172,7 @@ export async function hybridRetrieve({ db, query, limit = 8, minScore = HARD_MIN
 	})
 	// An empty query is a request for "what is stored", not for a match.
 	if (queryTokens.size > 0) {
-		const bestKeyword = keyword.length === 0 ? 0 : keyword[0].score
+		const bestKeyword = accepted.length === 0 ? 0 : accepted[0].score
 		const confident = (item) => bestKeyword > 0 && item.keywordScore >= bestKeyword * KEYWORD_CONFIDENT_SHARE
 		scored = scored.filter(item => item.overlap >= KEYWORD_MIN_OVERLAP || confident(item))
 	}

@@ -127,46 +127,6 @@ export function isTransient(name) {
 	return SKIP_SUFFIXES.some((suffix) => name.endsWith(suffix))
 }
 
-/**
- * Count and measure a tree.
- *
- * Symbolic links are skipped, not followed: the folder must be self-contained,
- * and a link could point into another disk (or back into the tree).
- *
- * @param {string} root - The folder.
- * @returns {Promise<{files: number, bytes: number, skippedLinks: number}>} The totals.
- */
-export async function describeTree(root) {
-	const totals = { files: 0, bytes: 0, skippedLinks: 0 }
-	/**
-	 * Walk one folder.
-	 *
-	 * @param {string} folder - The folder to walk.
-	 * @returns {Promise<void>} Resolves when it was walked.
-	 */
-	async function walk(folder) {
-		const names = await readdir(folder).catch(() => [])
-		for (const name of names) {
-			if (isTransient(name)) continue
-			const path = join(folder, name)
-			const info = await lstat(path).catch(() => undefined)
-			if (info === undefined) continue
-			if (info.isSymbolicLink()) {
-				totals.skippedLinks += 1
-				continue
-			}
-			if (info.isDirectory()) {
-				await walk(path)
-				continue
-			}
-			if (!info.isFile()) continue
-			totals.files += 1
-			totals.bytes += info.size
-		}
-	}
-	await walk(root)
-	return totals
-}
 
 /**
  * Copy one tree into another.

@@ -7,13 +7,14 @@
  *   #践行 / #见闻 / #即兴 / #复盘 / #觉察 / #试错
  *
  * There is no separate type/shape/status/category field. The search engine
- * (BM25) and the tag tree are the retrieval surface;
- * the prompt injects only the tag tree, never card bodies.
+ * (BM25) and the tag tree are the retrieval surface; the prompt injects the
+ * card index and a one-paragraph structure summary, never card bodies.
  */
 
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 
+import { writeJsonAtomic } from '../atomic.js'
 import { MemoryStore } from '../memory/store.js'
 import { buildGraph, combine, degrees, spread, subgraph } from '../memory/graph.js'
 import { hybridRetrieve } from '../memory/hybrid.js'
@@ -52,7 +53,7 @@ const MAX_DESCRIPTION_CHARS = 200
  * silently trimming it, because a trimmed sentence is what made the old index
  * unreadable.
  */
-export const DEFAULT_DESCRIPTION_MAX_CHARS = 80
+const DEFAULT_DESCRIPTION_MAX_CHARS = 80
 
 /** A description shorter than this says nothing. */
 const MIN_DESCRIPTION_CHARS = 4
@@ -72,23 +73,6 @@ const MAX_RELATED = 8
 /** How much resource text one card read may return before it degrades to metadata. */
 const MAX_TOTAL_TEXT_BYTES = 256 * 1024
 
-/**
- * Write one JSON document without ever leaving a half-written file.
- *
- * `writeFile` truncates first, so a crash in between leaves an empty or
- * truncated file — and both of these documents are read back as "no data"
- * rather than as "broken", which silently forgets instead of complaining.
- *
- * @param {string} path - Destination.
- * @param {object} value - The value to serialise.
- * @returns {Promise<void>} Resolves once the file is in place.
- */
-async function writeJsonAtomic(path, value) {
-	await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-	const temp = `${path}.${process.pid}.tmp`
-	await writeFile(temp, `${JSON.stringify(value, null, '\t')}\n`, { mode: 0o600 })
-	await rename(temp, path)
-}
 
 /** File extension to MIME type: the panel needs it to pick a renderer. */
 const MIME_BY_EXTENSION = {
@@ -149,7 +133,7 @@ function mimeOf(name) {
  * @param {unknown} value - The value.
  * @returns {number} The code point count.
  */
-export function charCount(value) {
+function charCount(value) {
 	return [...String(value ?? '')].length
 }
 
@@ -181,7 +165,7 @@ const MAX_SOURCE_QUOTE_CHARS = 160
  * @param {unknown} value - The proposed description.
  * @returns {string} The clean description, `''` when unusable.
  */
-export function normalizeDescription(value) {
+function normalizeDescription(value) {
 	const clean = String(value ?? '')
 		.replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, ' ')
 		.replace(/\s+/g, ' ')
@@ -426,6 +410,12 @@ export class CardStore {
 		// Attachment metadata per card, filled on demand and dropped when a card
 		// is rewritten: list and query paths ask for it repeatedly.
 		this.attachmentCache = new Map()
+		// The resource page asks the same question on every refresh; the answer
+		// only changes when the library does.
+		this.resourcesIndexCache = null
+		// A closed store still answers from memory, but it must not take writes:
+		// its log file belongs to the folder a migration/import is replacing.
+		this.closed = false
 	}
 
 	/**
@@ -436,6 +426,7 @@ export class CardStore {
 	async init() {
 		await mkdir(join(this.dataDir, 'knowledge', 'resources'), { recursive: true, mode: 0o700 })
 		await this.cards.init()
+		this.closed = false
 	}
 
 	/**
@@ -445,6 +436,7 @@ export class CardStore {
 	 */
 	async close() {
 		await this.cards.close()
+		this.closed = true
 	}
 
 	/**
@@ -650,6 +642,9 @@ export class CardStore {
 			cards: cards.length,
 			roots,
 			archived,
+			// A failed background write is retried, but the panel should be able
+			// to say why a card it just saved is not on disk yet.
+			writeError: this.cards.db.lastWriteError,
 		}
 	}
 
@@ -729,7 +724,9 @@ export class CardStore {
 	 * @returns {string[]} The tags to store.
 	 */
 	resolveTags(proposed, previous, limit = MAX_TAGS) {
-		const cap = Math.max(1, Math.min(MAX_TAGS + 1, Math.round(Number(limit) || MAX_TAGS)))
+		// `limit` may carry the extra slots a promote/archive call needs; the
+		// ceiling keeps a caller from growing the tag list without bound.
+		const cap = Math.max(1, Math.min(MAX_TAGS + 2, Math.round(Number(limit) || MAX_TAGS)))
 		// The panel sends the whole card back; unchanged inherited tags are not a
 		// new proposal, so they take the lenient path too.
 		if (previous !== undefined && Array.isArray(proposed) && sameTagList(proposed, previous.tags ?? [])) {
@@ -768,36 +765,75 @@ export class CardStore {
 		if (secret !== undefined) throw new Error(`正文里像是${secret}：卡片库不保存密钥，请删掉后重写。`)
 		const tags = this.resolveTags(input.tags, previous, tagsLimit)
 		const now = new Date().toISOString()
-		const links = Array.isArray(input.links) ? [...new Set(input.links.map(String))] : (previous?.links ?? [])
+		// An explicit list is the caller's promise and is validated strictly. A
+		// list inherited from the record on disk may name a card that was
+		// removed since: keeping it would make this card permanently
+		// unwritable, so the dead reference is dropped with a warning instead.
+		const explicitLinks = Array.isArray(input.links)
+		const proposedLinks = explicitLinks ? [...new Set(input.links.map(String))] : (previous?.links ?? [])
+		const links = []
+		for (const link of proposedLinks) {
+			if (!isCardId(link)) {
+				if (explicitLinks) throw new Error(`链接目标不是卡片 id：${link}`)
+				continue
+			}
+			if (link === id) {
+				if (explicitLinks) throw new Error('卡片不能链接自己。')
+				continue
+			}
+			// A link to a card that is not there renders as "(missing)" for
+			// ever and leaves a ghost key in the backlink map.
+			if (this.cards.getEntry(link) === undefined) {
+				if (explicitLinks) throw new Error(`链接目标不存在：${link}`)
+				this.logger?.warn?.(`dsh-evolver: dropped a dead link on ${id}: ${link}`)
+				continue
+			}
+			links.push(link)
+		}
 		// Verbatim provenance travels with the card: the daily review uses it to
 		// check the note against what was actually said, which is the one thing
 		// a card cannot tell about itself.
 		const source = input.source === undefined ? previous?.source : normalizeSource(input.source)
-		const description = input.description === undefined
-			? (previous?.description ?? '')
-			: normalizeDescription(input.description)
+		// A description inherited from disk is not a new proposal. The store
+		// used to hold it to the current limits, so lowering the limit in the
+		// panel made every existing longer card uneditable; the index clips what
+		// it renders, so only a new proposal has to fit.
+		const explicitDescription = input.description !== undefined
+		let description = explicitDescription
+			? normalizeDescription(input.description)
+			: (previous?.description ?? '')
 		// The description is injected next to the card in the index, so it goes
 		// through the same secret screen as the body. A missing description is
 		// not an error (it is optional), a line that looks like a credential is.
 		if (description !== '') {
 			const leaked = findSecret(description)
-			if (leaked !== undefined) throw new Error(`描述里像是${leaked}：卡片库不保存密钥，请删掉后重写。`)
-			if (charCount(description) > this.descriptionMaxChars) {
+			if (leaked !== undefined) {
+				if (explicitDescription) throw new Error(`描述里像是${leaked}：卡片库不保存密钥，请删掉后重写。`)
+				// An imported record may carry one. Keeping it would put the
+				// secret into every prompt; refusing the edit would brick the
+				// card. Drop it and say so.
+				this.logger?.warn?.(`dsh-evolver: dropped a description that looks like ${leaked} on ${id}`)
+				description = ''
+			}
+			if (explicitDescription && charCount(description) > this.descriptionMaxChars) {
 				throw new Error(`描述超过 ${this.descriptionMaxChars} 字上限；它是一句话索引，不是摘要。`)
 			}
 		}
-		for (const link of links) {
-			if (!isCardId(link)) throw new Error(`链接目标不是卡片 id：${link}`)
-			if (link === id) throw new Error('卡片不能链接自己。')
-			// A link to a card that is not there renders as "(missing)" for
-			// ever and leaves a ghost key in the backlink map.
-			if (this.cards.getEntry(link) === undefined) throw new Error(`链接目标不存在：${link}`)
-		}
 		const resourceNames = new Set((await this.resources.list(id)).map((item) => item.name))
+		// macOS and Windows file systems are case-insensitive: `A.md` and
+		// `a.md` are one file there. The sanitised name can also collide with an
+		// existing one (`a b.md` and `a-b.md` both become `a-b.md`). Either way
+		// the later write would silently replace the earlier file, so a taken
+		// name is a refusal, not an overwrite.
+		const takenNames = new Set([...resourceNames].map((name) => name.toLowerCase()))
 		const inputNames = []
 		for (const resource of resourceInputs) {
 			const name = safeResourceName(resource.name)
 			if (name === '') throw new Error(`资源文件名不合法：${String(resource.name)}`)
+			if (takenNames.has(name.toLowerCase())) {
+				throw new Error(`同名附件已存在：${name}；请换个名字，避免覆盖已有文件。`)
+			}
+			takenNames.add(name.toLowerCase())
 			inputNames.push(name)
 			resourceNames.add(name)
 		}
@@ -889,15 +925,23 @@ export class CardStore {
 		const read = await this.resources.read(id, safe)
 		const mime = mimeOf(safe)
 		const base = { name: read.name, bytes: read.bytes, mime, executable: read.executable === true }
+		// An image is always sent as bytes. SVG is also valid text, so the text
+		// branch used to answer `kind: 'image'` with no base64 and the panel
+		// rendered `data:image/svg+xml;base64,undefined`.
+		if (mime.startsWith('image/')) {
+			if (read.bytes > binaryLimit) return { ...base, kind: 'binary' }
+			const buffer = await readFile(read.path)
+			return { ...base, kind: 'image', base64: buffer.toString('base64') }
+		}
 		if (typeof read.text === 'string') {
 			const chars = [...read.text]
 			const truncated = chars.length > textLimit
-			return { ...base, kind: mime.startsWith('image/') ? 'image' : 'text', text: truncated ? chars.slice(0, textLimit).join('') : read.text, truncated }
+			return { ...base, kind: 'text', text: truncated ? chars.slice(0, textLimit).join('') : read.text, truncated }
 		}
 		// Binary: only formats the browser can actually display come back whole.
-		if ((mime.startsWith('image/') || mime === 'application/pdf') && read.bytes <= binaryLimit) {
+		if (mime === 'application/pdf' && read.bytes <= binaryLimit) {
 			const buffer = await readFile(read.path)
-			return { ...base, kind: mime === 'application/pdf' ? 'pdf' : 'image', base64: buffer.toString('base64') }
+			return { ...base, kind: 'pdf', base64: buffer.toString('base64') }
 		}
 		return { ...base, kind: 'binary' }
 	}
@@ -931,6 +975,10 @@ export class CardStore {
 	 * @returns {Promise<Array<{id: string, files: object[]}>>} The cards with files.
 	 */
 	async resourcesIndex() {
+		const version = this.cards.version
+		if (this.resourcesIndexCache !== null && this.resourcesIndexCache.version === version) {
+			return this.resourcesIndexCache.value
+		}
 		const root = join(this.dataDir, 'knowledge', 'resources')
 		const names = await readdir(root).catch(() => [])
 		// One pass over the bodies, then a substring test per file: "which cards
@@ -950,6 +998,7 @@ export class CardStore {
 				}),
 			})
 		}
+		this.resourcesIndexCache = { version, value: out }
 		return out
 	}
 
@@ -957,12 +1006,15 @@ export class CardStore {
 	 * Read a card and its text resources.
 	 *
 	 * @param {string} id - Card id.
+	 * @param {{text?: boolean}} [options] - `text: false` skips attachment
+	 *   contents for callers (the panel) that only show metadata.
 	 * @returns {Promise<object | undefined>} The card plus resource contents.
 	 */
-	async read(id) {
+	async read(id, { text = true } = {}) {
 		const card = this.get(id)
 		if (card === undefined) return undefined
 		const listed = await this.resources.list(id)
+		if (text !== true) return { ...card, resources: listed, resourceContents: [] }
 		const contents = []
 		let textBudget = MAX_TOTAL_TEXT_BYTES
 		for (const item of listed) {
@@ -972,7 +1024,10 @@ export class CardStore {
 					// One card can carry several large documents; returning all of
 					// them put megabytes into one tool result (and the model's
 					// context). Keep the metadata, drop the overflow text.
-					if (resource.text.length > textBudget) {
+					// The budget is in bytes: `length` counts UTF-16 units, so a
+					// Chinese document passed a 256 KB budget at ~768 KB.
+					const textBytes = Buffer.byteLength(resource.text, 'utf8')
+					if (textBytes > textBudget) {
 						contents.push({
 							name: resource.name,
 							bytes: resource.bytes,
@@ -983,7 +1038,7 @@ export class CardStore {
 						})
 						continue
 					}
-					textBudget -= resource.text.length
+					textBudget -= textBytes
 				}
 				contents.push(resource)
 			} catch (error) {
@@ -1046,21 +1101,37 @@ export class CardStore {
 	 * @returns {Promise<object[]>} Matching cards.
 	 */
 	async query({ text = '', tags = [], anyTags = [], limit = 8, includeArchived = false, archivedOnly = false, resourcePath = '' } = {}) {
+		return (await this.queryPage({ text, tags, anyTags, limit, includeArchived, archivedOnly, resourcePath })).cards
+	}
+
+	/**
+	 * Search with the match count, for the panel.
+	 *
+	 * The tag filter is part of the retrieval, not a pass over its result: on a
+	 * noisy library the matching card used to sit below the top-50 cut, so a
+	 * narrowed search answered "nothing" while the card was there.
+	 *
+	 * @param {object} [request] - The same fields as `query`.
+	 * @returns {Promise<{cards: object[], total: number}>} A page and how many cards match.
+	 */
+	async queryPage({ text = '', tags = [], anyTags = [], limit = 8, includeArchived = false, archivedOnly = false, resourcePath = '' } = {}) {
 		const queryText = String(text ?? '').trim()
-		const size = Math.max(1, Math.min(50, Math.round(Number(limit) || 8)))
-		if (queryText === '') return this.list({ tags, anyTags, limit: size, includeArchived, archivedOnly, resourcePath })
+		const size = Math.max(1, Math.min(100, Math.round(Number(limit) || 8)))
+		if (queryText === '') return this.listPage({ tags, anyTags, limit: size, includeArchived, archivedOnly, resourcePath })
 		const keep = cardFilter({ tags, anyTags, includeArchived, archivedOnly })
+		const needle = String(resourcePath ?? '').trim()
+		let total = 0
 		const results = await hybridRetrieve({
 			db: this.cards.db,
 			query: queryText,
-			limit: Math.max(size * 4, 20),
+			limit: size,
+			accept: (id) => {
+				const card = this.get(id)
+				return card !== undefined && keep(card) && (needle === '' || String(card.body ?? '').includes(needle))
+			},
+			onTotal: (count) => { total = count },
 		})
-		const needle = String(resourcePath ?? '').trim()
-		return results
-			.map((result) => this.cardOf(result.memory))
-			.filter(keep)
-			.filter((card) => needle === '' || String(card.body ?? '').includes(needle))
-			.slice(0, size)
+		return { cards: results.map((result) => this.cardOf(result.memory)), total: total === 0 ? results.length : total }
 	}
 
 	/**
@@ -1116,10 +1187,14 @@ export class CardStore {
 			db: this.cards.db,
 			query: queryText,
 			limit: Math.max(size * 4, 20),
+			// Filter the candidate set, not its truncated tail: the same fix as
+			// `queryPage`, applied to the graph view.
+			accept: (id) => {
+				const card = this.get(id)
+				return card !== undefined && keep(card) && scoped(card)
+			},
 		})
-		const hits = results
-			.map((result) => ({ card: this.cardOf(result.memory), score: result.score }))
-			.filter((hit) => keep(hit.card) && scoped(hit.card))
+		const hits = results.map((result) => ({ card: this.cardOf(result.memory), score: result.score }))
 		// BM25 scores are only comparable within one query (see hybrid.js), so
 		// the seed weights are scaled against the best surviving hit: the walk
 		// wants relative weight, not absolute keyword numbers.
@@ -1240,11 +1315,12 @@ export class CardStore {
 	async promote(id, { tags } = {}) {
 		const card = this.get(id)
 		if (card === undefined) throw new Error(`找不到卡片：${id}`)
+		const targets = Array.isArray(tags) ? tags : []
 		return this.put({
 			...card,
 			id,
-			tags: settleTags(card.tags, Array.isArray(tags) ? tags : []),
-		}, { tagsLimit: MAX_TAGS + 1 })
+			tags: settleTags(card.tags, targets),
+		}, { tagsLimit: MAX_TAGS + Math.min(2, targets.length) })
 	}
 
 	/**
@@ -1271,6 +1347,10 @@ export class CardStore {
 		// order leaves a window where a crash brings the card back with empty
 		// attachments — the body survives, the script it pointed at does not.
 		await this.cards.flush()
+		// Links pointing here are pruned now, not at the next nightly repair:
+		// `put` refuses a link whose target is gone, so a card that linked the
+		// removed one would otherwise be uneditable until the next review.
+		await this.pruneLinkTarget(id)
 		if (archiveResources) {
 			// The organiser promises that nothing leaves without a copy; a card's
 			// attachments are part of the card.
@@ -1280,5 +1360,29 @@ export class CardStore {
 			this.attachmentCache.delete(id)
 		}
 		return existed
+	}
+
+	/**
+	 * Drop every link that points at one removed card.
+	 *
+	 * Only the `links` field is written per card: the body and the tags are
+	 * re-read inside `put`, so a concurrent edit is not overwritten with this
+	 * scan's snapshot.
+	 *
+	 * @param {string} id - The removed card id.
+	 * @returns {Promise<void>} Resolves when the references are gone.
+	 */
+	async pruneLinkTarget(id) {
+		for (const card of this.all()) {
+			const links = card.links ?? []
+			if (!links.includes(id)) continue
+			try {
+				await this.put({ id: card.id, links: links.filter((link) => link !== id) })
+			} catch (error) {
+				// A card the store refuses must not stop the removal that is
+				// already committed; the next repair pass tries again.
+				this.logger?.warn?.(`dsh-evolver: could not prune the link to ${id} on ${card.id}: ${error instanceof Error ? error.message : String(error)}`)
+			}
+		}
 	}
 }

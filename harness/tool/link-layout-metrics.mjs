@@ -17,6 +17,7 @@
  *
  * ```bash
  * node harness/tool/link-layout-metrics.mjs
+ * node harness/tool/link-layout-metrics.mjs --data-dir ~/.dsh/evolver --svg /tmp/graph.svg
  * node harness/tool/link-layout-metrics.mjs --cards /tmp/cards.jsonl --svg /tmp/graph.svg
  * node harness/tool/link-layout-metrics.mjs --graph /tmp/graph.json --svg /tmp/graph.svg
  * ```
@@ -102,7 +103,11 @@ if (flags.graph !== undefined && flags.graph !== true) {
 	payload = JSON.parse(fs.readFileSync(String(flags.graph), 'utf8'))
 	cards = Array.isArray(payload.nodes) ? payload.nodes : []
 } else {
-	const cardFile = flags.cards ?? path.join(os.homedir(), '.dsh/evolver/knowledge/cards/cards.jsonl')
+	// The documented command is `--data-dir`; without it the probe silently
+	// read the default library, which is how a "measured the moved folder"
+	// report could be about a different one.
+	const dataDir = flags['data-dir'] ?? path.join(os.homedir(), '.dsh/evolver')
+	const cardFile = flags.cards ?? path.join(dataDir, 'knowledge/cards/cards.jsonl')
 	const merged = new Map()
 	for (const line of fs.readFileSync(cardFile, 'utf8').split('\n')) {
 		if (line.trim() === '') continue

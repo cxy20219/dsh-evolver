@@ -7,7 +7,7 @@
  */
 
 /** Patterns that must never reach a stored card. */
-export const SECRET_PATTERNS = [
+const SECRET_PATTERNS = [
 	[/-----BEGIN [A-Z ]*PRIVATE KEY-----/, '私钥'],
 	[/\bgh[pousr]_[A-Za-z0-9]{20,}\b/, 'GitHub 令牌'],
 	[/\bAKIA[0-9A-Z]{16}\b/, 'AWS 访问密钥'],

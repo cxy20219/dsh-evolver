@@ -101,7 +101,9 @@ export function createTools({ cards, sessions }) {
 					resourceName: { type: 'string', description: '附件文件名；必须与 resourceContent 同时提供' },
 					resourceContent: { type: 'string', description: '附件的完整文件内容；脚本/文档原文放这里，不要放进 body' },
 				},
-				required: ['body'],
+				// The runtime rejects a write without a description; the schema
+				// says so too, so the model is not asked to discover it by failing.
+				required: ['body', 'description'],
 			},
 			output: OBJECT_OUTPUT,
 			async execute(args) {

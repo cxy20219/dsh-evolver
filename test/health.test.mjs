@@ -178,3 +178,19 @@ test('数据目录操作进行中，健康日报跳过本轮且不写任何文�
 		await rm(dir, { recursive: true, force: true })
 	}
 })
+
+test('数据目录操作期间，面板按钮也不能写健康度行', async () => {
+	const { dir, store } = await fixture()
+	try {
+		const job = createHealthJob({
+			store: () => store,
+			now: () => Date.parse('2026-11-11T10:00:00Z'),
+			isBusy: () => true,
+		})
+		await assert.rejects(() => job.runNow(), /数据目录操作正在进行/)
+		assert.equal(await readFile(join(dir, 'knowledge', 'health.json'), 'utf8').then(() => true, () => false), false)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})

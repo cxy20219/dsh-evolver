@@ -9,7 +9,7 @@
 
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { LAYERS, OVERVIEW, REFERENCED_LAYERS, REQUIRED_INDEX_TEXT, TOOL_LAYER, catalog, indexRefs } from './store.js'

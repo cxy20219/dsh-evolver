@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { API_PREFIX, apply } from '../index.js'
+import { API_PREFIX, apply, openModeOf } from '../index.js'
 import { ENDPOINTS } from '../src/remote.js'
 import { createTar, readTar } from './support/tar-fixture.mjs'
 import { fakeOss } from './support/fake-oss.mjs'
@@ -684,4 +684,15 @@ test('设置文件损坏时回到默认目录，并把原因写进面板 warning
 			await disposeEffects(effects)
 		}
 	})
+})
+
+
+test('附件打开方式：文档交给系统程序，脚本与安装包只在文件管理器里定位', () => {
+	assert.equal(openModeOf('/data/a.pdf'), 'opened')
+	assert.equal(openModeOf('/data/a.PNG'), 'opened')
+	assert.equal(openModeOf('/data/run.command'), 'revealed')
+	assert.equal(openModeOf('/data/install.pkg'), 'revealed')
+	assert.equal(openModeOf('/data/tool.sh'), 'revealed')
+	assert.equal(openModeOf('/data/app.exe'), 'revealed')
+	assert.equal(openModeOf('/data/noext'), 'revealed')
 })

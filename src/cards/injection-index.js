@@ -24,12 +24,14 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { mkdir, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
+
+import { writeJsonAtomic } from '../atomic.js'
+import { dayKeyOf } from '../time.js'
 
 import { accessStats } from './access.js'
 import { buildGraph, degrees } from '../memory/graph.js'
-import { shortIds } from './ids.js'
+import { isCardId, shortIds } from './ids.js'
 import { isArchived, rootOf, TOP_TAGS } from './tags.js'
 
 /** The snapshot format. Bumped when the shape changes; unknown versions are ignored. */
@@ -106,24 +108,19 @@ function clipField(text, cap) {
 	return head.join('') + '…'
 }
 
+/**
+ * Collapse any field to one line.
+ *
+ * @param {unknown} value - The field.
+ * @returns {string} The single-line text.
+ */
+function singleLine(value) {
+	return String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
 /** The file name inside `<dataDir>/knowledge/`. */
 /** @internal exported for tests */
 export const INDEX_FILE = 'index.json'
-
-/**
- * The local day key, used to tell a fresh snapshot from yesterday's.
- *
- * Local, not UTC: "today" is the day the user is living in, and the daily run
- * uses the same convention for its own once-a-day check.
- *
- * @param {number} stamp - Milliseconds.
- * @returns {string} `YYYY-MM-DD` in local time.
- */
-function dayKeyOf(stamp) {
-	const date = new Date(stamp)
-	const pad = (value) => String(value).padStart(2, '0')
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
 
 /**
  * Read a clock or timestamp as milliseconds.
@@ -151,25 +148,6 @@ function stampOf(value) {
 export function cardIndexPath(store) {
 	const dataDir = typeof store?.dataDir === 'string' ? store.dataDir : ''
 	return dataDir === '' ? null : join(dataDir, 'knowledge', INDEX_FILE)
-}
-
-/**
- * Write one JSON document without ever leaving a half-written file.
- *
- * The same contract as the store's own atomic writes: the reader must see the
- * old snapshot or the new one, never a truncated file. A truncated read is
- * caught and treated as "no snapshot", so a crash here would silently drop the
- * index until the next day — the one failure this ordering prevents.
- *
- * @param {string} path - Destination.
- * @param {object} value - The value to serialise.
- * @returns {Promise<void>} Resolves once the file is in place.
- */
-async function writeIndexAtomic(path, value) {
-	await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-	const temp = `${path}.${process.pid}.tmp`
-	await writeFile(temp, `${JSON.stringify(value, null, '\t')}\n`, { mode: 0o600 })
-	await rename(temp, path)
 }
 
 /**
@@ -393,7 +371,7 @@ export async function refreshCardIndex(store, now = Date.now(), { summary } = {}
 	// timestamp is the only field that always differs, so compare without it.
 	const previous = await readRawIndex(path)
 	if (previous !== null && sameIndexBody(previous, index)) return previous
-	await writeIndexAtomic(path, index)
+	await writeJsonAtomic(path, index)
 	return index
 }
 
@@ -405,9 +383,10 @@ export async function refreshCardIndex(store, now = Date.now(), { summary } = {}
  *
  * @param {unknown} value - The parsed JSON.
  * @param {number} stamp - The clock in milliseconds.
+ * @param {number} descriptionCap - The configured description budget.
  * @returns {object | null} The snapshot, or null when unusable.
  */
-function normalizeIndex(value, stamp) {
+function normalizeIndex(value, stamp, descriptionCap) {
 	if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
 	if (value.version !== INDEX_VERSION) return null
 	if (typeof value.day !== 'string' || value.day !== dayKeyOf(stamp)) return null
@@ -417,13 +396,17 @@ function normalizeIndex(value, stamp) {
 	for (const entry of value.topCards) {
 		if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
 		const id = String(entry.id ?? '')
-		if (id === '' || seenCards.has(id)) continue
+		if (!isCardId(id) || seenCards.has(id)) continue
 		seenCards.add(id)
 		const short = String(entry.short ?? '').trim()
 		topCards.push({
 			id,
 			short: /^[0-9A-Za-z-]{3,40}$/.test(short) ? short : '',
-			description: String(entry.description ?? ''),
+			// The index is rendered as lines of a prompt. A newline smuggled
+			// into a field (an imported or hand-edited file) would start a new
+			// line that looks like another card; folding whitespace here keeps
+			// the read path as strict as the write path.
+			description: singleLine(entry.description).slice(0, descriptionCap),
 		})
 	}
 	return {
@@ -431,7 +414,7 @@ function normalizeIndex(value, stamp) {
 		day: value.day,
 		at: typeof value.at === 'string' ? value.at : '',
 		topCards: topCards.slice(0, MAX_TOP_CARDS),
-		summary: String(value.summary ?? '').slice(0, MAX_SUMMARY_CHARS),
+		summary: singleLine(value.summary).slice(0, MAX_SUMMARY_CHARS),
 	}
 }
 
@@ -456,6 +439,6 @@ export function readCardIndex(store, now = new Date()) {
 	} catch {
 		return null
 	}
-	return normalizeIndex(parsed, stampOf(now))
+	return normalizeIndex(parsed, stampOf(now), descriptionCapOf(store))
 }
 

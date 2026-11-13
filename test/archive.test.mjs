@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { createGzip } from 'node:zlib'
 
 import { MAX_EXTRACTED_BYTES, MAX_IMPORT_ENTRIES, extractArchiveFile, isGzip, writeArchiveFile, writeTarFile } from '../src/backup/archive.js'
-import { buildTarHeader } from '../src/backup/tar.js'
+import { buildTarHeader, parseTarHeader } from '../src/backup/tar.js'
 import { createTar, readTar } from './support/tar-fixture.mjs'
 import { safeResourceName } from '../src/cards/resources.js'
 
@@ -268,4 +268,19 @@ test('解压上限按实际解压字节算：白名单外的大条目也把预�
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}
+})
+
+
+test('tar 条目路径里的反斜杠被拒绝（Windows 分隔符会绕过按 / 的检查）', () => {
+	// buildTarHeader normalises separators, so the hostile name is written
+	// straight into a header and the checksum recomputed, the same way an
+	// archive from another tool would arrive.
+	const header = buildTarHeader({ path: 'knowledge/ok.txt', size: 1 })
+	header.fill(0x20, 0, 100)
+	Buffer.from('a\\..\\..\\x.md').copy(header, 0)
+	header.fill(0x20, 148, 156)
+	let sum = 0
+	for (const byte of header) sum += byte
+	Buffer.from(`${sum.toString(8).padStart(6, '0')}\0 `).copy(header, 148)
+	assert.throws(() => parseTarHeader(header), /反斜杠/)
 })

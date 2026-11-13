@@ -1,4 +1,4 @@
-import { appendFile, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /**
@@ -129,7 +129,7 @@ export class MemoryDatabase {
 		 * rebuilding on every read.
 		 */
 		this.version = 0
-		/** Why the last background write failed, if it did. */
+		/** Why the last background write failed, if it did. Read by `status()`. */
 		this.lastWriteError = ''
 		/** The wait before the next retry, doubled on every failure. */
 		this.writeRetryDelay = FLUSH_DELAY_MS
@@ -141,7 +141,13 @@ export class MemoryDatabase {
 		this.pendingAppends = []
 		/** How many records the log holds, so compaction can be decided. */
 		this.logLength = 0
-		/** Forces the next memory write to rewrite instead of append. */
+		/**
+		 * Forces the next memory write to rewrite instead of append.
+		 *
+		 * @internal A test seam: production lets the size limit below trigger
+		 * compaction, and the flag only exists so a test can exercise the
+		 * rewrite path without writing sixty log lines first.
+		 */
 		this.logRewrite = false
 	}
 

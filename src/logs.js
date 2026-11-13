@@ -112,6 +112,8 @@ export function createLogSink({ dataDir, forward, now = () => Date.now(), maxByt
 	const files = Math.max(1, Math.round(Number(keep) || KEEP))
 	/** Bytes written to the current file since it was opened; -1 until known. */
 	let bytes = -1
+	/** The folder those bytes belong to; a data-folder move resets the count. */
+	let bytesRoot = ''
 	/** Writes run one after another, so two lines never interleave. */
 	let chain = Promise.resolve()
 
@@ -122,12 +124,16 @@ export function createLogSink({ dataDir, forward, now = () => Date.now(), maxByt
 	 * @returns {Promise<number>} The size in bytes.
 	 */
 	async function sizeOf(root) {
-		if (bytes >= 0) return bytes
+		// The count belongs to one file. After a data-folder move the old count
+		// would rotate the new folder's log early (or not at all), so the
+		// tracked folder travels with the number.
+		if (bytes >= 0 && bytesRoot === root) return bytes
 		try {
 			bytes = (await stat(logPath(root, 0))).size
 		} catch {
 			bytes = 0
 		}
+		bytesRoot = root
 		return bytes
 	}
 
@@ -167,6 +173,7 @@ export function createLogSink({ dataDir, forward, now = () => Date.now(), maxByt
 		}
 		await appendFile(logPath(root, 0), line, { mode: 0o600 })
 		bytes += size
+		bytesRoot = root
 	}
 
 	/**

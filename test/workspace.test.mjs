@@ -7,12 +7,12 @@ import assert from 'node:assert/strict'
 import {
 	copyTree,
 	countEntries,
-	describeTree,
 	isDirectory,
 	isInsidePath,
 	isTransient,
 	pathsOverlap,
 } from '../src/workspace.js'
+import { createWorkspaceJobs } from '../src/workspace-jobs.js'
 
 test('isInsidePath 和 pathsOverlap 按解析后的路径判断', () => {
 	assert.equal(isInsidePath('/a/b', '/a/b/c'), true)
@@ -21,23 +21,6 @@ test('isInsidePath 和 pathsOverlap 按解析后的路径判断', () => {
 	assert.equal(pathsOverlap('/a/b', '/a/b/c'), true)
 	assert.equal(pathsOverlap('/a/b', '/a/c'), false)
 	assert.equal(pathsOverlap('/a/b', '/a/b'), true)
-})
-
-test('describeTree 统计文件与字节，跳过软链与临时文件', async () => {
-	const dir = await mkdtemp(join(tmpdir(), 'evr-tree-'))
-	try {
-		await mkdir(join(dir, 'practice', 'docs'), { recursive: true })
-		await writeFile(join(dir, 'practice', 'docs', 'a.md'), 'hello', 'utf8')
-		await writeFile(join(dir, 'practice', 'docs', 'b.tmp'), 'ignore', 'utf8')
-		await writeFile(join(dir, 'top.txt'), 'x', 'utf8')
-		await symlink(join(dir, 'top.txt'), join(dir, 'link.txt'))
-		const totals = await describeTree(dir)
-		assert.equal(totals.files, 2)
-		assert.equal(totals.bytes, 6)
-		assert.equal(totals.skippedLinks, 1)
-	} finally {
-		await rm(dir, { recursive: true, force: true })
-	}
 })
 
 test('copyTree 默认只补缺，force 才覆盖', async () => {
@@ -97,10 +80,53 @@ test('临时文件与导入备份不被复制或归档（一套 isTransient 规�
 		assert.equal(isTransient('half.part'), true)
 		assert.equal(isTransient('cards.jsonl.before-import-x'), true)
 		assert.equal(isTransient('keep.md'), false)
-		assert.equal((await describeTree(dir)).files, 1, '只统计真文件')
+
 		await copyTree(dir, target)
 		const copied = (await readdir(target)).sort()
 		assert.deepEqual(copied, ['keep.md'])
+	} finally {
+		await rm(base, { recursive: true, force: true })
+	}
+})
+
+
+test('迁移在切换失败时回到原目录，不留半迁移状态', async () => {
+	const base = await mkdtemp(join(tmpdir(), 'evr-migrate-'))
+	const oldRoot = join(base, 'old')
+	const newRoot = join(base, 'new')
+	try {
+		await mkdir(join(oldRoot, 'knowledge'), { recursive: true })
+		await writeFile(join(oldRoot, 'knowledge', 'a.md'), 'x', 'utf8')
+
+		let stored = ''
+		const evolver = {
+			root: oldRoot,
+			async ensure() {},
+			async switchRoot(root) { this.root = root },
+		}
+		const settings = {
+			path: join(base, 'settings.json'),
+			get: () => ({ dataDir: stored }),
+			async update(patch) { if (patch.dataDir !== undefined) stored = patch.dataDir },
+		}
+		const opened = []
+		const openCards = async (root) => {
+			if (root === newRoot) throw new Error('EACCES')
+			opened.push(root)
+			return { dataDir: root, async close() {} }
+		}
+		const jobs = createWorkspaceJobs({
+			evolver,
+			settings,
+			rootState: { source: 'default', warning: '' },
+			defaultRoot: oldRoot,
+			currentStore: () => ({ dataDir: oldRoot, async close() {} }),
+			openCards,
+		})
+		await assert.rejects(() => jobs.migrate(newRoot), /迁移未完成，已回到原数据目录/)
+		assert.equal(evolver.root, oldRoot)
+		assert.equal(stored, '')
+		assert.equal(opened.at(-1), oldRoot, '失败后必须把旧库重新打开')
 	} finally {
 		await rm(base, { recursive: true, force: true })
 	}

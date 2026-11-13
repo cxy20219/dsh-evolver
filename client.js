@@ -1,8 +1,8 @@
 /*
  * dsh-evolver — browser half.
  *
- * One sidebar entry opens one panel with four tabs:
- * 概览 / 卡片 / 偏好 / 设置.
+ * One sidebar entry opens one panel with seven tabs:
+ * 概览 / 卡片 / 资源 / 偏好 / 整理 / 设置 / 日志.
  *
  * The panel shows the same two things the agent gets: the card projection
  * and the global preferences — plus the health of the folder.
@@ -12,6 +12,7 @@ window.__ModuleLoader__.load({
 	factory: function (require) {
 		var react = require('react');
 
+		var Component = react.Component;
 		var h = react.createElement;
 		var useState = react.useState;
 		var useEffect = react.useEffect;
@@ -51,13 +52,13 @@ window.__ModuleLoader__.load({
 			'cards.resources.close': '关闭',
 			'cards.resources.noPreview': '这个类型没法在面板里预览，用系统程序打开更合适。',
 			'cards.resources.emptySearch': '没有匹配的资源。',
+			'cards.resources.revealed': '已改为在文件管理器中定位（脚本与安装包不会直接运行）。',
+			'cards.resources.more': '还有 {n} 个文件，用搜索收窄。',
 			'cards.resources.truncated': '文件较大，预览只显示前 200 KB。',
 			'cards.filter.resource': '引用资源：{name}',
 			'cards.filter.resourceClear': '清除',
 			'cards.resources.owner': '所属卡片',
-			'cards.resources.file': '文件',
 			'cards.resources.exec': '可执行',
-			'cards.resources.card': '所属卡片',
 			'cards.resources.refs': '引用',
 			'cards.resources.count': '共 {files} 个文件 · {cards} 张卡',
 			'cards.new': '新建卡片',
@@ -132,7 +133,6 @@ window.__ModuleLoader__.load({
 			'logs.empty': '还没有日志。跑一次整理或等一次定时任务，这里就会出现记录。',
 			'logs.refresh': '刷新',
 			'logs.files': '{files} 个文件 · {bytes}',
-			'logs.truncated': '只显示最近 {n} 条',
 			'logs.levelInfo': '信息',
 			'logs.levelWarn': '警告',
 			'logs.levelError': '错误',
@@ -173,6 +173,7 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.label': '卡片链接关系图',
 			'overview.linkGraph.empty': '还没有卡片之间的链接。',
 			'overview.linkGraph.links': '条链接',
+			'overview.linkGraph.count': '显示 {shown} / 共 {total} 张',
 			'overview.tree.graphLabel': '标签关系图',
 			'overview.tree.empty': '还没有标签。',
 			'overview.descriptions': '标签描述',
@@ -202,6 +203,9 @@ window.__ModuleLoader__.load({
 			'overview.projection': '注入的卡片索引',
 			'prefs.hint': '这里是全局偏好。保存后由 DSH 的 AGENTS.md 加载器注入给每个会话。',
 			'prefs.content': '全局偏好（Markdown）',
+			'prefs.readFailed': '偏好文件读取失败，为避免覆盖原文件，保存已禁用；请检查文件权限后刷新。',
+			'prefs.truncated': '文件超过 64 KB，这里只加载了前 64 KB；直接保存会截断，保存已禁用。',
+			'prefs.notLoaded': '偏好还没读取成功，先刷新再编辑；为避免把空内容写回去，保存已禁用。',
 			'prefs.global': '全局加载',
 			'prefs.link.linked': '已链接',
 			'prefs.link.foreign': '被其他来源占用',
@@ -307,13 +311,13 @@ window.__ModuleLoader__.load({
 			'cards.resources.close': 'Close',
 			'cards.resources.noPreview': 'This type cannot be previewed here; open it with the system app.',
 			'cards.resources.emptySearch': 'No matching resources.',
+			'cards.resources.revealed': 'Revealed in the file manager (scripts and installers are not run).',
+			'cards.resources.more': '{n} more files; narrow the list with a search.',
 			'cards.resources.truncated': 'Large file: the preview shows the first 200 KB only.',
 			'cards.filter.resource': 'Uses resource: {name}',
 			'cards.filter.resourceClear': 'Clear',
 			'cards.resources.owner': 'Card',
-			'cards.resources.file': 'File',
 			'cards.resources.exec': 'Exec',
-			'cards.resources.card': 'Card',
 			'cards.resources.refs': 'Used by',
 			'cards.resources.count': '{files} files · {cards} cards',
 			'cards.new': 'New card',
@@ -388,7 +392,6 @@ window.__ModuleLoader__.load({
 			'logs.empty': 'Nothing logged yet. Run an organiser, or wait for one, and entries will appear here.',
 			'logs.refresh': 'Refresh',
 			'logs.files': '{files} file(s) · {bytes}',
-			'logs.truncated': 'Showing the last {n}',
 			'logs.levelInfo': 'info',
 			'logs.levelWarn': 'warn',
 			'logs.levelError': 'error',
@@ -429,6 +432,7 @@ window.__ModuleLoader__.load({
 			'overview.linkGraph.label': 'Card link graph',
 			'overview.linkGraph.empty': 'No links between cards yet.',
 			'overview.linkGraph.links': 'links',
+			'overview.linkGraph.count': 'Showing {shown} of {total} cards',
 			'overview.tree.graphLabel': 'Tag relationship graph',
 			'overview.tree.empty': 'No tags yet.',
 			'overview.descriptions': 'Tag descriptions',
@@ -458,6 +462,9 @@ window.__ModuleLoader__.load({
 			'overview.projection': 'Injected card index',
 			'prefs.hint': 'Global preferences. DSH injects this file through its AGENTS.md loader.',
 			'prefs.content': 'Global preferences (Markdown)',
+			'prefs.readFailed': 'The preferences file could not be read. Saving is disabled so the original is not overwritten; check permissions and refresh.',
+			'prefs.truncated': 'The file is larger than 64 KB and only the first 64 KB is loaded. Saving would truncate it, so saving is disabled.',
+			'prefs.notLoaded': 'Preferences have not loaded yet. Refresh before editing; saving is disabled so empty content cannot be written back.',
 			'prefs.global': 'Global load',
 			'prefs.link.linked': 'linked',
 			'prefs.link.foreign': 'linked elsewhere',
@@ -689,6 +696,7 @@ window.__ModuleLoader__.load({
 			'.evrLogError .evrLogLevel{color:#b0402e}',
 			'.evrLogText{flex:1;min-width:0;word-break:break-word;font-family:ui-monospace,Menlo,monospace}',
 			'.evrGraphWrap{position:relative}',
+			'.evrGraphCap{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-bottom:6px;text-align:right;font-variant-numeric:tabular-nums}',
 			'.evrGraph{width:100%;height:auto;max-width:460px;display:block;margin:0 auto;cursor:grab;touch-action:none}',
 			'.evrGraph:active{cursor:grabbing}',
 			'.evrGraphEdge{fill:none;stroke-width:1;stroke-opacity:.45}',
@@ -1143,6 +1151,72 @@ window.__ModuleLoader__.load({
 				return function () { node.removeEventListener('wheel', onWheel); };
 			}, [layout, fitView === null ? 0 : fitView.s]);
 
+			// The drawing is memoised: a pan or a wheel only moves the outer
+			// <g> transform, and rebuilding every edge and node on each
+			// pointermove is what made a big tree stutter while dragging.
+			var edgeEls = useMemo(function () {
+				if (layout === null) return [];
+				return layout.edges.map(function (edge, index) {
+					// A slight bow, the way flomo draws its spokes: straight lines
+					// read as a starburst, curves read as a tree.
+					var mx = (edge.from.x + edge.to.x) / 2;
+					var my = (edge.from.y + edge.to.y) / 2;
+					var dx = edge.to.x - edge.from.x;
+					var dy = edge.to.y - edge.from.y;
+					var len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+					var bend = Math.min(16, len * 0.08);
+					var qx = mx - (dy / len) * bend;
+					var qy = my + (dx / len) * bend;
+					return h('path', {
+						key: 'e-' + index,
+						d: 'M ' + edge.from.x.toFixed(1) + ' ' + edge.from.y.toFixed(1)
+							+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
+							+ ' ' + edge.to.x.toFixed(1) + ' ' + edge.to.y.toFixed(1),
+						className: 'evrGraphEdge',
+						stroke: LINK_BRANCH_COLORS[edge.root.split('/')[0]] ?? '#a8adb5',
+					});
+				});
+			}, [layout]);
+
+			var nodeEls = useMemo(function () {
+				if (layout === null) return [];
+				return layout.nodes.map(function (node) {
+					var degrees = (node.angle * 180) / Math.PI;
+					var flipped = Math.cos(node.angle) < 0;
+					var labelX = flipped ? node.x - 9 : node.x + 9;
+					var isRoot = node.depth === 0;
+					var active = tip === null || node.path === tip.path
+						|| (tip !== null && node.path.indexOf(tip.path + '/') === 0);
+					return h('g', {
+						key: node.path,
+						className: 'evrGraphNode',
+						role: 'button',
+						tabIndex: 0,
+						'aria-label': node.path + ' · ' + node.count,
+						opacity: active ? 1 : 0.32,
+						onClick: function (event) { pick(node, event); },
+						onKeyDown: function (event) {
+							if (event && (event.key === 'Enter' || event.key === ' ')) pick(node, event);
+						},
+					},
+						h('circle', {
+							cx: node.x,
+							cy: node.y,
+							r: isRoot ? 4.4 : 3.2,
+							className: isRoot ? 'evrGraphDot evrGraphDotRoot' : 'evrGraphDot',
+							stroke: colorOf(node),
+						}),
+						h('text', {
+							x: labelX,
+							y: node.y + 3.2,
+							textAnchor: flipped ? 'end' : 'start',
+							transform: 'rotate(' + (flipped ? degrees + 180 : degrees).toFixed(1) + ' ' + node.x.toFixed(1) + ' ' + node.y.toFixed(1) + ')',
+							className: isRoot ? 'evrGraphLabel evrGraphRoot' : 'evrGraphLabel',
+						}, node.name),
+						h('title', null, node.path + ' · ' + node.count));
+				});
+			}, [layout, tip, t]);
+
 			if (layout === null) return h('div', { className: 'evrHint' }, t('overview.tree.empty'));
 
 			/**
@@ -1190,63 +1264,6 @@ window.__ModuleLoader__.load({
 				setTip({ path: node.path, x: node.x, y: node.y });
 				frameOn(node, node.depth === 0 ? false : (node.children ?? []).length === 0);
 			}
-
-			var edgeEls = layout.edges.map(function (edge, index) {
-				// A slight bow, the way flomo draws its spokes: straight lines
-				// read as a starburst, curves read as a tree.
-				var mx = (edge.from.x + edge.to.x) / 2;
-				var my = (edge.from.y + edge.to.y) / 2;
-				var dx = edge.to.x - edge.from.x;
-				var dy = edge.to.y - edge.from.y;
-				var len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-				var bend = Math.min(16, len * 0.08);
-				var qx = mx - (dy / len) * bend;
-				var qy = my + (dx / len) * bend;
-				return h('path', {
-					key: 'e-' + index,
-					d: 'M ' + edge.from.x.toFixed(1) + ' ' + edge.from.y.toFixed(1)
-						+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
-						+ ' ' + edge.to.x.toFixed(1) + ' ' + edge.to.y.toFixed(1),
-					className: 'evrGraphEdge',
-					stroke: LINK_BRANCH_COLORS[edge.root.split('/')[0]] ?? '#a8adb5',
-				});
-			});
-
-			var nodeEls = layout.nodes.map(function (node) {
-				var degrees = (node.angle * 180) / Math.PI;
-				var flipped = Math.cos(node.angle) < 0;
-				var labelX = flipped ? node.x - 9 : node.x + 9;
-				var isRoot = node.depth === 0;
-				var active = tip === null || node.path === tip.path
-					|| (tip !== null && node.path.indexOf(tip.path + '/') === 0);
-				return h('g', {
-					key: node.path,
-					className: 'evrGraphNode',
-					role: 'button',
-					tabIndex: 0,
-					'aria-label': node.path + ' · ' + node.count,
-					opacity: active ? 1 : 0.32,
-					onClick: function (event) { pick(node, event); },
-					onKeyDown: function (event) {
-						if (event && (event.key === 'Enter' || event.key === ' ')) pick(node, event);
-					},
-				},
-					h('circle', {
-						cx: node.x,
-						cy: node.y,
-						r: isRoot ? 4.4 : 3.2,
-						className: isRoot ? 'evrGraphDot evrGraphDotRoot' : 'evrGraphDot',
-						stroke: colorOf(node),
-					}),
-					h('text', {
-						x: labelX,
-						y: node.y + 3.2,
-						textAnchor: flipped ? 'end' : 'start',
-						transform: 'rotate(' + (flipped ? degrees + 180 : degrees).toFixed(1) + ' ' + node.x.toFixed(1) + ' ' + node.y.toFixed(1) + ')',
-						className: isRoot ? 'evrGraphLabel evrGraphRoot' : 'evrGraphLabel',
-					}, node.name),
-					h('title', null, node.path + ' · ' + node.count));
-			});
 
 			var tipNode = null;
 			if (tip !== null) {
@@ -2375,6 +2392,14 @@ window.__ModuleLoader__.load({
 		function LinkGraph(props) {
 			var t = props.t;
 			var graph = props.graph;
+			// The host caps the picture at `limit`; the part that fell off is
+			// invisible unless the panel says how many cards are missing.
+			var totals = graph !== null && graph !== undefined && typeof graph === 'object' ? graph.totals : null;
+			var hiddenCards = totals !== null && totals !== undefined ? Number(totals.hiddenCards) || 0 : 0;
+			var shownCards = graph !== null && graph !== undefined && Array.isArray(graph.nodes) ? graph.nodes.length : 0;
+			var totalCards = totals !== null && totals !== undefined && Number.isFinite(Number(totals.cards))
+				? Number(totals.cards)
+				: shownCards;
 			var sim = useMemo(function () {
 				if (graph === null || graph === undefined || typeof graph !== 'object') return null;
 				if (linkSimulationCache.has(graph)) return linkSimulationCache.get(graph);
@@ -2730,6 +2755,11 @@ window.__ModuleLoader__.load({
 			if (sim === null) return h('div', { className: 'evrHint' }, t('overview.linkGraph.empty'));
 
 			return h('div', { className: 'evrGraphWrap' },
+				hiddenCards > 0
+					? h('div', { className: 'evrGraphCap' }, t('overview.linkGraph.count')
+						.replace('{shown}', String(shownCards))
+						.replace('{total}', String(totalCards)))
+					: null,
 				h('svg', {
 					ref: svgRef,
 					className: 'evrLinkGraph' + (dragging === null ? '' : ' evrLinkGraphDragging'),
@@ -2875,9 +2905,10 @@ window.__ModuleLoader__.load({
 			var heatHint = t('overview.yearHeatmap.hint')
 				.replace('{notes}', String(year.notes ?? 0))
 				.replace('{days}', String(year.activeDays ?? 0));
-			var prefsLink = injection.preferences.link.kind !== 'link'
+			var prefsLinkInfo = injection.preferences?.link ?? { kind: 'missing' };
+			var prefsLink = prefsLinkInfo.kind !== 'link'
 				? t('prefs.link.missing')
-				: (injection.preferences.link.ours === false ? t('prefs.link.foreign') : t('prefs.link.linked'));
+				: (prefsLinkInfo.ours === false ? t('prefs.link.foreign') : t('prefs.link.linked'));
 			var sections = [
 				{ id: 'stats', label: t('overview.stats') },
 				// The editor only exists when the host can serve it; an older
@@ -3005,9 +3036,9 @@ window.__ModuleLoader__.load({
 				}
 				if (section === 'preferences') {
 					return preview(t('overview.preferences'), [
-						[t('overview.bytes'), formatBytes(injection.preferences.bytes)],
+						[t('overview.bytes'), formatBytes(injection.preferences?.bytes ?? 0)],
 						[t('overview.link'), prefsLink],
-					], injection.preferences.text ?? '');
+					], injection.preferences?.text ?? '');
 				}
 				return h('div', { role: 'tabpanel' },
 					h('div', { className: 'evrSection' }, t('overview.heatmap.section')),
@@ -3169,12 +3200,6 @@ window.__ModuleLoader__.load({
 				return function () { clearTimeout(timer); };
 			}, [search]);
 			var [promoteTarget, setPromoteTarget] = useState('践行');
-			var [view, setView] = useState('cards');
-			useEffect(function () {
-				if (view !== 'resources') return undefined;
-				props.onLoadResources();
-				return undefined;
-			}, [view, props.onLoadResources]);
 			if (state === null || state === undefined) return h(Spinner, null, t('state.loading'));
 			var cards = Array.isArray(state.cards) ? state.cards : [];
 			var tree = Array.isArray(state.tree) ? state.tree : [];
@@ -3245,7 +3270,7 @@ window.__ModuleLoader__.load({
 							h('span', { className: 'evrCardCount' }, (card.tags ?? []).slice(0, 3).map(function (tag) { return '#' + tag; }).join(' · '))),
 						h('div', { className: 'evrHint evrMono' }, card.id),
 						h('div', { className: 'evrPre', style: { whiteSpace: 'pre-wrap', marginTop: '8px' } }, card.body || ''),
-						card.source !== undefined && card.source.quote !== undefined
+						card.source?.quote !== undefined
 							? h('div', { className: 'evrHint', style: { marginTop: '8px' } }, t('cards.source') + '：' + card.source.quote)
 							: null,
 						h('div', { className: 'evrRowMeta', style: { marginTop: '8px' } },
@@ -3272,7 +3297,15 @@ window.__ModuleLoader__.load({
 						? h('div', { className: 'evrSection' }, t('cards.links'))
 						: null,
 					(detail.links ?? []).map(function (item) {
-						return h('div', { key: 'l-' + item.id, className: 'evrHint' }, '→ ' + (item.description || item.id));
+						// Outgoing links open like backlinks: the trail continues in
+						// both directions, so both are buttons.
+						return h('button', {
+							key: 'l-' + item.id,
+							type: 'button',
+							className: 'evrBtn',
+							style: { marginRight: '6px', marginBottom: '4px' },
+							onClick: function () { props.onOpen(item.id); },
+						}, '→ ' + (item.description || item.id));
 					}),
 					(detail.backlinks ?? []).length > 0 ? h('div', { className: 'evrSection' }, t('cards.backlinks')) : null,
 					(detail.backlinks ?? []).map(function (item) {
@@ -3408,20 +3441,13 @@ window.__ModuleLoader__.load({
 							: h('div', { className: 'evrCardsScroll' }, renderList())));
 		}
 
-		/**
-		 * 资源页：全部附件的只读清单。
-		 *
-		 * 不新建第二套存储——附件本来就属于某张卡片（`knowledge/resources/<卡片id>/`），
-		 * 这里只是把散在卡片目录里的文件聚到一页：有什么、多大、能不能直接跑、
-		 * 挂在哪张卡上、被几张卡引用。
-		 *
-		 * @param {object} props - Slot props plus the loaded rows.
-		 * @returns {object} The page.
-		 */
 		/** 能在面板里直接渲染的扩展名：其余类型交给系统程序。 */
 		var PREVIEWABLE = ['md', 'markdown', 'txt', 'log', 'json', 'yaml', 'yml', 'toml', 'csv', 'tsv',
 			'html', 'css', 'js', 'mjs', 'cjs', 'ts', 'py', 'sh', 'bash', 'zsh', 'rb', 'go', 'rs',
 			'java', 'c', 'h', 'cpp', 'sql', 'xml', 'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'pdf'];
+
+		/** How many attachment rows the page paints before asking for a search. */
+		var RESOURCE_ROW_LIMIT = 200;
 
 		function previewableOf(name) {
 			var match = /\.([0-9a-z]+)$/i.exec(String(name ?? ''));
@@ -3454,20 +3480,40 @@ window.__ModuleLoader__.load({
 						|| String(card.description ?? '').toLowerCase().includes(needle)
 						|| (card.tags ?? []).some(function (tag) { return String(tag).toLowerCase().includes(needle); });
 				});
+			// A folder can hold hundreds of attachments; the page still has to
+			// open. The rest is one search away, not one scroll away.
+			var shown = list.slice(0, RESOURCE_ROW_LIMIT);
 			var owners = {};
 			all.forEach(function (file) {
 				var owner = file.card ?? { id: '' };
 				if (owner.id !== '') owners[owner.id] = true;
 			});
 
+			// Only the last preview wins: closing the overlay while a request is
+			// still in flight must not reopen it when the late answer arrives.
+			var previewSeq = useRef(0);
+
+			function closePreview() {
+				previewSeq.current += 1;
+				setPreviewing(false);
+				setPreview(null);
+			}
+
 			function openPreview(file) {
+				var token = previewSeq.current + 1;
+				previewSeq.current = token;
 				setPreviewing(true);
 				setPreview({ file: file, data: null });
 				props.onPreview(file.card.id, file.name).then(function (value) {
+					if (previewSeq.current !== token) return;
 					setPreview({ file: file, data: value });
-				}).catch(function () {
-					setPreview(null);
+				}).catch(function (reason) {
+					if (previewSeq.current !== token) return;
+					closePreview();
+					// A preview that silently does nothing reads as a broken button.
+					if (typeof props.onNotify === 'function') props.onNotify(messageOf(reason), true);
 				}).then(function () {
+					if (previewSeq.current !== token) return;
 					setPreviewing(false);
 				});
 			}
@@ -3478,8 +3524,13 @@ window.__ModuleLoader__.load({
 				if (data === null || data === undefined) {
 					return h('div', null, body, h('div', { className: 'evrHint' }, t('state.loading')));
 				}
-				if (data.kind === 'image') {
+				if (data.kind === 'image' && typeof data.base64 === 'string') {
 					body = h('div', { className: 'evrPreviewBody' }, h('img', { src: 'data:' + data.mime + ';base64,' + data.base64, alt: data.name }));
+				} else if (data.kind === 'image') {
+					// An older host could answer `kind: 'image'` without bytes;
+					// rendering `data:...;base64,undefined` looks like a corrupt
+					// file, so say the preview is unavailable instead.
+					body = h('div', { className: 'evrPreviewBody' }, h('div', { className: 'evrHint' }, t('cards.resources.noPreview')));
 				} else if (data.kind === 'pdf') {
 					body = h('div', { className: 'evrPreviewBody' }, h('iframe', { src: 'data:application/pdf;base64,' + data.base64, title: data.name }));
 				} else if (data.kind === 'text') {
@@ -3521,7 +3572,7 @@ window.__ModuleLoader__.load({
 						? h(Empty, null, t('cards.resources.emptySearch'))
 						// 文件名是这个页面的主体：先看到有什么文件，再决定要不要
 						// 关心它属于哪张卡。
-						: h('div', null, list.map(function (file) {
+						: h('div', null, shown.map(function (file) {
 							var card = file.card ?? {};
 							return h('div', { key: (card.id ?? '') + '/' + file.name, className: 'evrRow' },
 								h('div', { className: 'evrRowMain' },
@@ -3559,10 +3610,14 @@ window.__ModuleLoader__.load({
 										className: 'evrBtn evrBtnPrimary',
 										onClick: function () { props.onFilter({ resourcePath: file.path ?? '', query: '', tag: '', anyTags: [], archivedOnly: false }); },
 									}, t('cards.resources.view'))));
-						})),
+						}),
+						list.length > RESOURCE_ROW_LIMIT
+							? h('div', { className: 'evrHint', style: { marginTop: '8px' } },
+								t('cards.resources.more').replace('{n}', String(list.length - RESOURCE_ROW_LIMIT)))
+							: null),
 				preview === null
 					? null
-					: h('div', { className: 'evrPreview', onClick: function () { setPreview(null); } },
+					: h('div', { className: 'evrPreview', onClick: closePreview },
 						h('div', { className: 'evrPreviewPanel', onClick: function (event) { if (event && event.stopPropagation) event.stopPropagation(); } },
 							h('div', { className: 'evrPreviewHead' },
 								h('span', { className: 'evrMono' }, preview.file.name),
@@ -3571,7 +3626,7 @@ window.__ModuleLoader__.load({
 								h('button', {
 									type: 'button',
 									className: 'evrBtn',
-									onClick: function () { setPreview(null); },
+									onClick: closePreview,
 								}, t('cards.resources.close'))),
 							previewBody()))]));
 		}
@@ -3586,6 +3641,14 @@ window.__ModuleLoader__.load({
 			var t = props.t;
 			var preferences = props.preferences;
 			var link = preferences?.link ?? { kind: 'missing' };
+			// An unreadable or truncated file must not be repairable by pressing
+			// Save: the textarea would hold '' or half the file and write that
+			// back over the real preferences.
+			var unreadable = preferences !== null && preferences !== undefined && preferences.readable === false;
+			var truncated = preferences?.truncated === true;
+			var notLoaded = preferences === null || preferences === undefined;
+			var locked = unreadable || truncated || notLoaded;
+			var lockHint = unreadable ? t('prefs.readFailed') : (truncated ? t('prefs.truncated') : (notLoaded ? t('prefs.notLoaded') : ''));
 			// A link the plugin did not create belongs to somebody else: it is
 			// shown as such, and replacing it stays a deliberate takeover.
 			// The host reports one of link / file / other / missing; only the
@@ -3603,13 +3666,15 @@ window.__ModuleLoader__.load({
 				h('textarea', {
 					className: 'evrTextarea',
 					value: preferences?.content ?? '',
+					readOnly: locked,
 					onChange: function (event) { props.onChange(event.target.value); },
 				}),
+				lockHint === '' ? null : h('div', { className: 'evrHint', style: { marginTop: '6px' } }, lockHint),
 				h('div', { className: 'evrEditorFoot' },
 					h('button', {
 						type: 'button',
 						className: 'evrBtn evrBtnPrimary',
-						disabled: props.busy,
+						disabled: props.busy || locked,
 						onClick: function () { props.onSave(); },
 					}, t('action.save')),
 					link.kind === 'link' && !foreign
@@ -3683,10 +3748,9 @@ window.__ModuleLoader__.load({
 		 * The model behind one option value.
 		 *
 		 * @param {string} value - The option value.
-		 * @param {object | null | undefined} catalog - The model catalogue.
 		 * @returns {object} The selection, `{provider, model}` or bare.
 		 */
-		function modelFromOption(value, catalog) {
+		function modelFromOption(value) {
 			if (value === '') return null;
 			var parts = String(value).split('::');
 			if (parts.length !== 2) return null;
@@ -4208,7 +4272,7 @@ window.__ModuleLoader__.load({
 								className: 'evrInput',
 								value: modelOptionValue(draftModel),
 								onChange: function (event) {
-									props.onOrganizeDraft({ model: modelFromOption(event.target.value, organizeStatus) });
+									props.onOrganizeDraft({ model: modelFromOption(event.target.value) });
 								},
 							},
 								[h('option', { key: '__session', value: '' }, t('settings.organize.modelSession'))].concat(
@@ -4464,6 +4528,52 @@ window.__ModuleLoader__.load({
 		//#region panel
 
 		/**
+		 * Keep one broken page from blanking the whole panel.
+		 *
+		 * The tab body is wrapped in this boundary, which is keyed by the tab:
+		 * React remounts it when the tab changes, so a page that threw while
+		 * the host answered with an unexpected shape only loses that page, and
+		 * the reader can still switch to the others.
+		 */
+		class TabErrorBoundary extends Component {
+			/**
+			 * @param {object} props - `{t, children}`.
+			 */
+			constructor(props) {
+				super(props);
+				this.state = { error: null };
+			}
+
+			/**
+			 * The state after a descendant threw during render.
+			 *
+			 * @param {unknown} error - The thrown value.
+			 * @returns {object} The next state.
+			 */
+			static getDerivedStateFromError(error) {
+				return { error: error };
+			}
+
+			/**
+			 * The fallback: a retry affordance that re-renders the same page.
+			 *
+			 * @returns {object} The element tree.
+			 */
+			render() {
+				if (this.state.error === null) return this.props.children;
+				var t = this.props.t;
+				return h('div', { className: 'evrEmpty' },
+					h('div', null, t('state.error')),
+					h('button', {
+						type: 'button',
+						className: 'evrBtn',
+						style: { marginTop: '10px' },
+						onClick: function () { this.setState({ error: null }); }.bind(this),
+					}, t('action.retry')));
+			}
+		}
+
+		/**
 		 * The evolver panel.
 		 *
 		 * @param {object} props - Slot props, including the plugin's `ctx`.
@@ -4510,6 +4620,11 @@ window.__ModuleLoader__.load({
 			// Only the last answer of each kind wins: a slow first request must not
 			// overwrite what the user selected while waiting.
 			var requestSeq = useRef({ load: 0, cards: 0, graph: 0, detail: 0 });
+			// The filter the user has selected right now. Long-lived callbacks
+			// (save a limit, refresh everything) must not answer to the empty
+			// filter captured on mount, so they read it through this ref.
+			var cardFilterRef = useRef(cardFilter);
+			cardFilterRef.current = cardFilter;
 
 			var report = useCallback(function (message, isError) {
 				setStatus({ message: message, error: isError === true });
@@ -4524,6 +4639,71 @@ window.__ModuleLoader__.load({
 			var tRef = useRef(t);
 			tRef.current = t;
 
+			/**
+			 * Reload the card list with a filter, defaulting to the current one.
+			 *
+			 * @param {object} [nextFilter] - The filter to use instead.
+			 * @returns {Promise<object | null>} The fresh payload.
+			 */
+			var refreshCards = useCallback(function (nextFilter) {
+				var filter = nextFilter ?? cardFilterRef.current;
+				var payload = {
+					query: filter.query ?? '',
+					tags: filter.tag ? [filter.tag] : [],
+					anyTags: filter.anyTags ?? [],
+					archivedOnly: filter.archivedOnly === true,
+					resourcePath: filter.resourcePath ?? '',
+				};
+				var token = requestSeq.current.cards + 1;
+				requestSeq.current.cards = token;
+				return call('card-list', payload).then(function (value) {
+					if (requestSeq.current.cards === token) setCards(value);
+					return value;
+				}).catch(function (reason) {
+					notify(messageOf(reason), true);
+					return null;
+				});
+			}, [call, notify]);
+
+			/**
+			 * Reload the whole-library payload the overview link graph draws.
+			 *
+			 * @returns {Promise<object | null>} The fresh payload.
+			 */
+			var refreshGraph = useCallback(function () {
+				var token = requestSeq.current.graph + 1;
+				requestSeq.current.graph = token;
+				return call('graph', { limit: 300 }).then(function (value) {
+					if (requestSeq.current.graph === token) setGraph(value);
+					return value;
+				}).catch(function (reason) {
+					notify(messageOf(reason), true);
+					return null;
+				});
+			}, [call, notify]);
+
+			/**
+			 * Reload everything a mutation can change.
+			 *
+			 * Mutations use this instead of `refreshCards`: the graph lives off
+			 * its own request and would otherwise keep the pre-mutation picture,
+			 * and the overview (counts, tag tree, injected text) is a separate
+			 * projection that also went stale. A failed overview read keeps the
+			 * previous value instead of blanking the page.
+			 *
+			 * @returns {Promise<unknown[]>} The fresh payloads.
+			 */
+			var refreshLibrary = useCallback(function () {
+				return Promise.all([
+					refreshCards(),
+					refreshGraph(),
+					call('overview').then(function (value) {
+						setOverview(value);
+						return value;
+					}).catch(function () { return null; }),
+				]);
+			}, [call, refreshCards, refreshGraph]);
+
 			useEffect(function () {
 				if (toast === null || toast.error === true) return undefined;
 				var timer = setTimeout(function () { setToast(null); }, 4500);
@@ -4536,6 +4716,9 @@ window.__ModuleLoader__.load({
 				// One failing endpoint must not blank the whole panel. Only the two
 				// the first screen cannot work without are fatal; the rest downgrade
 				// to a notice and keep whatever the other blocks loaded.
+				// The list and the graph go through their own refreshers: a
+				// global refresh has to respect the current filter and share the
+				// request sequence with every other caller.
 				var requests = [
 					{ name: 'overview', request: call('overview') },
 					{ name: 'injection', request: call('injection') },
@@ -4543,11 +4726,11 @@ window.__ModuleLoader__.load({
 					{ name: 'settings', request: call('settings') },
 					{ name: 'ingest-status', request: call('ingest-status') },
 					{ name: 'consolidate-status', request: call('consolidate-status') },
-					{ name: 'card-list', request: call('card-list', {}) },
+					{ name: 'card-list', request: refreshCards() },
 					// A host from before this feature answers with an unknown-endpoint
 					// error; the panel then simply has no descriptions to edit.
 					{ name: 'tag-descriptions', request: call('tag-descriptions') },
-					{ name: 'link-graph', request: call('graph', { limit: 300 }) },
+					{ name: 'link-graph', request: refreshGraph() },
 				];
 				return Promise.allSettled(requests.map(function (entry) { return entry.request; })).then(function (results) {
 					if (requestSeq.current.load !== token) return;
@@ -4564,9 +4747,9 @@ window.__ModuleLoader__.load({
 					var nextSettings = valueOf(3);
 					var nextIngest = valueOf(4);
 					var nextConsolidate = valueOf(5);
-					var nextCards = valueOf(6);
+					// Index 6 (cards) and 8 (graph) apply themselves inside the
+					// refreshers, behind their own request sequence.
 					var nextDescriptions = valueOf(7);
-					var nextGraph = valueOf(8);
 					if (nextOverview !== undefined) setOverview(nextOverview);
 					if (nextInjection !== undefined) setInjection(nextInjection);
 					if (nextPreferences !== undefined) setPreferences(nextPreferences);
@@ -4579,8 +4762,6 @@ window.__ModuleLoader__.load({
 						setConsolidate(nextConsolidate);
 						setConsolidateDraft(function (current) { return current === null || current === undefined ? consolidateFormOf(nextConsolidate) : current; });
 					}
-					if (nextCards !== undefined) setCards(nextCards);
-					if (nextGraph !== undefined) setGraph(nextGraph);
 					if (nextDescriptions !== undefined) setDescriptions(nextDescriptions?.descriptions ?? null);
 					var fatal = failures.filter(function (failure) { return failure.name === 'overview' || failure.name === 'injection'; });
 					if (fatal.length > 0) {
@@ -4593,7 +4774,7 @@ window.__ModuleLoader__.load({
 						? null
 						: tRef.current('state.partial').replace('{items}', failures.map(function (failure) { return failure.name; }).join(', ')));
 				});
-			}, [call]);
+			}, [call, refreshCards, refreshGraph]);
 
 			useEffect(function () {
 				void loadAll();
@@ -4617,6 +4798,13 @@ window.__ModuleLoader__.load({
 			}, [call, report, t]);
 
 			var savePreferences = useCallback(function () {
+				if (preferences?.readable === false || preferences?.truncated === true || preferences === null || preferences === undefined) {
+					var why = preferences === null || preferences === undefined
+						? t('prefs.notLoaded')
+						: (preferences.truncated === true ? t('prefs.truncated') : t('prefs.readFailed'));
+					report(why, true);
+					return;
+				}
 				setBusy(true);
 				call('preferences-save', { content: preferences?.content ?? '' }).then(function (value) {
 					setPreferences(value);
@@ -4682,7 +4870,7 @@ window.__ModuleLoader__.load({
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
 				}).finally(function () { setBusy(false); });
-			}, [call, report, t]);
+			}, [call, notify, t]);
 
 			var clearBackupSecret = useCallback(function () {
 				setBusy(true);
@@ -4692,7 +4880,7 @@ window.__ModuleLoader__.load({
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
 				}).finally(function () { setBusy(false); });
-			}, [call, report, t]);
+			}, [call, notify, t]);
 
 			var migrateData = useCallback(function (dir, force) {
 				setBusy(true);
@@ -4704,7 +4892,7 @@ window.__ModuleLoader__.load({
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
 				}).finally(function () { setBusy(false); });
-			}, [call, loadAll, report, t]);
+			}, [call, loadAll, notify, t]);
 
 			var exportData = useCallback(function (dir, name, force) {
 				setBusy(true);
@@ -4714,7 +4902,7 @@ window.__ModuleLoader__.load({
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
 				}).finally(function () { setBusy(false); });
-			}, [call, report, t]);
+			}, [call, notify, t]);
 
 			var importData = useCallback(function (dir, force) {
 				setBusy(true);
@@ -4725,7 +4913,7 @@ window.__ModuleLoader__.load({
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
 				}).finally(function () { setBusy(false); });
-			}, [call, loadAll, report, t]);
+			}, [call, loadAll, notify, t]);
 
 			var backupNow = useCallback(function () {
 				setBusy(true);
@@ -4736,7 +4924,7 @@ window.__ModuleLoader__.load({
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
 				}).finally(function () { setBusy(false); });
-			}, [call, report, t]);
+			}, [call, notify, t]);
 
 			var testBackup = useCallback(function () {
 				setBusy(true);
@@ -4746,7 +4934,7 @@ window.__ModuleLoader__.load({
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
 				}).finally(function () { setBusy(false); });
-			}, [call, report, t]);
+			}, [call, notify, t]);
 
 			var pickDirectory = useCallback(function () {
 				var service = ctx.get('uiWorkspace');
@@ -4758,7 +4946,7 @@ window.__ModuleLoader__.load({
 					notify(messageOf(reason), true);
 					return null;
 				});
-			}, [ctx, report, t]);
+			}, [ctx, notify, t]);
 
 			var browseArchives = useCallback(function () {
 				var service = ctx.get('uiWorkspace');
@@ -4776,7 +4964,7 @@ window.__ModuleLoader__.load({
 					notify(messageOf(reason), true);
 					return null;
 				});
-			}, [call, ctx, report, t]);
+			}, [call, ctx, notify, t]);
 
 			var patchIngestDraft = useCallback(function (patch) {
 				setIngestDraft(function (current) { return { ...(current ?? ingestFormOf(ingest)), ...patch }; });
@@ -4917,62 +5105,28 @@ window.__ModuleLoader__.load({
 					notify(message, false);
 					return Promise.all([
 						call('consolidate-status').catch(function () { return null; }),
-						call('card-list', {}).catch(function () { return null; }),
+						refreshCards(),
 						call('overview').catch(function () { return null; }),
-						call('graph', { limit: 300 }).catch(function () { return null; }),
+						refreshGraph(),
 					]).then(function (results) {
 						if (results[0] !== null) {
 							setConsolidate(results[0]);
 							setConsolidateDraft(consolidateFormOf(results[0]));
 						}
-						if (results[1] !== null) setCards(results[1]);
+						// The list and the graph applied themselves; the overview
+						// is the only block still written here.
 						if (results[2] !== null) setOverview(results[2]);
-						if (results[3] !== null) setGraph(results[3]);
 					}).catch(function () {});
 				}).catch(function (reason) {
 					notify(messageOf(reason), true);
 				}).finally(function () { setBusy(false); });
-			}, [call, notify, t]);
-
-			var refreshCards = useCallback(function (nextFilter) {
-				var filter = nextFilter ?? cardFilter;
-				var payload = {
-					query: filter.query ?? '',
-					tags: filter.tag ? [filter.tag] : [],
-					anyTags: filter.anyTags ?? [],
-					archivedOnly: filter.archivedOnly === true,
-					resourcePath: filter.resourcePath ?? '',
-				};
-				var token = requestSeq.current.cards + 1;
-				requestSeq.current.cards = token;
-				return call('card-list', payload).then(function (value) {
-					if (requestSeq.current.cards === token) setCards(value);
-					return value;
-				}).catch(function (reason) {
-					notify(messageOf(reason), true);
-					return null;
-				});
-			}, [call, cardFilter, notify]);
-
-			/**
-			 * Reload the whole-library payload the overview link graph draws.
-			 *
-			 * @returns {Promise<object | null>} The fresh payload.
-			 */
-			var refreshGraph = useCallback(function () {
-				var token = requestSeq.current.graph + 1;
-				requestSeq.current.graph = token;
-				return call('graph', { limit: 300 }).then(function (value) {
-					if (requestSeq.current.graph === token) setGraph(value);
-					return value;
-				}).catch(function (reason) {
-					notify(messageOf(reason), true);
-					return null;
-				});
-			}, [call, notify]);
+			}, [call, notify, refreshCards, refreshGraph, t]);
 
 			var changeCardFilter = useCallback(function (patch) {
 				var next = { ...cardFilter, ...patch };
+				// A read that started under the old filter must not land in the
+				// list the filter just changed.
+				requestSeq.current.detail += 1;
 				setCardFilter(next);
 				setCardDetail(null);
 				setCardEditor(null);
@@ -4982,7 +5136,9 @@ window.__ModuleLoader__.load({
 			var openCard = useCallback(function (id) {
 				var token = requestSeq.current.detail + 1;
 				requestSeq.current.detail = token;
-				return call('card-read', { id: id }).then(function (value) {
+				// The panel shows attachment metadata only; the contents are the
+				// tool's job and would be megabytes over the wire.
+				return call('card-read', { id: id, metadataOnly: true }).then(function (value) {
 					if (requestSeq.current.detail !== token) return;
 					setCardDetail(value);
 					setCardEditor(null);
@@ -4991,19 +5147,8 @@ window.__ModuleLoader__.load({
 				});
 			}, [call, notify]);
 
-			/**
-			 * Reload both the card list and the graph the overview draws.
-			 *
-			 * Mutations use this instead of `refreshCards`: the graph lives off its
-			 * own request and would otherwise keep the pre-mutation picture.
-			 *
-			 * @returns {Promise<unknown[]>} Both fresh payloads.
-			 */
-			var refreshLibrary = useCallback(function () {
-				return Promise.all([refreshCards(), refreshGraph()]);
-			}, [refreshCards, refreshGraph]);
-
 			var newCard = useCallback(function () {
+				requestSeq.current.detail += 1;
 				setCardDetail(null);
 				setCardEditor({
 					mode: 'new',
@@ -5083,6 +5228,7 @@ window.__ModuleLoader__.load({
 
 			var deleteCard = useCallback(function (id) {
 				if (typeof confirm === 'function' && confirm(t('cards.deleteConfirm')) !== true) return;
+				requestSeq.current.detail += 1;
 				setBusy(true);
 				return call('card-remove', { id: id }).then(function () {
 					setCardDetail(null);
@@ -5195,8 +5341,15 @@ window.__ModuleLoader__.load({
 					busy: busy,
 					onRefresh: loadResources,
 					onPreview: function (id, name) { return call('resource-preview', { id: id, name: name }); },
+					onNotify: notify,
 					onOpenFile: function (id, name) {
-						return call('resource-open', { id: id, name: name }).catch(function (reason) {
+						return call('resource-open', { id: id, name: name }).then(function (value) {
+							// Scripts and installers are not executed: the host reveals
+							// them in the file manager instead, and the user has to know.
+							if (value !== null && value !== undefined && value.mode === 'revealed') {
+								notify(t('cards.resources.revealed'), false);
+							}
+						}).catch(function (reason) {
 							notify(messageOf(reason), true);
 						});
 					},
@@ -5270,7 +5423,8 @@ window.__ModuleLoader__.load({
 				})),
 				h('div', { className: 'evrBody' },
 					notice === null ? null : h('div', { className: 'evrHint evrWarn', role: 'status' }, notice),
-					h('div', { className: 'evrEnter', key: tab }, body)),
+					h('div', { className: 'evrEnter', key: tab },
+						h(TabErrorBoundary, { key: tab, t: t }, body))),
 				toast === null
 					? null
 					: h('div', {

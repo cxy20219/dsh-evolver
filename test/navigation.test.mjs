@@ -161,13 +161,27 @@ test('card_read：neighbors 给出出链与入链，缺失目标标 (missing)，
 		const plain = await agent.read(hub.id)
 		assert.equal(Object.hasOwn(plain, 'neighbors'), false)
 
-		// A link whose target was deleted since it was written stays visible:
-		// the trail ends, and a silently shorter list would read as "nothing".
+		// Deleting a card now prunes the links that pointed at it, so the trail
+		// cannot end in a dead id.
 		const doomed = await store.put({ body: '# 会被删掉', tags: ['见闻/事实'] })
 		const pointer = await store.put({ body: '# 指向死链', tags: ['见闻/事实'], links: [doomed.id] })
 		await store.remove(doomed.id)
+		assert.deepEqual(store.get(pointer.id).links, [])
+
+		// A hand-edited or imported log can still carry one. It has to be
+		// visible as `missing` instead of looking like a card with no
+		// description, which would send the reader after a card that is gone.
+		const record = store.records().find((item) => item.id === pointer.id)
+		await store.cards.putMemory({
+			...record,
+			id: pointer.id,
+			body: '# 指向死链',
+			tags: ['见闻/事实'],
+			links: [doomed.id],
+			updated: new Date().toISOString(),
+		})
 		const dangling = await agent.read(pointer.id, { neighbors: true })
-		assert.deepEqual(dangling.neighbors.out, [{ id: doomed.id, description: '', tags: [] }])
+		assert.deepEqual(dangling.neighbors.out, [{ id: doomed.id, description: '', tags: [], missing: true }])
 	} finally {
 		await cleanup(dir, store)
 	}

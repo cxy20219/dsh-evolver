@@ -14,8 +14,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
+import { cardId } from '../src/cards/ids.js'
 import { CardStore } from '../src/cards/store.js'
-import { createConsolidationController, consolidationPrompt, parseActions, parseReply } from '../src/consolidate.js'
+import { createConsolidationController, consolidationPrompt, parseReply } from '../src/consolidate.js'
 import { createOrganizeSettings } from '../src/organize.js'
 import { defaultConsolidate, defaultOrganize, defaultSettings, normalizeConsolidate, normalizeOrganize } from '../src/settings.js'
 
@@ -65,6 +66,16 @@ function modelReturning(text) {
 }
 
 const modelSelection = { currentSelection: () => ({ provider: 'p', model: 'm' }) }
+
+/**
+ * The actions of one reply, for the tests that only care about the list.
+ *
+ * @param {string} text - The raw model output.
+ * @returns {object[]} The parsed actions.
+ */
+function parseActions(text) {
+	return parseReply(text).actions
+}
 
 test('标签树很大时整理提示按预算降级，六个根一个不少', () => {
 	const roots = ['践行', '见闻', '即兴', '复盘', '觉察', '试错']
@@ -1038,6 +1049,85 @@ test('整理回复被 max-tokens 截断时说清楚是截断', async () => {
 		}
 		const controller = createConsolidationController({ settings, store: () => store, llm, modelSelection })
 		await assert.rejects(() => controller.run(), /截断/)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('merge 的 ids 重复时整条动作被拒绝：不能写完再删同一张卡', () => {
+	const id = 'card-01M77VFJBBEYXXMKGK9120ED0X'
+	assert.deepEqual(parseActions(JSON.stringify({ actions: [{ op: 'merge', ids: [id, id], body: '合并正文', reason: 'x' }] })), [])
+	const once = parseReply(JSON.stringify({ actions: [{ op: 'merge', ids: [id, 'card-01M77VFJBBEYXXMKGK9120ED0Z'], body: '合并正文', reason: 'x' }] }))
+	assert.equal(once.actions.length, 1)
+})
+
+test('回复里先有一段空 actions 再给真动作时，选带动作的那段', () => {
+	const id = 'card-01M77VFJBBEYXXMKGK9120ED0X'
+	const text = `先说明一下：{"actions":[]}\n真正的答案：{"actions":[{"op":"delete","id":"${id}","reason":"重复"}]}`
+	const reply = parseReply(text)
+	assert.equal(reply.actions.length, 1)
+	assert.equal(reply.actions[0].op, 'delete')
+})
+
+test('模型给的摘要与枝干说明也过密钥筛查，不把密钥带进每次请求', () => {
+	const reply = parseReply(JSON.stringify({
+		actions: [],
+		descriptions: { '践行/工具': '这里放 API key sk-abcdefghijklmnopqrstuvwx' },
+		summary: '库摘要：token sk-abcdefghijklmnopqrstuvwx',
+	}))
+	assert.deepEqual(reply.descriptions, {})
+	assert.equal(reply.summary, '')
+})
+
+test('超过落定期限的 #即兴 卡，只改正文不给标签时跳过而不是反复重写', async () => {
+	const { dir, store, settings } = await fixture()
+	try {
+		// 卡片的创建时间来自 ULID 前缀，所以要用一张“三十天前的 id”。
+		const old = await store.put({
+			id: cardId(Date.now() - 30 * 86_400_000),
+			body: '一条很旧的随手记',
+			description: '超过十四天还在即兴的卡',
+			tags: ['即兴/事实'],
+		})
+		const controller = createConsolidationController({
+			settings,
+			store: () => store,
+			llm: modelReturning(JSON.stringify({
+				actions: [{ op: 'update', id: old.id, body: '改过的正文', reason: '润色' }],
+			})),
+			modelSelection,
+		})
+		const result = await controller.run()
+		assert.equal(result.updated, 0)
+		assert.equal(result.skipped, 1)
+		assert.equal(store.get(old.id).body, '一条很旧的随手记', '正文不能被改')
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('整理结果先落盘再写台账：模拟 flush 失败时台账不前进', async () => {
+	const { dir, store, settings } = await fixture()
+	try {
+		const card = await store.put({ body: '待整理正文', description: '一条待整理的卡', tags: ['即兴/事实'] })
+		let flushed = 0
+		const flaky = Object.create(store)
+		flaky.flush = async () => {
+			flushed += 1
+			if (flushed === 1) throw new Error('disk full')
+			return store.flush()
+		}
+		const controller = createConsolidationController({
+			settings,
+			store: () => flaky,
+			llm: modelReturning(JSON.stringify({ actions: [{ op: 'update', id: card.id, body: '改过的正文', tags: ['践行/工具'], reason: '落定' }] })),
+			modelSelection,
+		})
+		await assert.rejects(() => controller.run(), /disk full/)
+		const ledger = await store.consolidationLedger()
+		assert.equal(ledger.cards[card.id], undefined, 'flush 失败时这张卡不能被记成已复查')
 	} finally {
 		await store.close()
 		await rm(dir, { recursive: true, force: true })

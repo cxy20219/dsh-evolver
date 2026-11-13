@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -103,5 +103,27 @@ test('宿主 logger 被镜像：同一条既进文件也进宿主日志', async 
 		assert.equal((await sink.tail(5))[0].message, 'mirrored')
 	} finally {
 		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('切换数据目录后，轮转按新目录的日志大小计算', async () => {
+	const first = await mkdtemp(join(tmpdir(), 'evr-logs-a-'))
+	const second = await mkdtemp(join(tmpdir(), 'evr-logs-b-'))
+	let current = first
+	const sink = createLogSink({ dataDir: () => current, maxBytes: 1024, keep: 3 })
+	try {
+		await sink.info('在第一目录写一行。')
+		await sink.flush()
+		// 新目录里已经有一份接近上限的日志：轮转预算必须从它开始算，
+		// 而不是沿用旧目录的小文件计数。
+		await mkdir(join(second, 'knowledge', 'logs'), { recursive: true })
+		await writeFile(join(second, 'knowledge', 'logs', 'plugin.log'), `${'x'.repeat(1000)}\n`)
+		current = second
+		await sink.info('这一行应该触发轮转。')
+		await sink.flush()
+		assert.equal((await stat(join(second, 'knowledge', 'logs', 'plugin.1.log'))).size > 0, true)
+	} finally {
+		await rm(first, { recursive: true, force: true })
+		await rm(second, { recursive: true, force: true })
 	}
 })
