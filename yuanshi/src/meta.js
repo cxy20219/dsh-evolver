@@ -226,12 +226,12 @@ export function normalizeSource(value) {
  * @param {object} input - The fields.
  * @returns {object} The normalised metadata.
  */
-export function buildMeta(input) {
+export function buildMeta(input, { descriptionMaxChars = DEFAULT_DESCRIPTION_CHARS } = {}) {
 	const id = input?.id
 	if (!isFileId(id)) throw new Error('文件 id 不合法。')
 	const name = safeName(input.name)
 	if (name === '') throw new Error('文件名不合法。')
-	const description = assertDescription(input.description)
+	const description = assertDescription(input.description, descriptionMaxChars)
 	const mime = String(input.mime ?? '').trim()
 	if (mime === '') throw new Error('文件缺少 MIME 类型。')
 	const bytes = Number(input.bytes)
@@ -274,7 +274,7 @@ export function buildMeta(input) {
  * @param {unknown} raw - The parsed JSON.
  * @returns {object} The normalised metadata.
  */
-export function normalizeMeta(raw) {
+export function normalizeMeta(raw, options = {}) {
 	if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
 		throw new Error('meta.json 不是一个对象。')
 	}
@@ -295,7 +295,7 @@ export function normalizeMeta(raw) {
 		sha256: raw.sha256,
 		archived: raw.archived,
 		legacyId: raw.legacyId,
-	})
+	}, options)
 	// `buildMeta` recalculates nothing about the bytes; a sidecar that claims a
 	// different size than the file on disk is caught by the store's rebuild,
 	// which stats the file. Keeping this check out of validation lets a file be

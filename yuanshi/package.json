@@ -2,12 +2,30 @@
 	"name": "dsh-yuanshi",
 	"version": "0.1.0",
 	"private": true,
-	"description": "元始：一切皆文件的知识库。每个文件有唯一 id、一句话描述，文件之间可以互相链接；SQLite 维护索引与检索。",
+	"description": "元始：一切皆文件的知识库。每个文件有唯一 id、一句话描述、自由层级标签，文件之间可以互相链接；所有数据集中在一个数据目录。",
 	"type": "module",
+	"main": "./index.js",
+	"exports": {
+		".": "./index.js",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"index.js",
+		"src",
+		"cordis.patch.yml",
+		"DESIGN.md",
+		"README.md",
+		"package.json"
+	],
 	"engines": {
 		"node": ">=22.13"
 	},
 	"scripts": {
 		"test": "node --test \"test/*.test.mjs\""
+	},
+	"dsh": {
+		"bundle": {
+			"patch": "./cordis.patch.yml"
+		}
 	}
 }

@@ -421,6 +421,23 @@ export class IndexDatabase {
 	}
 
 	/**
+	 * The most-used tags, for the overview and `file_index`.
+	 *
+	 * Full paths only; the store's filter expands a parent to its descendants,
+	 * but the count table stays a flat list of what was written.
+	 *
+	 * @param {number} [limit] - Maximum tags.
+	 * @returns {Array<{tag: string, count: number}>} The counts.
+	 */
+	tagCounts(limit = 200) {
+		const capped = Math.max(1, Math.min(1000, Math.round(Number(limit) || 200)))
+		return this.statement(
+			'tag-counts',
+			'SELECT tag, COUNT(*) AS c FROM tags GROUP BY tag ORDER BY c DESC, tag ASC LIMIT ?',
+		).all(capped).map((row) => ({ tag: String(row.tag), count: Number(row.c) }))
+	}
+
+	/**
 	 * The number of live files.
 	 *
 	 * @returns {number} The count.

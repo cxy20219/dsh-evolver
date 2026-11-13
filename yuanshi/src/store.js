@@ -22,6 +22,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { IndexDatabase } from './db.js'
 import { fileId, isFileId, shortIds } from './ids.js'
 import {
+	DEFAULT_DESCRIPTION_CHARS,
 	META_FILE,
 	assertDescription,
 	assertTags,
@@ -66,9 +67,9 @@ function recency(updated, now = Date.now()) {
  */
 export class FileStore {
 	/**
-	 * @param {{dataDir: string, logger?: object, maxBytes?: number, readTextBytes?: number}} options - Where the library lives and its bounds.
+	 * @param {{dataDir: string, logger?: object, maxBytes?: number, readTextBytes?: number, descriptionMaxChars?: number}} options - Where the library lives and its bounds.
 	 */
-	constructor({ dataDir, logger, maxBytes, readTextBytes }) {
+	constructor({ dataDir, logger, maxBytes, readTextBytes, descriptionMaxChars }) {
 		if (typeof dataDir !== 'string' || dataDir === '') throw new Error('数据目录不能为空。')
 		this.dataDir = resolve(dataDir)
 		this.filesDir = join(this.dataDir, 'files')
@@ -77,6 +78,7 @@ export class FileStore {
 		this.logger = logger
 		this.maxBytes = Math.max(1, Math.round(Number(maxBytes) || DEFAULT_MAX_BYTES))
 		this.readTextBytes = Math.max(1, Math.round(Number(readTextBytes) || DEFAULT_READ_TEXT_BYTES))
+		this.descriptionMaxChars = Math.min(200, Math.max(20, Math.round(Number(descriptionMaxChars) || DEFAULT_DESCRIPTION_CHARS)))
 		this.db = new IndexDatabase({ path: this.dbPath, logger })
 		this.shortCache = { version: -1, map: new Map() }
 	}
@@ -200,7 +202,7 @@ export class FileStore {
 		if (!isFileId(id)) return undefined
 		const text = await readFile(join(this.entityDir(id), META_FILE), 'utf8').catch(() => undefined)
 		if (text === undefined) return undefined
-		return normalizeMeta(JSON.parse(text))
+		return normalizeMeta(JSON.parse(text), { descriptionMaxChars: this.descriptionMaxChars })
 	}
 
 	/**
@@ -243,7 +245,7 @@ export class FileStore {
 	 * @returns {Promise<object>} The stored file, as `read()` returns it.
 	 */
 	async create(input = {}) {
-		const description = assertDescription(input.description)
+		const description = assertDescription(input.description, this.descriptionMaxChars)
 		const { buffer, sourceName } = await this.payloadOf(input)
 		if (buffer.length > this.maxBytes) {
 			throw new Error(`文件超过 ${Math.round(this.maxBytes / 1024 / 1024)} MB 上限。`)
@@ -271,7 +273,7 @@ export class FileStore {
 			sha256: this.hashOf(buffer),
 			archived: input.archived === true,
 			legacyId: input.legacyId,
-		})
+		}, { descriptionMaxChars: this.descriptionMaxChars })
 		const dir = this.entityDir(id)
 		await mkdir(dir, { recursive: true, mode: 0o700 })
 		await this.atomicWrite(this.entityPath(meta), buffer)
@@ -326,7 +328,7 @@ export class FileStore {
 		const meta = buildMeta({
 			id,
 			name,
-			description: patch.description === undefined ? current.description : assertDescription(patch.description),
+			description: patch.description === undefined ? current.description : assertDescription(patch.description, this.descriptionMaxChars),
 			tags: patch.tags === undefined ? current.tags : assertTags(patch.tags),
 			links: patch.links === undefined ? current.links : this.resolveLinks(patch.links, { selfId: id, warnings }),
 			source: patch.source === undefined ? current.source : normalizeSource(patch.source),
@@ -337,7 +339,7 @@ export class FileStore {
 			sha256,
 			archived: patch.archived === undefined ? current.archived : patch.archived === true,
 			legacyId: current.legacyId,
-		})
+		}, { descriptionMaxChars: this.descriptionMaxChars })
 		await this.writeMeta(meta)
 		if (buffer !== undefined && oldPath !== nextPath) await rm(oldPath, { force: true }).catch(() => {})
 		this.db.upsert(meta)
@@ -601,6 +603,16 @@ export class FileStore {
 	}
 
 	/**
+	 * The most-used tags.
+	 *
+	 * @param {number} [limit] - Maximum tags.
+	 * @returns {Array<{tag: string, count: number}>} The counts.
+	 */
+	tagCounts(limit = 200) {
+		return this.db.tagCounts(limit)
+	}
+
+	/**
 	 * Counts for the overview and the injected summary.
 	 *
 	 * @returns {{files: number, archived: number, links: number, tags: number, orphans: number, mimes: Array<{mime: string, count: number}>}} The stats.
@@ -668,6 +680,13 @@ export class FileStore {
 					problems.push({ id, reason: '拒绝符号链接（可能指向库外）' })
 					continue
 				}
+				// The index no longer holds body text, so a healthy sidecar and a
+				// payload of the recorded size need no read at all: rebuilding a
+				// library is a stat pass, not a full-file copy into memory.
+				if (payloadName === meta.name && info.size === meta.bytes) {
+					entries.push({ meta })
+					continue
+				}
 				const buffer = await readFile(path)
 				let repaired = meta
 				if (payloadName !== meta.name || buffer.length !== meta.bytes) {
@@ -677,7 +696,7 @@ export class FileStore {
 						mime: contentTypeOf(payloadName, buffer),
 						bytes: buffer.length,
 						sha256: this.hashOf(buffer),
-					})
+					}, { descriptionMaxChars: this.descriptionMaxChars })
 					await this.writeMeta(repaired)
 				}
 				entries.push({ meta: repaired })

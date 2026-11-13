@@ -197,3 +197,17 @@ test('标签是自由层级组合：任意深度、去空段、父标签过滤�
 		assert.equal((await store.list({ tag: '不存在' })).total, 0)
 	})
 })
+
+test('描述上限跟着设置走：默认 160 拒绝，200 放行', async () => {
+	const long = '长'.repeat(180)
+	await withStore(async (store) => {
+		await assert.rejects(
+			() => store.create({ name: 'a.md', description: long, content: 'x', tags: ['测试/描述'] }),
+			/描述/,
+		)
+	})
+	await withStore(async (store) => {
+		const file = await store.create({ name: 'a.md', description: long, content: 'x', tags: ['测试/描述'] })
+		assert.equal([...file.description].length, 180)
+	}, { descriptionMaxChars: 200 })
+})

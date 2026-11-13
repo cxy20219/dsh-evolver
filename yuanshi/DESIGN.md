@@ -72,9 +72,12 @@
       meta.json                 ← 唯一事实来源
   yuanshi.db                    ← SQLite 索引（可删、可重建）
   index.json                    ← 注入快照（每日）
+  settings.json                 ← 设置（在数据目录内，不在 ~/.dsh 旁边）
   trash/<时间戳>-<id>/          ← 删除先移动到这里
   logs/plugin.log
 ```
+
+**一个数据目录**：files/、DB、快照、设置、日志、回收站全部在 `~/.dsh/yuanshi`（或组合配置的 `dataDir`）下；没有第二个配置文件。移动目录 = 移动整库。
 
 - 一个实体一个目录：以后要加版本、缩略图、抽取文本，都有地方放。
 - `meta.json` 原子写（临时名 + rename）；文件字节同样原子写。
@@ -140,7 +143,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - 二进制/长文不注入正文；描述就是索引。
 - 快照缺失/过期回退实时排序并按 store 版本记忆化（沿用老库结论）。
 
-## 8. 工具面（拟）
+## 8. 工具面（已实现）
 
 | 工具 | 作用 |
 |---|---|
@@ -152,7 +155,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 | `file_index` | 类型/标签/规模总览（对应老 `card_index`） |
 | `file_archive` / `file_remove` | 归档 / 先移 trash 再删 |
 
-工具名待定：`file_*` 直观，但要确认 DSH 工具命名空间没有冲突；备选 `ys_*`。
+工具名已用 `file_*`：8 个工具都接在 `index.js` 里；若以后确认与内置/其它插件重名，再统一换成 `ys_*`。
 
 ## 9. 面板
 
@@ -202,9 +205,9 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| P1（本包，已完成） | 核心：ids/names/meta/DB/store/search/graph + 测试 | `npm test` 全绿（32 条）；描述检索、标签必填/层级/组合过滤、任意类型互链、两跳场景、删库重建均过 |
-| P2 | 插件装配：index.js、工具、注入快照、prompt、契约测试 | 在临时 profile 里工具可用，注入 ≤4 KB |
-| P3 | 面板：文件列表/详情/上传/图谱 | 真实数据目录可浏览、可编辑 |
+| P1（本包，已完成） | 核心：ids/names/meta/DB/store/search/graph + 测试 | 核心测试 32 条全绿；描述检索、标签必填/层级/组合过滤、任意类型互链、两跳场景、删库重建均过 |
+| P2（本包，已完成 host） | index.js、8 个工具、注入快照、prompt、设置、日志、插件测试 | 46 条全绿；工具可用；注入 ≤4 KB；所有数据在一个目录 |
+| P3 | 面板：文件列表/详情/上传/图谱 + HTTP 接口 | 真实数据目录可浏览、可编辑 |
 | P4 | 迁移脚本 + trash/归档/重建 + 备份 | 135 张老卡无损迁入 |
 | P5 | 会话沉淀/每日整理/健康度（老库 dreaming 的对应物） | 能自动整理而不是只存 |
 
@@ -213,7 +216,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 已实现并验证：
 
 - `src/ids.js`、`src/names.js`、`src/meta.js`、`src/text.js`、`src/db.js`、`src/store.js`；
-- 32 条测试：CRUD、二进制、改名、删除进 trash、归档、悬空链接、短后缀解析、中文两字描述检索、正文不参与检索、名字/标签检索、标签必填、自由层级/去空段/父标签过滤/多标签 AND、任意类型文件互链与反链、删库重建、边车手工修改、改名修复、缺边车/缺本体报告、符号链接拒绝、脚本可执行位、两跳场景（Word 描述 → markdown → 脚本）；
+- 46 条测试：CRUD、二进制、改名、删除进 trash、归档、悬空链接、短后缀解析、中文两字描述检索、正文不参与检索、名字/标签检索、标签必填、自由层级/去空段/父标签过滤/多标签 AND、任意类型文件互链与反链、删库重建、边车手工修改、改名修复、缺边车/缺本体报告、符号链接拒绝、脚本可执行位、两跳场景（Word 描述 → markdown → 脚本）、设置、注入快照、8 个工具、插件装配；
 - 真实运行时验证：Electron 44.7 / Node 24.21 自带 `node:sqlite` 与 FTS5，`ELECTRON_RUN_AS_NODE=1` 跑通基准；
 - 性能（Node 26，500 文件）：建 456 ms（0.9 ms/文件）、检索 1.5 ms、列表 1.9 ms、全量重建 101 ms；
   桌面运行时（Node 24，200 文件）：建 214 ms（1.1 ms/文件）、检索 1.1 ms、列表 1.1 ms、重建 52 ms。
@@ -225,7 +228,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 1. **包布局**：现在 `yuanshi/` 子包并行；验证后是替换根包，还是独立仓库/包？
 2. **标签层级深度**：当前不限深度、总长 64 字、最多 32 个；如果实际会出现超长路径，再决定是截断还是拒绝。
-3. **工具前缀**：`file_*` 还是 `ys_*`（避免与其它插件/内置工具重名）？
+3. **工具前缀**：已用 `file_*`；如果实际装进 desktop 后发现重名，再统一改 `ys_*`。
 4. **数据库地位**：边车为准 + DB 索引（本文默认），还是 DB 为准 + 定期导出？
 5. **旧数据**：迁移后保留 `legacy_id` 多久；旧插件是否继续作为日常驱动直到 P4 验收？
 
@@ -234,3 +237,16 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 1. 先确认第 14 节的五个决策（尤其是标签去留、工具前缀、包布局）。
 2. P2 顺序：`index.js` 装配 → `src/tools.js` 工具 → `src/prompt.js` 注入 → 契约测试 → 临时 profile 里真实调用。
 3. 工具面先做 5 个（query/read/write/import/link），`file_index` 与 archive/remove 随后；每加一个工具都按老库的口径算一次请求 token。
+
+## 16. P2 落地记录（2026-11-13）
+
+已实现：
+
+- `index.js`：Host 装配；默认数据目录 `~/.dsh/yuanshi`，也接受组合配置里的绝对 `dataDir`；没有第二个配置文件。
+- `src/tools.js`：8 个工具（query/read/write/import/link/index/archive/remove），短 id 解析，写入结果不带正文，死链进 `warnings`。
+- `src/injection.js`：12 个文件快照（10 枢纽 + 2 最近）+ 摘要；快照无构建时间戳，同样内容重写为零字节；跨日心跳刷新；预算内先丢描述再减行。
+- `src/settings.js`、`src/logs.js`、`src/atomic.js`：设置、日志轮转、原子写都在数据目录内。
+- 重建对“边车名与大小都对得上”的健康文件只做 `stat`，不读正文；只有名/大小不一致时才读文件修复。
+- `test/settings.test.mjs`、`test/injection.test.mjs`、`test/tools.test.mjs`、`test/plugin.test.mjs`：46 条测试全绿；插件测试断言“数据目录外没有插件数据”。
+
+未做：面板/HTTP 接口（P3）、迁移（P4）、会话沉淀与每日整理（P5）；插件还没装进任何 profile。
