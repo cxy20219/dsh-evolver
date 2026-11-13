@@ -80,7 +80,6 @@ test('二进制文件：只读元数据与路径，不返回正文', async () =>
 		const hits = await store.list({ query: '登录页' })
 		assert.equal(hits.total, 1)
 		assert.equal(hits.files[0].id, file.id)
-		assert.equal(hits.files[0].snippet, undefined)
 	})
 })
 
@@ -144,4 +143,22 @@ test('大小上限：超过即拒绝，不落盘', async () => {
 		const folders = await readdir(join(dir, 'files'))
 		assert.equal(folders.length, 0)
 	}, { maxBytes: 16 })
+})
+
+test('脚本自动带可执行位，普通文件不带；改名后权限跟着变', async () => {
+	await withStore(async (store) => {
+		const script = await store.create({
+			name: 'deploy.sh',
+			description: '部署脚本：输出 ok，演示脚本文件可直接执行',
+			content: '#!/bin/sh\necho ok\n',
+		})
+		assert.equal((await stat(script.path)).mode & 0o777, 0o700)
+		assert.equal(script.executable, true)
+		const note = await store.create({ name: 'note.md', description: '普通说明文件，不应带执行位', content: 'x' })
+		assert.equal((await stat(note.path)).mode & 0o777, 0o600)
+		assert.equal(note.executable, false)
+		const renamed = await store.update(script.id, { name: 'deploy.txt' })
+		assert.equal((await stat(renamed.path)).mode & 0o777, 0o600)
+		assert.equal(renamed.executable, false)
+	})
 })

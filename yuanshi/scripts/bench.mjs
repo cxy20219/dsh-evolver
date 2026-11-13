@@ -44,7 +44,7 @@ for (let index = 0; index < count; index += 1) {
 }
 const createMs = now() - start
 
-const queries = ['文件', '接口', '代理', '截图', '索引 重写', 'trash']
+const queries = ['文件', '接口', '代理', '截图', '审计', '笔记']
 const searchStart = now()
 let hits = 0
 for (let round = 0; round < 20; round += 1) {

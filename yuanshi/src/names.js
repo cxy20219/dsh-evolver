@@ -247,3 +247,48 @@ export function contentTypeOf(name, buffer) {
 	if (known !== '') return known
 	return isTextual(buffer) ? 'text/plain' : 'application/octet-stream'
 }
+
+/** Extensions whose files are meant to be run, not just read. */
+const EXECUTABLE_EXTENSIONS = new Set([
+	'sh', 'bash', 'zsh', 'fish', 'py', 'js', 'mjs', 'cjs', 'ts', 'rb', 'pl', 'php', 'lua', 'ps1',
+])
+
+/**
+ * Whether a name looks like a script that can be executed directly.
+ *
+ * This is a name-level hint, not a promise: a `.py` file without a shebang
+ * still needs `python3`. The store uses it to set the executable bit, and
+ * `file_read` reports the real mode so the caller can check before running.
+ *
+ * @param {unknown} name - The file name.
+ * @returns {boolean} True for a script extension.
+ */
+export function isScriptName(name) {
+	return EXECUTABLE_EXTENSIONS.has(extensionOf(name))
+}
+
+/**
+ * Whether a payload starts with a shebang.
+ *
+ * @param {Buffer} buffer - The bytes.
+ * @returns {boolean} True when the first two bytes are `#!`.
+ */
+export function hasShebang(buffer) {
+	return Buffer.isBuffer(buffer) && buffer.length >= 2 && buffer[0] === 0x23 && buffer[1] === 0x21
+}
+
+/**
+ * Whether one payload should carry the executable bit.
+ *
+ * A script extension or a shebang is enough. Native binaries are intentionally
+ * not covered: importing an unknown executable and making it runnable on a
+ * click is the failure mode the old audit called out, so only script-shaped
+ * files are marked.
+ *
+ * @param {string} name - The file name.
+ * @param {Buffer} buffer - The bytes.
+ * @returns {boolean} True when the file is script-like.
+ */
+export function isExecutablePayload(name, buffer) {
+	return isScriptName(name) || hasShebang(buffer)
+}

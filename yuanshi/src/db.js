@@ -18,7 +18,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { matchExpression, tokenize } from './text.js'
 
 /** The index schema version. */
-export const INDEX_SCHEMA = 1
+export const INDEX_SCHEMA = 2
 
 /** The separator `group_concat` joins list columns with (unit separator). */
 const SEP = '\u001f'
@@ -56,11 +56,13 @@ CREATE TABLE IF NOT EXISTS tags (
 	PRIMARY KEY (file_id, tag)
 );
 CREATE INDEX IF NOT EXISTS tags_tag ON tags(tag);
+-- Only the description (and the name/tags it carries) is indexed. The body
+-- is the agent's job: read the payload, parse it, understand it. This keeps
+-- the index a semantic catalogue instead of a second copy of the library.
 CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
 	id UNINDEXED,
 	name,
 	description,
-	body,
 	tokenize='unicode61'
 );
 `
@@ -220,18 +222,18 @@ export class IndexDatabase {
 	/**
 	 * The text columns of one FTS row.
 	 *
-	 * Name and description are weighted higher than the body in `bm25`; tags
-	 * are folded into the description so a tag is also a search term.
+	 * There is no body column by design: search is a match on the semantic
+	 * catalogue (name, description, tags), and the agent reads the payload for
+	 * everything else. Tags are folded into the description so a tag is also a
+	 * search term.
 	 *
 	 * @param {object} meta - The metadata.
-	 * @param {string} bodyText - The raw text to index ('' for binary).
-	 * @returns {{name: string, description: string, body: string}} Tokenised columns.
+	 * @returns {{name: string, description: string}} Tokenised columns.
 	 */
-	searchColumns(meta, bodyText) {
+	searchColumns(meta) {
 		return {
 			name: tokenize(meta.name).join(' '),
 			description: tokenize(`${meta.description} ${(meta.tags ?? []).join(' ')}`).join(' '),
-			body: bodyText === '' ? '' : tokenize(bodyText).join(' '),
 		}
 	}
 
@@ -239,10 +241,9 @@ export class IndexDatabase {
 	 * Insert or replace one file, without opening a transaction.
 	 *
 	 * @param {object} meta - The metadata.
-	 * @param {string} bodyText - The raw text to index.
 	 * @returns {void}
 	 */
-	upsertRow(meta, bodyText = '') {
+	upsertRow(meta) {
 		this.statement(
 			'files-upsert',
 			`INSERT INTO files(id, name, description, mime, bytes, sha256, created, updated, archived, source, legacy_id)
@@ -276,23 +277,22 @@ export class IndexDatabase {
 		deleteTags.run(meta.id)
 		for (const tag of meta.tags ?? []) insertTag.run(meta.id, tag)
 
-		const columns = this.searchColumns(meta, bodyText)
+		const columns = this.searchColumns(meta)
 		this.statement('fts-delete', 'DELETE FROM files_fts WHERE id = ?').run(meta.id)
 		this.statement(
 			'fts-insert',
-			'INSERT INTO files_fts(id, name, description, body) VALUES (?, ?, ?, ?)',
-		).run(meta.id, columns.name, columns.description, columns.body)
+			'INSERT INTO files_fts(id, name, description) VALUES (?, ?, ?)',
+		).run(meta.id, columns.name, columns.description)
 	}
 
 	/**
 	 * Store one file, transactionally.
 	 *
 	 * @param {object} meta - The metadata.
-	 * @param {string} [bodyText] - The raw text to index.
 	 * @returns {void}
 	 */
-	upsert(meta, bodyText = '') {
-		this.transaction(() => this.upsertRow(meta, bodyText))
+	upsert(meta) {
+		this.transaction(() => this.upsertRow(meta))
 		this.version += 1
 	}
 
@@ -363,10 +363,10 @@ export class IndexDatabase {
 		if (match === '') return []
 		const capped = Math.max(1, Math.min(200, Math.round(Number(limit) || 50)))
 		const sql = includeArchived
-			? `SELECT files_fts.id AS id, bm25(files_fts, 0, 6, 10, 1) AS rank
+			? `SELECT files_fts.id AS id, bm25(files_fts, 0, 6, 10) AS rank
 			   FROM files_fts JOIN files f ON f.id = files_fts.id
 			   WHERE files_fts MATCH ? ORDER BY rank LIMIT ?`
-			: `SELECT files_fts.id AS id, bm25(files_fts, 0, 6, 10, 1) AS rank
+			: `SELECT files_fts.id AS id, bm25(files_fts, 0, 6, 10) AS rank
 			   FROM files_fts JOIN files f ON f.id = files_fts.id
 			   WHERE files_fts MATCH ? AND f.archived = 0 ORDER BY rank LIMIT ?`
 		const rows = this.statement(includeArchived ? 'search-all' : 'search-live', sql).all(match, capped)
@@ -457,7 +457,7 @@ export class IndexDatabase {
 	/**
 	 * Replace every table from a scanned set of sidecars.
 	 *
-	 * @param {Array<{meta: object, bodyText: string}>} entries - The scanned entities.
+	 * @param {Array<{meta: object}>} entries - The scanned entities.
 	 * @returns {void}
 	 */
 	rebuild(entries) {
@@ -466,7 +466,7 @@ export class IndexDatabase {
 			this.db.exec('DELETE FROM links')
 			this.db.exec('DELETE FROM tags')
 			this.db.exec('DELETE FROM files_fts')
-			for (const entry of entries) this.upsertRow(entry.meta, entry.bodyText ?? '')
+			for (const entry of entries) this.upsertRow(entry.meta)
 			this.writeMeta('built_at', new Date().toISOString())
 		})
 		this.version += 1

@@ -16,7 +16,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 
 import { IndexDatabase } from './db.js'
@@ -33,17 +33,13 @@ import {
 	normalizeTags,
 	serializeMeta,
 } from './meta.js'
-import { contentTypeOf, extensionOf, isTextMime, isTextual, safeName } from './names.js'
-import { clipChars, snippetOf, tokenize } from './text.js'
+import { contentTypeOf, extensionOf, isExecutablePayload, isScriptName, isTextMime, isTextual, safeName } from './names.js'
 
 /** One file may not exceed this many bytes by default. */
 export const DEFAULT_MAX_BYTES = 25 * 1024 * 1024
 
 /** How much of a text file `read()` returns by default. */
 export const DEFAULT_READ_TEXT_BYTES = 256 * 1024
-
-/** How many code points of a text file are tokenised into the index. */
-export const DEFAULT_INDEX_TEXT_CHARS = 512 * 1024
 
 /** The filesystem timestamp format used for trash folders. */
 function stamp(now = new Date()) {
@@ -69,9 +65,9 @@ function recency(updated, now = Date.now()) {
  */
 export class FileStore {
 	/**
-	 * @param {{dataDir: string, logger?: object, maxBytes?: number, readTextBytes?: number, indexTextChars?: number}} options - Where the library lives and its bounds.
+	 * @param {{dataDir: string, logger?: object, maxBytes?: number, readTextBytes?: number}} options - Where the library lives and its bounds.
 	 */
-	constructor({ dataDir, logger, maxBytes, readTextBytes, indexTextChars }) {
+	constructor({ dataDir, logger, maxBytes, readTextBytes }) {
 		if (typeof dataDir !== 'string' || dataDir === '') throw new Error('数据目录不能为空。')
 		this.dataDir = resolve(dataDir)
 		this.filesDir = join(this.dataDir, 'files')
@@ -80,7 +76,6 @@ export class FileStore {
 		this.logger = logger
 		this.maxBytes = Math.max(1, Math.round(Number(maxBytes) || DEFAULT_MAX_BYTES))
 		this.readTextBytes = Math.max(1, Math.round(Number(readTextBytes) || DEFAULT_READ_TEXT_BYTES))
-		this.indexTextChars = Math.max(1, Math.round(Number(indexTextChars) || DEFAULT_INDEX_TEXT_CHARS))
 		this.db = new IndexDatabase({ path: this.dbPath, logger })
 		this.shortCache = { version: -1, map: new Map() }
 	}
@@ -169,6 +164,22 @@ export class FileStore {
 	}
 
 	/**
+	 * Set the payload mode from its shape: scripts run, documents are read.
+	 *
+	 * The mode is the authority `read()` reports back; the metadata does not
+	 * carry an `executable` flag that could drift from the file system.
+	 *
+	 * @param {string} path - The payload path.
+	 * @param {string} name - The stored name.
+	 * @param {Buffer} [buffer] - The bytes, when known.
+	 * @returns {Promise<void>} Resolves after chmod.
+	 */
+	async applyMode(path, name, buffer) {
+		const executable = buffer === undefined ? isScriptName(name) : isExecutablePayload(name, buffer)
+		await chmod(path, executable ? 0o700 : 0o600)
+	}
+
+	/**
 	 * Write one sidecar.
 	 *
 	 * @param {object} meta - The metadata.
@@ -225,22 +236,6 @@ export class FileStore {
 	}
 
 	/**
-	 * The raw text to index for one payload.
-	 *
-	 * Long files are indexed from their head only: the whole file is still
-	 * readable through `path`, but one 25 MB log must not make a write or a
-	 * startup slow.
-	 *
-	 * @param {Buffer} buffer - The bytes.
-	 * @param {string} mime - The MIME type.
-	 * @returns {string} The text (possibly clipped), or '' for binary.
-	 */
-	indexTextOf(buffer, mime) {
-		if (!isTextMime(mime)) return ''
-		return clipChars(buffer.toString('utf8'), this.indexTextChars)
-	}
-
-	/**
 	 * Create one file.
 	 *
 	 * @param {object} input - `{name, description, content|sourcePath, tags, links, source, created, archived, id}`.
@@ -278,8 +273,9 @@ export class FileStore {
 		const dir = this.entityDir(id)
 		await mkdir(dir, { recursive: true, mode: 0o700 })
 		await this.atomicWrite(this.entityPath(meta), buffer)
+		await this.applyMode(this.entityPath(meta), name, buffer)
 		await this.writeMeta(meta)
-		this.db.upsert(meta, this.indexTextOf(buffer, meta.mime))
+		this.db.upsert(meta)
 		return this.read(id, { text: input.text !== false })
 	}
 
@@ -318,8 +314,10 @@ export class FileStore {
 			bytes = buffer.length
 			sha256 = this.hashOf(buffer)
 			await this.atomicWrite(nextPath, buffer)
+			await this.applyMode(nextPath, name, buffer)
 		} else if (oldPath !== nextPath) {
 			await rename(oldPath, nextPath)
+			await this.applyMode(nextPath, name)
 		}
 		const meta = buildMeta({
 			id,
@@ -338,10 +336,7 @@ export class FileStore {
 		})
 		await this.writeMeta(meta)
 		if (buffer !== undefined && oldPath !== nextPath) await rm(oldPath, { force: true }).catch(() => {})
-		const bodyText = buffer === undefined
-			? this.indexTextOf(await readFile(nextPath).catch(() => Buffer.alloc(0)), meta.mime)
-			: this.indexTextOf(buffer, meta.mime)
-		this.db.upsert(meta, bodyText)
+		this.db.upsert(meta)
 		return this.read(id, { text: true })
 	}
 
@@ -364,7 +359,8 @@ export class FileStore {
 		// attack; it is reported instead of followed.
 		const unsafe = info?.isSymbolicLink() === true
 		const missing = info === undefined || unsafe
-		const out = { ...meta, path, missing, ...(unsafe ? { unsafe: 'symlink' } : {}) }
+		const executable = info !== undefined && (Number(info.mode) & 0o111) !== 0
+		const out = { ...meta, path, missing, executable, ...(unsafe ? { unsafe: 'symlink' } : {}) }
 		if (text && !missing && isTextMime(meta.mime)) {
 			const buffer = await readFile(path).catch(() => undefined)
 			if (buffer !== undefined) {
@@ -496,14 +492,13 @@ export class FileStore {
 			const rows = this.db.list({ limit: 500, archived })
 			const filtered = rows.filter(keep)
 			const page = filtered.slice(offset, offset + limit)
-			const files = await Promise.all(page.map(async (meta) => decorate(meta, this.snippetFor(meta, []))))
+			const files = page.map((meta) => decorate(meta))
 			return { total: filtered.length, files }
 		}
 
 		const hits = this.db.search(query, { limit: 200, includeArchived: archived })
 		const now = Date.now()
 		const maxRank = Math.max(...hits.map((hit) => -hit.rank), Number.EPSILON)
-		const tokens = tokenize(query)
 		const scored = []
 		for (const hit of hits) {
 			const meta = this.db.get(hit.id)
@@ -518,27 +513,75 @@ export class FileStore {
 			|| right.meta.updated.localeCompare(left.meta.updated)
 			|| left.meta.id.localeCompare(right.meta.id))
 		const page = scored.slice(offset, offset + limit)
-		const files = await Promise.all(page.map(async (item) => {
-			const snippets = await this.snippetFor(item.meta, tokens)
-			return decorate(item.meta, { ...snippets, score: Number(item.score.toFixed(4)) })
-		}))
+		const files = page.map((item) => decorate(item.meta, { score: Number(item.score.toFixed(4)) }))
 		return { total: scored.length, files }
 	}
 
 	/**
-	 * A query snippet for one file, read from the payload.
+	 * Walk the link graph from one or more seeds.
 	 *
-	 * @param {object} meta - The metadata.
-	 * @param {string[]} tokens - The query tokens.
-	 * @returns {Promise<{snippet?: string}>} The snippet when the file is text.
+	 * This is the shape the "search → document → markdown → script" scenario
+	 * needs: a bounded breadth-first walk over outgoing and incoming links,
+	 * returning nodes and directed edges. It is deliberately not a ranking
+	 * function; `list()` ranks, this one navigates.
+	 *
+	 * @param {string | string[]} ids - Seed ids or unique suffixes.
+	 * @param {{hops?: number, limit?: number}} [options] - Walk bounds.
+	 * @returns {{nodes: object[], edges: Array<{from: string, to: string}>}} The subgraph.
 	 */
-	async snippetFor(meta, tokens) {
-		if (tokens.length === 0 || !isTextMime(meta.mime)) return {}
-		const buffer = await readFile(this.entityPath(meta)).catch(() => undefined)
-		if (buffer === undefined) return {}
-		const text = buffer.subarray(0, this.readTextBytes).toString('utf8')
-		const snippet = snippetOf(text, tokens)
-		return snippet === '' ? {} : { snippet }
+	graph(ids, { hops = 1, limit = 100 } = {}) {
+		const seeds = (Array.isArray(ids) ? ids : [ids])
+			.map((value) => this.resolveId(value))
+			.filter((value) => value !== undefined)
+		const cap = Math.max(1, Math.min(500, Math.round(Number(limit) || 100)))
+		const depth = Math.max(1, Math.min(3, Math.round(Number(hops) || 1)))
+		const nodes = new Map()
+		const edges = []
+		const edgeKeys = new Set()
+		const degree = this.db.degrees()
+		const short = this.shortMap()
+		const addNode = (id) => {
+			if (nodes.has(id)) return false
+			const meta = this.db.get(id)
+			nodes.set(id, meta === undefined
+				? { id, short: short.get(id) ?? id, missing: true }
+				: {
+					id,
+					short: short.get(id) ?? id,
+					name: meta.name,
+					description: meta.description,
+					mime: meta.mime,
+					degree: degree.get(id) ?? { in: 0, out: 0 },
+				})
+			return true
+		}
+		for (const seed of seeds) addNode(seed)
+		let frontier = [...seeds]
+		for (let step = 0; step < depth && frontier.length > 0 && nodes.size < cap; step += 1) {
+			const next = []
+			for (const id of frontier) {
+				const meta = this.db.get(id)
+				if (meta === undefined) continue
+				const related = [
+					...(meta.links ?? []).map((to) => ({ from: id, to })),
+					...this.db.backlinks(id).map((from) => ({ from, to: id })),
+				]
+				for (const edge of related) {
+					const key = `${edge.from}\u001f${edge.to}`
+					if (!edgeKeys.has(key)) {
+						edgeKeys.add(key)
+						edges.push(edge)
+					}
+					for (const endpoint of [edge.from, edge.to]) {
+						if (addNode(endpoint)) next.push(endpoint)
+					}
+					if (nodes.size >= cap) break
+				}
+				if (nodes.size >= cap) break
+			}
+			frontier = next
+		}
+		return { nodes: [...nodes.values()], edges }
 	}
 
 	/**
@@ -578,7 +621,7 @@ export class FileStore {
 	/**
 	 * Scan every entity folder.
 	 *
-	 * @returns {Promise<{entries: Array<{meta: object, bodyText: string}>, problems: Array<{id: string, reason: string}>}>} The scan.
+	 * @returns {Promise<{entries: Array<{meta: object}>, problems: Array<{id: string, reason: string}>}>} The scan.
 	 */
 	async scan() {
 		const names = await readdir(this.filesDir, { withFileTypes: true }).catch(() => [])
@@ -621,7 +664,7 @@ export class FileStore {
 					})
 					await this.writeMeta(repaired)
 				}
-				entries.push({ meta: repaired, bodyText: this.indexTextOf(buffer, repaired.mime) })
+				entries.push({ meta: repaired })
 			} catch (error) {
 				problems.push({ id, reason: error instanceof Error ? error.message : String(error) })
 			}

@@ -1,13 +1,15 @@
 /**
- * Text normalisation for the keyword index and for snippets.
+ * Text normalisation for the description index.
  *
- * SQLite's FTS5 cannot segment Chinese: `unicode61` treats a whole run of CJK
- * as one token, and its `trigram` tokenizer needs three characters, so the
- * two-character query 「插件」 matches nothing. The store therefore indexes a
- * pre-tokenised form — Latin words plus CJK bigrams — and keeps the raw text
- * on disk for snippets. That split is why this module has both `tokenize` and
- * `snippetOf`: the index is a lossy projection, and the snippet is read back
- * from the original.
+ * Only the catalogue is indexed: name, description and tags. The payload is
+ * not indexed and not summarised here — the agent reads it when it matters.
+ * That keeps the database a semantic index rather than a second copy of the
+ * library, and it keeps a Word file's content out of the plugin's scope.
+ *
+ * SQLite's FTS5 still cannot segment Chinese: `unicode61` treats a whole run
+ * of CJK as one token, and `trigram` needs three characters, so the
+ * two-character query 「插件」 matches nothing. The description is therefore
+ * pre-tokenised into Latin words plus CJK bigrams on both write and query.
  */
 
 const LATIN = /[a-z0-9][a-z0-9_.-]*/gi
@@ -71,78 +73,4 @@ export function matchExpression(tokens) {
 	const unique = [...new Set((tokens ?? []).filter((token) => typeof token === 'string' && token !== ''))]
 	if (unique.length === 0) return ''
 	return unique.map((token) => `"${token.replace(/"/g, '')}"`).join(' OR ')
-}
-
-/**
- * Collapse whitespace and keep one line.
- *
- * @param {string} text - The text.
- * @returns {string} The clean text.
- */
-function oneLine(text) {
-	return String(text ?? '').replace(/\s+/g, ' ').trim()
-}
-
-/**
- * Pick the first place any query token happens in the raw text.
- *
- * The FTS index stores pre-tokenised text, so `snippet()` from SQLite would
- * return 「接口 口约 约定」 instead of the sentence the user wrote. Reading the
- * raw file for the handful of results that survive ranking costs little and
- * produces a snippet that is actually readable.
- *
- * @param {string} text - The raw text.
- * @param {string[]} tokens - The query tokens.
- * @param {{radius?: number}} [options] - Characters of context on each side.
- * @returns {string} A one-line snippet, possibly with ellipses.
- */
-export function snippetOf(text, tokens, { radius = 80 } = {}) {
-	const raw = oneLine(text)
-	if (raw === '') return ''
-	const haystack = raw.toLowerCase()
-	let at = -1
-	let length = 0
-	for (const token of tokens ?? []) {
-		if (typeof token !== 'string' || token === '') continue
-		const index = haystack.indexOf(token.toLowerCase())
-		if (index < 0) continue
-		if (at < 0 || index < at) {
-			at = index
-			length = token.length
-		}
-	}
-	if (at < 0) {
-		const head = raw.slice(0, radius * 2)
-		return raw.length > head.length ? `${head}…` : head
-	}
-	const start = Math.max(0, at - radius)
-	const end = Math.min(raw.length, at + length + radius)
-	return `${start > 0 ? '…' : ''}${raw.slice(start, end)}${end < raw.length ? '…' : ''}`
-}
-
-/**
- * The number of Unicode code points in a string.
- *
- * @param {unknown} text - The text.
- * @returns {number} The code point count.
- */
-export function charCount(text) {
-	return [...String(text ?? '')].length
-}
-
-/**
- * Keep at most `limit` code points.
- *
- * Used before tokenising a large file: the index holds a head of the document,
- * not the whole thing, so one huge log cannot make startup and writes slow.
- *
- * @param {unknown} text - The text.
- * @param {number} limit - The code point limit.
- * @returns {string} The clipped text.
- */
-export function clipChars(text, limit) {
-	const value = String(text ?? '')
-	const chars = [...value]
-	if (chars.length <= limit) return value
-	return chars.slice(0, limit).join('')
 }

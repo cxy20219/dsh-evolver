@@ -1,17 +1,18 @@
 # 元始 · 设计稿
 
-> 一句话：**一切皆文件**。每个文件是一等实体（唯一 id + 一句话描述 + 链接），内容可以是任意类型；元数据落在边车，SQLite 负责索引、检索与关系。
+> 一句话：**一切皆文件**。每个文件是一等实体（唯一 id + 一句话描述 + 链接），内容可以是任意类型；元数据落在边车，SQLite 只维护「描述索引 + 关系」，正文由 agent 自己去读、去解析、去执行。
 
 状态：研究原型（worktree `research-data-model`）。旧插件 `dsh-evolver` 1.0.0 已归档在 `v1.0.0`，本包是并存的新包，验证后再决定替换根包还是独立发布。
 
 ## 1. 原则
 
-1. **文件是唯一实体**，没有卡片/附件/页的层级。文本、脚本、图片、PDF、压缩包都是同一种东西。
-2. **描述是必填的语义入口**。模型和面板先看 `描述`，再决定读不读；二进制文件没有正文可索引，描述就是它唯一的检索面。
+1. **文件是唯一实体**，没有卡片/附件/页的层级。文本、脚本、图片、Word、PDF、压缩包都是同一种东西。
+2. **描述是唯一的检索面**。插件不索引正文；搜索命中描述（以及名字、标签），然后 agent 读文件、理解内容、决定下一步。二进制文件没有正文可读，描述就是它全部的可检索信息。
 3. **id 稳定，名字可变**。链接只指向 id；文件名只用于显示和磁盘可读性，改名不断链。
 4. **边车是事实，数据库是索引**。`meta.json` + 文件字节是真相；SQLite 可随时删掉重建。这条沿用老库“索引必须生成”的结论。
 5. **链接可以悬空**。删除一个文件不批量改写别人的边车；查询时把悬空目标标成 `missing`，整理时再清。导入、前向引用都靠这条。
 6. **注入只给索引，不给正文**。12 个文件（枢纽 + 最近）+ 一段结构摘要，每日快照；写文件不改变注入文本。
+7. **插件不替 agent 理解内容**。Word/PDF 的正文、代码在做什么、文档之间语义是否相关，都由 agent 读文件后判断；插件只负责“这个文件是什么、和谁有关、能不能直接跑”。
 
 ## 2. 实体
 
@@ -35,12 +36,13 @@
 
 - `id`：`file-` + ULID；创建时间从前 10 位派生，不单独存。
 - `name`：净化后的单段文件名；允许同 id 目录内改名，不全局唯一。
-- `description`：必填，≤200 字，单行；空/占位词（暂无、TODO、待补）拒绝。
+- `description`：必填，≤200 字，单行；空/占位词（暂无、TODO、待补）拒绝。**它是检索的全部依据**，写不好就等于这个文件不存在。
 - `tags`：可选、自由层级（不再强制六枝干）；只做过滤与摘要，不承担主结构。
 - `links`：出边，存完整 file id；反链实时算；悬空允许。
 - `source`：可选出处；保留给以后的会话沉淀。
 - `mime` / `bytes` / `sha256`：写入时算；类型由扩展名 + 内容嗅探决定。
 - `archived`：生命周期是元数据，不占一个标签。
+- `executable`：不落边车，由文件 mode 派生（脚本 0700，其他 0600）；`file_read` 返回真实值。
 
 ## 3. 磁盘布局
 
@@ -56,13 +58,13 @@
   logs/plugin.log
 ```
 
-- 一个实体一个目录：以后要加版本、抽取文本、缩略图，都有地方放。
+- 一个实体一个目录：以后要加版本、缩略图、抽取文本，都有地方放。
 - `meta.json` 原子写（临时名 + rename）；文件字节同样原子写。
 - 写序：字节 → 边车 → DB。DB 失败不影响事实，下次打开/重建恢复。
 
 ## 4. 数据库（SQLite，`node:sqlite`，零依赖）
 
-运行时已验证：桌面端 Electron 44.7 / Node 24.21 自带 `node:sqlite`，FTS5 可用。
+运行时已验证：桌面端 Electron 44.7 / Node 24.21 自带 `node:sqlite`，FTS5 可用。索引 schema 版本 2（没有 body 列）。
 
 ```sql
 PRAGMA journal_mode = WAL;
@@ -78,33 +80,36 @@ CREATE INDEX links_to ON links(to_id);
 CREATE TABLE tags  (file_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (file_id, tag));
 CREATE INDEX tags_tag ON tags(tag);
 CREATE VIRTUAL TABLE files_fts USING fts5(
-  id UNINDEXED, name, description, body, tokenize='unicode61'
+  id UNINDEXED, name, description, tokenize='unicode61'
 );
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_version, built_at
 ```
 
 - 没有外键：`links` 要允许悬空；删除只删本体。
-- `files_fts` 存**预分词**文本（拉丁词 + 中文 bigram），不存原文；原文在磁盘。
-- 索引重建：扫 `files/*/meta.json` + 可读文本，重灌四张表。
+- `files_fts` 只存 name + description（+ 折叠进去的 tags）的**预分词**文本，不存正文；正文在磁盘，由 agent 读。
+- 索引重建：扫 `files/*/meta.json`，重灌四张表；不读正文，所以重建与库大小基本无关。
 
 ## 5. 检索
 
 1. 查询分词：拉丁词小写 + 中文连续串切成 bigram（同老库 `tokenize`）。
-2. FTS：`"词1" OR "词2" ...`，`bm25(files_fts, 0, 6, 10, 1)`（name 6、description 10、body 1）。
+2. FTS：`"词1" OR "词2" ...`，`bm25(files_fts, 0, 6, 10)`（name 6、description 10）。
 3. 候选 50 条，按 `归一化 bm25 × 0.8 + 新近度 × 0.15 + 度数 × 0.05` 重排。
-4. 片段：**从磁盘原文**按查询词找第一处命中，截 ±80 字。FTS 里的预分词文本不能直接当 snippet（会显示成“接口 口约 约定”）。
-5. 正文索引上限 512K 字符（约 1.5 MB 中文；超长文件只索引头部，文件仍可经 path 读）；`file_read` 文本返回上限 256 KB。
-6. 二进制文件只索引 name + description。
+4. 返回 `id、short、name、description、mime、bytes、degree、score`。**没有 snippet**：不索引正文，片段也就没有来源；命中后由 agent `file_read` 看内容。
+5. 二进制文件与文本文件走同一条路：只能按 name/description 命中。
 
-为什么不用 trigram：实测 FTS5 trigram 对 2 字中文查询 0 命中（“插件”“接口”都查不到），中文必须 bigram。为什么不用向量：老库在真实数据上实测 embedding 只改排序不改召回，代价 592 MB；这里沿用。
+为什么不用 trigram：实测 FTS5 trigram 对 2 字中文查询 0 命中（“插件”“接口”都查不到），中文必须 bigram。为什么不做正文索引/向量：用户决策——描述就是索引，其余交给 agent；这也让检索成本与文件大小脱钩，Word/PDF 不需要抽取管线。
+
+**边界**：如果 Word 的正文里有“青鸟”，而描述里没有，搜索不会命中它。这是有意的取舍；召回预算等于描述质量。整理器（P5）要把“描述是否还准确”当成主要工作。
 
 ## 6. 链接与图
 
 - 出边在实体 `links`；反链 `SELECT from_id FROM links WHERE to_id = ?`。
 - 度数 = 入 + 出；注入与图排序用它。
-- `file_read` 返回 `neighbors`：目标存在给 `{id, name, description}`，不存在给 `{id, missing: true}`。
-- 图只画显式链接；没有标签派生边（标签可选，派生边以后按需）。孤儿文件靠面板/整理提示。
+- `file_read` 返回 `neighbors`：目标存在给 `{id, name, description, mime}`，不存在给 `{id, missing: true}`。
+- `graph(ids, {hops:1-3, limit})`：从命中文件做有界 BFS，返回 `{nodes, edges}`，边走双向、方向保留。场景“搜索 → Word → markdown → 脚本”用 `hops:2` 一次拿到。
+- 图只画显式链接；没有语义推断。关系必须由 agent/面板写进 `links`，整理器可以提示“这张文档提到脚本但没链接”。
 - 未来可选：类型化边（`uses`/`derived_from`）、内联 `[[file-id]]` 自动同步到 links。
+- **可执行**：脚本扩展名或 shebang → 写入时 `chmod 0700`；`file_read` 返回 `executable: true` 与绝对 `path`，agent 用 bash 直接跑。原生二进制不加执行位；面板只 reveal，不点击执行。
 
 ## 7. 注入
 
@@ -121,10 +126,10 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 | 工具 | 作用 |
 |---|---|
-| `file_query` | 关键词/标签/类型/图检索；返回 id、名字、描述、类型、大小、度数、片段 |
-| `file_read` | 元数据 + 文本（上限 256 KB，超出给 path）+ 邻居；悬空标 `missing` |
+| `file_query` | 关键词/标签/类型/图检索；返回 id、名字、描述、类型、大小、度数、分数；`graph:true` + `hops` 返回子图 |
+| `file_read` | 元数据 + 文本（上限 256 KB，超出给 path）+ 绝对 path + executable + 邻居；悬空标 `missing` |
 | `file_write` | 新建/更新文本文件；带 description、tags、links；写前查重 |
-| `file_import` | 从宿主机路径导入任意文件（二进制/文本），复制字节入库 |
+| `file_import` | 从宿主机路径导入任意文件（二进制/文本/Word/PDF），复制字节入库；带 description、tags、links |
 | `file_link` | 加/删链接，不重写正文 |
 | `file_index` | 类型/标签/规模总览（对应老 `card_index`） |
 | `file_archive` / `file_remove` | 归档 / 先移 trash 再删 |
@@ -136,7 +141,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 顶层页签：**概览 / 文件 / 图谱 / 设置 / 日志**（不再有“卡片/资源”两分）。
 
 - 文件页：搜索、按类型/标签过滤、上传（必须填描述）、列表（名字 + 描述 + 类型 + 大小 + 度数 + 更新时间）。
-- 详情：按类型预览（md/文本/代码、图片、PDF；其余只给元数据 + 系统打开）；编辑描述/标签/链接；看反链；归档/删除。
+- 详情：按类型预览（md/文本/代码、图片、PDF；Word/Office 交给系统程序）；编辑描述/标签/链接；看反链；显示 path / executable；归档/删除。
 - 图谱：节点=文件，边=链接，可拖拽；按类型或标签着色。
 - 概览：文件数、类型分布、链接数、孤儿、最近写入、注入预览。
 
@@ -146,18 +151,59 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 2. 每个附件 → 独立文件实体；描述取卡正文引用行里的“用途…”，链接到卡文件；正文里的资源路径改写成 `file:<新id>`。
 3. 链接两遍走：先建全部实体，再落 links（允许前向引用）。
 4. 脚本：`scripts/migrate-from-evolver.mjs <旧数据目录> <新数据目录>`，默认 dry-run，输出计数与冲突。
+5. 迁移后正文不进索引；老库的卡片描述本来就承担索引作用，正好对得上。
 
-## 11. 分阶段
+## 11. 场景验证
+
+**A. 搜索 → 文档 → 脚本 → 直接使用**
+
+1. `file_query("报表导出")` 命中 `spec.docx`（描述里有“报表导出”）。
+2. `file_read(spec)` 返回描述、path、邻居 `export-notes.md`；agent 想看 Word 正文就自己用 `textutil`/`pandoc` 读 path。
+3. `file_read(export-notes.md)` 返回邻居 `export.sh`。
+4. `file_read(export.sh)` 返回 `executable: true` + 绝对 path；agent 用 bash 跑。
+
+一次拿全链路用 `file_query graph:true, hops:2`：节点里直接有 `spec → notes → export.sh` 的边。
+
+**B. 搜索 → Word → markdown → 脚本**
+
+与 A 相同，只是 Word 的正文不由插件解析；搜索靠 Word 的描述。只要 Word 的描述写清“这是什么、和哪条流程有关”，链路成立。
+
+**C. 类似需求**
+
+- 搜报错关键词 → 描述里带这个报错的修复脚本 → 读 → 跑。
+- 搜规则 → 描述命中的 markdown → 邻居里的实现脚本 / 数据文件 → 用。
+- 搜主题 → 一组同标签文件 → `file_query` 按标签过滤 → 逐个读。
+
+**不成立的场景（有意为之）**
+
+- 搜 Word 正文里的一个词，而描述没写：不会命中。
+- 两个文件内容语义相关但没写 `links`：图里不会自动出现边。
+- 插件自动执行脚本：不会；它只给 path + executable，执行由 agent 决定。
+
+## 12. 分阶段
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| P1（本包，已完成） | 核心：ids/names/meta/DB/store/search + 测试 | `npm test` 全绿（27 条）；中文/英文检索、悬空链接、删库重建均过 |
+| P1（本包，已完成） | 核心：ids/names/meta/DB/store/search/graph + 测试 | `npm test` 全绿（29 条）；描述检索、悬空链接、两跳场景、删库重建均过 |
 | P2 | 插件装配：index.js、工具、注入快照、prompt、契约测试 | 在临时 profile 里工具可用，注入 ≤4 KB |
 | P3 | 面板：文件列表/详情/上传/图谱 | 真实数据目录可浏览、可编辑 |
 | P4 | 迁移脚本 + trash/归档/重建 + 备份 | 135 张老卡无损迁入 |
 | P5 | 会话沉淀/每日整理/健康度（老库 dreaming 的对应物） | 能自动整理而不是只存 |
 
-## 12. 待定决策
+## 13. P1 落地记录（2026-11-13）
+
+已实现并验证：
+
+- `src/ids.js`、`src/names.js`、`src/meta.js`、`src/text.js`、`src/db.js`、`src/store.js`；
+- 29 条测试：CRUD、二进制、改名、删除进 trash、归档、悬空链接、短后缀解析、中文两字描述检索、正文不参与检索、名字/标签检索、删库重建、边车手工修改、改名修复、缺边车/缺本体报告、符号链接拒绝、脚本可执行位、两跳场景（Word 描述 → markdown → 脚本）；
+- 真实运行时验证：Electron 44.7 / Node 24.21 自带 `node:sqlite` 与 FTS5，`ELECTRON_RUN_AS_NODE=1` 跑通基准；
+- 性能（Node 26，500 文件）：建 456 ms（0.9 ms/文件）、检索 1.5 ms、列表 1.9 ms、全量重建 101 ms；
+  桌面运行时（Node 24，200 文件）：建 214 ms（1.1 ms/文件）、检索 1.1 ms、列表 1.1 ms、重建 52 ms。
+- 安全：文件名净化到单段、路径由 id 推导、实体目录内符号链接拒绝、描述/标签去控制字符、单文件 25 MB 上限。
+
+尚未做（P2 起）：插件装配与工具面、注入快照、面板、迁移脚本、密钥筛查、备份/归档、会话沉淀与每日整理。
+
+## 14. 待定决策
 
 1. **包布局**：现在 `yuanshi/` 子包并行；验证后是替换根包，还是独立仓库/包？
 2. **标签**：保留为可选自由标签（本文默认），还是彻底去掉、只用链接？
@@ -165,21 +211,8 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 4. **数据库地位**：边车为准 + DB 索引（本文默认），还是 DB 为准 + 定期导出？
 5. **旧数据**：迁移后保留 `legacy_id` 多久；旧插件是否继续作为日常驱动直到 P4 验收？
 
-## 13. P1 落地记录（2026-11-13）
+## 15. 下一步建议
 
-已实现并验证：
-
-- `src/ids.js`、`src/names.js`、`src/meta.js`、`src/text.js`、`src/db.js`、`src/store.js`；
-- 27 条测试：CRUD、二进制、改名、删除进 trash、归档、悬空链接、短后缀解析、中文两字检索、描述/正文权重、片段来自原文、删库重建、边车手工修改、改名修复、缺边车/缺本体报告、符号链接拒绝；
-- 真实运行时验证：Electron 44.7 / Node 24.21 自带 `node:sqlite` 与 FTS5，`ELECTRON_RUN_AS_NODE=1` 跑通基准；
-- 性能（Node 26，500 文件）：建 669 ms（1.3 ms/文件）、检索 3.3 ms、列表 3.6 ms、全量重建 237 ms；
-  桌面运行时（Node 24，200 文件）：建 509 ms（2.5 ms/文件）、检索 2.5 ms、列表 2.2 ms、重建 104 ms。
-- 安全：文件名净化到单段、路径由 id 推导、实体目录内符号链接拒绝、描述/标签去控制字符、单文件 25 MB 上限。
-
-尚未做（P2 起）：插件装配与工具面、注入快照、面板、迁移脚本、密钥筛查、备份/归档、会话沉淀与每日整理。
-
-## 14. 下一步建议
-
-1. 先确认第 12 节的五个决策（尤其是标签去留、工具前缀、包布局）。
+1. 先确认第 14 节的五个决策（尤其是标签去留、工具前缀、包布局）。
 2. P2 顺序：`index.js` 装配 → `src/tools.js` 工具 → `src/prompt.js` 注入 → 契约测试 → 临时 profile 里真实调用。
 3. 工具面先做 5 个（query/read/write/import/link），`file_index` 与 archive/remove 随后；每加一个工具都按老库的口径算一次请求 token。

@@ -72,3 +72,48 @@ test('链接目标不存在时整次写入不失败，只在结果里消失', as
 		assert.deepEqual(a.links, [])
 	})
 })
+
+test('场景：搜索到文档，沿两跳关系找到脚本并可直接使用', async () => {
+	await withStore(async (store) => {
+		const script = await store.create({
+			name: 'export.sh',
+			description: '导出报表脚本：读取数据源生成 report.md',
+			content: '#!/bin/sh\necho export\n',
+		})
+		const data = await store.create({
+			name: 'data.csv',
+			description: '报表数据源：2026 Q3 销售明细',
+			content: 'region,amount\nEast,10\n',
+		})
+		const notes = await store.create({
+			name: 'export-notes.md',
+			description: '导出流程说明：先看数据源，再跑脚本',
+			content: '流程说明正文，不参与索引。',
+			links: [data.id, script.id],
+		})
+		const spec = await store.create({
+			name: 'spec.docx',
+			description: '需求规格：Q3 报表导出，配套说明与脚本',
+			content: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]),
+		})
+		await store.update(spec.id, { links: [notes.id] })
+
+		const hits = await store.list({ query: '报表导出' })
+		assert.ok(hits.files.some((file) => file.id === spec.id), '描述命中 Word 文件')
+
+		const one = store.graph([spec.id], { hops: 1 })
+		assert.ok(one.nodes.some((node) => node.id === notes.id))
+		assert.ok(!one.nodes.some((node) => node.id === script.id), '一跳不应到脚本')
+
+		const two = store.graph([spec.id], { hops: 2 })
+		assert.ok(two.nodes.some((node) => node.id === notes.id))
+		assert.ok(two.nodes.some((node) => node.id === script.id), '两跳到脚本')
+		assert.ok(two.edges.some((edge) => edge.from === spec.id && edge.to === notes.id))
+		assert.ok(two.edges.some((edge) => edge.from === notes.id && edge.to === script.id))
+
+		const runnable = await store.read(script.id)
+		assert.equal(runnable.executable, true)
+		assert.match(runnable.path, /export\.sh$/)
+		assert.match(runnable.text, /^#!\/bin\/sh/)
+	})
+})
