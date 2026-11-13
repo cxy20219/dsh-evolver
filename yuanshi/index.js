@@ -21,12 +21,19 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { indexText, refreshIndex, dayKey } from './src/injection.js'
 import { createLogSink } from './src/logs.js'
 import { staticSection } from './src/prompt.js'
+import { createYuanshiHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { FileStore } from './src/store.js'
 import { createTools } from './src/tools.js'
 
 /** The plugin's row name. */
 export const name = 'dsh-yuanshi'
+
+/** The API prefix the browser calls. */
+export const API_PREFIX = '/api/yuanshi'
+
+/** The largest request body the panel API goes on to parse. */
+const MAX_REQUEST_BYTES = 48 * 1024 * 1024
 
 /** How often the midnight snapshot check runs. */
 const SNAPSHOT_HEARTBEAT_MS = 10 * 60 * 1000
@@ -98,6 +105,7 @@ export async function apply(ctx, config) {
 		logs.warn(`元始：构建注入快照失败：${error instanceof Error ? error.message : String(error)}`)
 	}
 	let injected = await indexText(store, current.injectionBudget)
+	const version = await readVersion()
 
 	const disposers = []
 	for (const tool of createTools({ store })) disposers.push(ctx.tools.register(tool))
@@ -116,6 +124,43 @@ export async function apply(ctx, config) {
 		text: () => injected,
 	}))
 
+	const connection = ctx.get('connection')
+	if (connection !== undefined) {
+		const handler = createYuanshiHandler({ store, settings, logs, root, version })
+		for (const endpoint of ENDPOINTS) {
+			disposers.push(connection.fetch.register({
+				path: `${API_PREFIX}/${endpoint}`,
+				methods: ['POST'],
+				requestBody: 'buffered',
+				fetch: async (request) => {
+					const declared = Number(request.headers.get('content-length') ?? '')
+					if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) {
+						return Response.json({
+							error: { code: 'yuanshi/request-too-large', message: `请求体超过 ${MAX_REQUEST_BYTES} 字节。` },
+						}, { status: 413 })
+					}
+					let payload = {}
+					try {
+						payload = await request.json()
+					} catch {
+						payload = {}
+					}
+					try {
+						const value = await handler(endpoint, payload)
+						return Response.json(value ?? null)
+					} catch (error) {
+						return Response.json({
+							error: { code: 'yuanshi/error', message: error instanceof Error ? error.message : String(error) },
+						}, { status: 400 })
+					}
+				},
+			}))
+		}
+		logs.info(`元始：面板接口 ${ENDPOINTS.length} 个，前缀 ${API_PREFIX}`)
+	} else {
+		logs.warn('元始：connection 服务不可用，面板接口未注册；工具与注入仍然可用。')
+	}
+
 	// The injected text is a daily artifact. A host that stays open across
 	// midnight gets one rebuild per day; writes in between do not touch it.
 	let day = dayKey()
@@ -133,21 +178,21 @@ export async function apply(ctx, config) {
 	}, SNAPSHOT_HEARTBEAT_MS)
 	timer.unref?.()
 
-	const version = await readVersion()
 	logs.info(`元始 ${version}：数据目录 ${root}（文件 files/，系统数据 system/）`)
 
-	ctx.effect?.(() => async () => {
+	ctx.effect(() => () => {
 		clearInterval(timer)
-		for (const dispose of disposers) {
-			try {
-				await dispose?.()
-			} catch {
-				// One broken registration must not keep the store open.
+		return (async () => {
+			for (const dispose of disposers) {
+				try {
+					await dispose?.()
+				} catch {
+					// One broken registration must not keep the store open.
+				}
 			}
-		}
-		await logs.close?.()
-		store.close()
-	})
+			await logs.close?.()
+			store.close()
+		})()
+	}, 'dsh-yuanshi: resources')
 
-	return { root, store, settings }
 }

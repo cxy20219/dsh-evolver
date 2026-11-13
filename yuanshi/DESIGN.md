@@ -162,10 +162,12 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 顶层页签：**概览 / 文件 / 图谱 / 设置 / 日志**（不再有“卡片/资源”两分）。
 
-- 文件页：搜索、按类型/标签过滤、上传（必须填描述）、列表（名字 + 描述 + 类型 + 大小 + 度数 + 更新时间）。
-- 详情：按类型预览（md/文本/代码、图片、PDF；Word/Office 交给系统程序）；编辑描述/标签/链接；看反链；显示 path / executable；归档/删除。
-- 图谱：节点=文件，边=链接，可拖拽；按类型或标签着色。
-- 概览：文件数、类型分布、链接数、孤儿、最近写入、注入预览。
+- 文件页：搜索、按类型/标签过滤、显示归档、上传（必须填描述）、新建文本文件；列表显示名字 + 描述 + 类型 + 大小 + 度数 + 更新时间，100 条一页，可“加载更多”。
+- 详情：按类型预览（md/文本/代码、图片、PDF；Word/Office 只显示路径，交给外部程序）；编辑描述/标签/出链/正文；看反链与已解析出链；显示 path / executable；保存/归档/删除在详情顶部，不用滚到底。
+- 图谱：节点=文件，边=链接；SVG 力导向、按类型着色、点节点打开文件。MVP 是结算布局，不做拖拽。
+- 设置：描述上限、单文件上限、单次读取上限、注入预算；保存后 `store.setLimits` 立即生效。
+- 日志：`system/logs/plugin.log` 尾部。
+- 安全边界：浏览器只发 id；上传/预览有字节上限；正文超过读取上限时禁用编辑，避免把截断文本写回文件。
 
 ## 10. 迁移（老库 → 元始）
 
@@ -207,8 +209,8 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | P1（本包，已完成） | 核心：ids/names/meta/DB/store/search/graph + 测试 | 核心测试 32 条全绿；描述检索、标签必填/层级/组合过滤、任意类型互链、两跳场景、删库重建均过 |
-| P2（本包，已完成 host） | index.js、8 个工具、注入快照、prompt、设置、日志、插件测试 | 46 条全绿；工具可用；注入 ≤4 KB；所有数据在一个目录 |
-| P3 | 面板：文件列表/详情/上传/图谱 + HTTP 接口 | 真实数据目录可浏览、可编辑 |
+| P2（已完成 host） | index.js、8 个工具、注入快照、prompt、设置、日志、插件测试 | 46 条全绿；工具可用；注入 ≤4 KB；所有数据在一个目录 |
+| P3（已完成） | 面板：5 页签 + 12 个 HTTP 接口 + 真实浏览器验证 | 50 条全绿；列表/详情/上传/图谱/设置/日志可用 |
 | P4 | 迁移脚本 + trash/归档/重建 + 备份 | 135 张老卡无损迁入 |
 | P5 | 会话沉淀/每日整理/健康度（老库 dreaming 的对应物） | 能自动整理而不是只存 |
 
@@ -271,3 +273,32 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 | 存储 | 361 KB / 18 文件 | 683 KB / 292 文件 | 每实体两文件 + DB；换取可重建/可查询 |
 
 结论：元始在注入、返回体、重开、附件成图、脚本可执行上更优；evolver 在写入吞吐、存储占用、正文召回上更优。选择元始意味着把“正文理解”交给 agent，把检索预算压在描述质量上。
+
+## 18. P3 落地记录（2026-11-13）
+
+已实现：
+
+- `src/remote.js`：12 个接口（overview / file-list / file-read / file-write / file-upload / file-preview / file-archive / file-remove / graph / settings / settings-save / logs）；浏览器只传 id，路径由 store 解析。
+- `index.js`：每个接口经 `connection.fetch.register` 注册，`methods: ['POST']`、`requestBody: 'buffered'`；`connection` 缺失时只告警，工具与注入仍可用。
+- `client.js`：`window.__ModuleLoader__.load` 单文件客户端；侧边栏 id 与 main key 都是 `yuanshi`；概览/文件/图谱/设置/日志；文件列表分页；详情编辑描述/标签/出链/正文；上传、新建、归档、删除；图片/PDF 预览；深色/浅色主题都走 DSW token。
+- `test/remote.test.mjs`：真实 `apply` + fake Connection，走完读/写/上传/预览/图/设置/日志/归档/删除；`test/client.test.mjs` 只做加载与注册冒烟；`test/contract.test.mjs` 静态断言 ENDPOINTS / switch / `call()` 三处同集合。50 条全绿。
+- 真实界面验证：临时 profile `ystest` + 独立 Web 端口；侧边栏出现「元始」；新建/编辑/保存、上传、归档、分页（100→103）、图谱（2 节点 1 边，点节点打开详情）、设置保存、日志都走通；浅色与深色截图各一张。
+
+验证中发现并修掉的问题：
+
+- `apply` 返回 `{root,store,settings}` 被 Cordis 当 effect 收集，报 `Invalid effect`；改为不返回对象。
+- `read()` 不带 `degree`，详情显示 0/0；补 `degree` 并加测试。
+- 图谱 SVG 按宽度等比放大导致画布过高；改为 `height:min(62vh,560px)`。
+- 图谱图例 `text/` 渲染成空标签；改成显式 `md/img/pdf/script`。
+- 详情两个“出链”标签重复；拆成“出链 id”和“已解析出链”。
+- 超长文本保存会把截断正文写回；`detail.truncated` 时禁用正文编辑、保存不带 content。
+- 文件列表 100 条后没有入口；增加“加载更多”。
+- 列表与详情共用页面滚动，长列表点下方行时详情在视口上方；列表改为独立滚动（`max-height: calc(100vh - 260px)`）。
+- 主按钮沿用业务蓝时白字对比度不足；改用 DSH 的 button-primary-fill / label-primary-inverted，并给 hover 单独规则，避免 hover 把主按钮洗成白底白字。
+- 保存时死链被静默丢弃；读取 `warnings`，有丢弃时用错误色 toast 列出。
+- 没有未保存保护；详情标题显示“未保存”，切换文件前 `confirm`。
+- 上传先读 DataURL 后在服务端才拒绝；客户端先按 20 MB 硬上限预检，设置页标注上传上限与单文件上限独立。
+- 加载失败后页面永远停在“加载中”；加全局错误横幅与“重试”。
+- 补基础可访问性：列表行/图谱节点可 Tab + Enter，上传改按钮触发，弹窗 Esc/role=dialog，toast 加 role=status。
+
+未做：迁移面板（P4）、系统打开/文件管理器 reveal、图谱拖拽与大库聚合、完整键盘焦点管理。

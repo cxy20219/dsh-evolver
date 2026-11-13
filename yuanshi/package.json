@@ -7,7 +7,9 @@
 	"main": "./index.js",
 	"exports": {
 		".": "./index.js",
-		"./package.json": "./package.json"
+		"./client": "./client.js",
+		"./package.json": "./package.json",
+		"./icon": "./icon.svg"
 	},
 	"files": [
 		"index.js",
@@ -18,7 +20,9 @@
 		"README.md",
 		"COMPARISON.md",
 		"COMPARISON.json",
-		"package.json"
+		"package.json",
+		"client.js",
+		"icon.svg"
 	],
 	"engines": {
 		"node": ">=22.13"
@@ -29,6 +33,17 @@
 	"dsh": {
 		"bundle": {
 			"patch": "./cordis.patch.yml"
+		},
+		"client": {
+			"platform": "web",
+			"immediately": true,
+			"inject": [
+				"@deepseek-ai/dsh-client-ui-renderer",
+				"@deepseek-ai/dsh-client-locale",
+				"@deepseek-ai/dsh-client-ui-layout",
+				"@deepseek-ai/dsh-client-ui-sidebar",
+				"@deepseek-ai/dsh-client-connection"
+			]
 		}
 	}
 }

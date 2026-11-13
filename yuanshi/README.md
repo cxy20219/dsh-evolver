@@ -4,8 +4,8 @@
 
 ## 状态
 
-- **Host 半边已实现**：数据目录、文件存储、SQLite 索引、描述检索、图遍历、8 个工具、两段注入、设置、日志。
-- **面板（浏览器半边）未实现**：当前可以直接用工具和注入，没有侧边栏。
+- **Host 半边已实现**：数据目录、文件存储、SQLite 索引、描述检索、图遍历、8 个工具、两段注入、设置、日志、12 个面板接口。
+- **面板（浏览器半边）已实现**：侧边栏「元始」，概览 / 文件 / 图谱 / 设置 / 日志五个页签；可搜索、编辑、上传、新建、归档、删除、看图。
 - 数据目录默认 `~/.dsh/yuanshi`，一个根目录下分两棵子树：`files/` 只放文件本体，`system/` 放索引与系统数据。
 
 ```
@@ -26,9 +26,19 @@
 - `links` 是出边，目标可以是任何类型的文件；反链实时计算；死链/自链写时丢弃并进 `warnings`。
 - 脚本按扩展名/shebang 设 `0700`，`file_read` 返回 `path` + `executable`；插件不执行脚本。
 
-## 工具
+## 工具与面板
 
-`file_query`、`file_read`、`file_write`、`file_import`、`file_link`、`file_index`、`file_archive`、`file_remove`。
+Agent 工具：`file_query`、`file_read`、`file_write`、`file_import`、`file_link`、`file_index`、`file_archive`、`file_remove`。
+
+面板通过 `/api/yuanshi/*` 的 12 个接口工作（`overview`、`file-list`、`file-read`、`file-write`、`file-upload`、`file-preview`、`file-archive`、`file-remove`、`graph`、`settings`、`settings-save`、`logs`），浏览器只发 id，不发路径；上传和预览都有大小上限。
+
+### 面板
+
+- **概览**：文件 / 链接 / 标签 / 孤儿 / 归档统计，类型分布、常用标签、最近更新、注入快照预览。
+- **文件**：搜索描述/名字/标签、标签前缀、类型、显示归档；列表分页；详情改描述/标签/出链/正文，上传、新建、归档、删除。
+- **图谱**：显式链接图，点节点打开文件；节点按类型着色，附件与脚本也是节点。
+- **设置**：描述上限、单文件上限、读取上限、注入预算；保存后立即生效。
+- **日志**：`system/logs/plugin.log` 尾部。
 
 ## 与 evolver 1.0.0 的量化对比
 
@@ -52,7 +62,7 @@ node scripts/compare.mjs       # 复制老库、迁移、分场景对比
 ## 开发
 
 ```bash
-npm test                       # 46 条
+npm test                       # 50 条
 node scripts/bench.mjs 500     # 500 文件基准
 node scripts/compare.mjs       # 与 evolver 1.0.0 分场景对比
 ```

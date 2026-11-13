@@ -12,8 +12,10 @@ test('链接、反链与度数', async () => {
 
 		const readA = await store.read(a.id)
 		assert.equal(readA.neighbors.out[0].id, b.id)
+		assert.deepEqual(readA.degree, { in: 0, out: 1 })
 		const readB = await store.read(b.id)
 		assert.equal(readB.neighbors.in[0].id, a.id)
+		assert.deepEqual(readB.degree, { in: 1, out: 0 })
 
 		const listed = await store.list()
 		const rowA = listed.files.find((file) => file.id === a.id)

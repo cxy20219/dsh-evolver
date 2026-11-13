@@ -382,6 +382,7 @@ export class FileStore {
 			}
 		}
 		out.short = this.shortMap().get(id) ?? id
+		out.degree = { in: this.db.backlinks(id).length, out: (meta.links ?? []).length }
 		if (neighbors) {
 			const outgoing = []
 			for (const target of meta.links ?? []) {
@@ -604,6 +605,23 @@ export class FileStore {
 			frontier = next
 		}
 		return { nodes: [...nodes.values()], edges }
+	}
+
+	/**
+	 * Apply new limits to an open store.
+	 *
+	 * The panel changes these without reopening the library; the next write or
+	 * read uses the new bounds, and the stored metadata is unaffected.
+	 *
+	 * @param {{maxBytes?: number, readTextBytes?: number, descriptionMaxChars?: number}} limits - The new bounds.
+	 * @returns {void}
+	 */
+	setLimits({ maxBytes, readTextBytes, descriptionMaxChars } = {}) {
+		if (maxBytes !== undefined) this.maxBytes = Math.max(1, Math.round(Number(maxBytes) || DEFAULT_MAX_BYTES))
+		if (readTextBytes !== undefined) this.readTextBytes = Math.max(1, Math.round(Number(readTextBytes) || DEFAULT_READ_TEXT_BYTES))
+		if (descriptionMaxChars !== undefined) {
+			this.descriptionMaxChars = Math.min(200, Math.max(20, Math.round(Number(descriptionMaxChars) || DEFAULT_DESCRIPTION_CHARS)))
+		}
 	}
 
 	/**

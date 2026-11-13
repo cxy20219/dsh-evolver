@@ -8,7 +8,7 @@
 - insert:
     - id: dsh-yuanshi
       name: dsh-yuanshi
-      inject: [tools, systemPrompt]
+      inject: [tools, systemPrompt, connection]
       config:
         # 数据目录：留空则用 ~/.dsh/yuanshi。所有数据（files/、yuanshi.db、
         # index.json、settings.json、logs/、trash/）都在这个目录下。

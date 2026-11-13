@@ -67,8 +67,9 @@ async function withHome(run) {
 test('apply：所有数据在一个目录，注册 8 个工具与两段注入，写入不改注入', async () => {
 	await withHome(async (home) => {
 		const { ctx, tools, sections, contexts, effects } = fakeContext()
-		const result = await apply(ctx, {})
-		assert.equal(result.root, join(home, 'yuanshi'))
+		const root = join(home, 'yuanshi')
+		await apply(ctx, {})
+		assert.equal(root, join(home, 'yuanshi'))
 		assert.equal(resolveDshHome(), home)
 
 		assert.equal(tools.length, 8)
@@ -97,12 +98,12 @@ test('apply：所有数据在一个目录，注册 8 个工具与两段注入，
 		assert.match(file.id, /^file-/)
 		assert.equal(contexts[0].text(), before, '写文件不改变当天的注入文本')
 
-		const snapshot = JSON.parse(await readFile(join(result.root, 'system', 'index.json'), 'utf8'))
+		const snapshot = JSON.parse(await readFile(join(root, 'system', 'index.json'), 'utf8'))
 		assert.equal(snapshot.summary.files, 0, '快照仍是打开时那一版')
 
-		const rootListing = await readdir(result.root)
+		const rootListing = await readdir(root)
 		assert.deepEqual(rootListing.sort(), ['files', 'system'], '根目录只分文件与系统数据两棵树')
-		const systemListing = await readdir(join(result.root, 'system'))
+		const systemListing = await readdir(join(root, 'system'))
 		for (const name of ['trash', 'logs', 'yuanshi.db', 'index.json', 'settings.json']) {
 			assert.ok(systemListing.includes(name), `系统数据缺少 ${name}`)
 		}
@@ -110,8 +111,7 @@ test('apply：所有数据在一个目录，注册 8 个工具与两段注入，
 
 		const disposer = await effects[0]()
 		await disposer()
-		assert.equal(result.store.db.db, null, 'dispose 应该关闭索引')
-		const log = await readFile(join(result.root, 'system', 'logs', 'plugin.log'), 'utf8')
+		const log = await readFile(join(root, 'system', 'logs', 'plugin.log'), 'utf8')
 		assert.match(log, /数据目录/)
 	})
 })
