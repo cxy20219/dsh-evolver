@@ -292,8 +292,11 @@ export async function absorbArchive(store, archivePath, { logger, now = () => Da
 			try {
 				summary.files += await copyAttachments(source, store, item.id, summary.problems)
 				const description = absorbableDescription(item.record.description, item.body, store)
+				// An archived card carries eight tags plus its archive leaf; the
+				// two extra slots are what a normal write would use for the same
+				// transition.
 				const tags = coerceCardTags(item.record.tags, {
-					limit: MAX_TAGS,
+					limit: MAX_TAGS + 2,
 					onDegrade: (from, to) => problem(item.id, `标签 #${from} 降级为 #${to}`),
 				})
 				await store.put({

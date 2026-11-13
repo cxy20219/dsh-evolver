@@ -239,3 +239,30 @@ test('本地已删除的卡片不会被另一台设备的旧归档复活', async
 		await rm(outDir, { recursive: true, force: true })
 	}
 })
+
+test('带归档叶的卡（八个标签 + 归档）完整吸收，不丢标签', async () => {
+	const archived = cardId()
+	const tags = ['践行/工具', '见闻/事实', '复盘/经验', '觉察/事实', '试错/事实', '即兴/事实', '践行/工作流', '见闻/网络', '践行/归档']
+	const { archive, sourceDir, outDir } = await exportOf(async ({ store }) => {
+		await store.cards.putMemory({
+			id: archived,
+			body: '一张已经归档的旧卡',
+			description: '归档卡也要完整过来',
+			tags,
+			updated: new Date().toISOString(),
+		})
+	})
+	const { dir, store } = await fixture()
+	try {
+		const summary = await absorbArchive(store, archive)
+		assert.equal(summary.added, 1)
+		const card = store.get(archived)
+		assert.deepEqual(card.tags, tags)
+		assert.equal(card.tags.some((tag) => tag.endsWith('/归档')), true)
+	} finally {
+		await store.close()
+		await rm(dir, { recursive: true, force: true })
+		await rm(sourceDir, { recursive: true, force: true })
+		await rm(outDir, { recursive: true, force: true })
+	}
+})
