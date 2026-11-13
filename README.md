@@ -77,7 +77,7 @@
 
 | 部分 | 载体 | 预算 |
 | --- | --- | --- |
-| 纪律 + 指向工具 + 主动性协议（静态，一段） | `systemPrompt.section` order 900 | 实测 1276 B（纪律 430 B + 主动性 844 B + 分隔） |
+| 纪律 + 指向工具 + 主动性协议（静态，一段） | `systemPrompt.section` order 900 | 实测 1348 B（纪律 430 B + 主动性 916 B + 分隔） |
 | 卡片索引：12 张卡（10 枢纽 + 2 张最近写的，短 id｜描述）+ 结构摘要 | `systemPrompt.context` order 900 | 4 KB 预算（快照文件实测 3084 B，取决于描述长度） |
 | 全局偏好 `preferences/AGENTS.md` | DSH 的 `dsh-agent-instructions` | 64 KB |
 

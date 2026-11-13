@@ -15,6 +15,11 @@ test('主动性协议覆盖卡片触发点且保持精简', () => {
 	// the obvious third place — the instruction file — looked allowed. The
 	// boundary has to be written down or it gets re-invented.
 	assert.match(PROACTIVE_PROTOCOL, /全局 AGENTS\.md 只读/)
+	// 项目级沉淀的落点必须说清楚：已有项目文档就更新，没有就写卡，不
+	// 自作主张新建 harness；否则「写 harness_write」在无 harness 的仓库里
+	// 只会被跳过，或者被误读成必须初始化一套骨架。
+	assert.match(PROACTIVE_PROTOCOL, /harness\/ 或 AGENTS\.md/)
+	assert.match(PROACTIVE_PROTOCOL, /不新建 harness/)
 	// Observed failure: three finished deliverables in a row, no card written,
 	// until the user asked. The trigger has to sit at the end of every reply,
 	// not at the end of a task — a turn that ends by asking the user to test

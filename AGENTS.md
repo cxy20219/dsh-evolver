@@ -14,3 +14,4 @@
 - [记忆分层：会话、卡片、注入与图检索](harness/experience/memory-layers.md)：当前记忆分层：会话→卡片→注入（卡片索引+结构摘要）+ 双链图检索；页层已移除，写卡不再改注入
 - [混合检索：BM25 召回 + 双链扩散补全](harness/experience/hybrid-graph-search.md)：卡片检索升级为 BM25 召回 + 双链扩散补全：扩散权重、子图返回、within 二次搜索与为什么不用 embedding/GraphRAG
 - [附件更新语义：同名替换、改名归档、死链降级](harness/experience/card-write-attachment-updates.md)：card_write 更新已有卡时同名附件可替换（旧档进回收站）、未引用旧附件自动归档、死链降级为 warnings；附今日 13/42 错误的前后对照与守卫。
+- [项目级沉淀怎么量：先看项目文档，再谈 harness_write](harness/experience/project-sedimentation-measurement.md)：项目级沉淀别只数 harness_write：当天 8/8 会话写卡、4/5 项目更新文档，jubao 13 次直接编辑 harness；无 harness 写卡不新建骨架，提示词只改落点措辞。
