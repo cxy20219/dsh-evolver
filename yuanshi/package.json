@@ -1,0 +1,13 @@
+{
+	"name": "dsh-yuanshi",
+	"version": "0.1.0",
+	"private": true,
+	"description": "元始：一切皆文件的知识库。每个文件有唯一 id、一句话描述，文件之间可以互相链接；SQLite 维护索引与检索。",
+	"type": "module",
+	"engines": {
+		"node": ">=22.13"
+	},
+	"scripts": {
+		"test": "node --test \"test/*.test.mjs\""
+	}
+}
