@@ -39,7 +39,7 @@ test('描述是必填语义：空、占位词、太短、太长都拒绝', async
 	await withStore(async (store) => {
 		for (const description of ['', '   ', '暂无', 'TODO', 'abc', 'x'.repeat(161)]) {
 			await assert.rejects(
-				() => store.create({ name: 'a.md', description, content: '内容' }),
+				() => store.create({ tags: ['测试'], name: 'a.md', description, content: '内容' }),
 				/描述|description/,
 				`应拒绝：${JSON.stringify(description)}`,
 			)
@@ -49,20 +49,20 @@ test('描述是必填语义：空、占位词、太短、太长都拒绝', async
 
 test('文件名净化：路径、空格、超长、非法名', async () => {
 	await withStore(async (store) => {
-		const escaped = await store.create({ name: '../etc/passwd', description: '逃逸测试文件', content: 'x' })
+		const escaped = await store.create({ tags: ['测试'], name: '../etc/passwd', description: '逃逸测试文件', content: 'x' })
 		assert.equal(escaped.name, 'passwd')
-		const spaced = await store.create({ name: 'a b.md', description: '空格测试文件', content: 'x' })
+		const spaced = await store.create({ tags: ['测试'], name: 'a b.md', description: '空格测试文件', content: 'x' })
 		assert.equal(spaced.name, 'a-b.md')
-		const long = await store.create({ name: `${'长'.repeat(100)}.md`, description: '超长名字测试', content: 'x' })
+		const long = await store.create({ tags: ['测试'], name: `${'长'.repeat(100)}.md`, description: '超长名字测试', content: 'x' })
 		assert.ok(Buffer.byteLength(long.name, 'utf8') <= 88)
-		await assert.rejects(() => store.create({ name: '..', description: '非法名字测试', content: 'x' }), /文件名/)
+		await assert.rejects(() => store.create({ tags: ['测试'], name: '..', description: '非法名字测试', content: 'x' }), /文件名/)
 	})
 })
 
 test('同名文件可以共存：id 才是身份', async () => {
 	await withStore(async (store) => {
-		const first = await store.create({ name: 'notes.md', description: '第一份笔记，讲A', content: 'A' })
-		const second = await store.create({ name: 'notes.md', description: '第二份笔记，讲B', content: 'B' })
+		const first = await store.create({ tags: ['测试'], name: 'notes.md', description: '第一份笔记，讲A', content: 'A' })
+		const second = await store.create({ tags: ['测试'], name: 'notes.md', description: '第二份笔记，讲B', content: 'B' })
 		assert.notEqual(first.id, second.id)
 		assert.equal((await store.read(first.id)).text, 'A')
 		assert.equal((await store.read(second.id)).text, 'B')
@@ -72,7 +72,7 @@ test('同名文件可以共存：id 才是身份', async () => {
 test('二进制文件：只读元数据与路径，不返回正文', async () => {
 	await withStore(async (store) => {
 		const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02])
-		const file = await store.create({ name: 'shot.png', description: '元始面板的登录页截图', content: png })
+		const file = await store.create({ tags: ['测试'], name: 'shot.png', description: '元始面板的登录页截图', content: png })
 		assert.equal(file.mime, 'image/png')
 		assert.equal(file.text, undefined)
 		assert.equal(file.bytes, png.length)
@@ -85,8 +85,8 @@ test('二进制文件：只读元数据与路径，不返回正文', async () =>
 
 test('更新正文与改名：旧字节被替换，链接 id 不变', async () => {
 	await withStore(async (store) => {
-		const target = await store.create({ name: 'target.md', description: '被链接的目标文件', content: '目标' })
-		const file = await store.create({ name: 'notes.md', description: '一份会改名的笔记', content: '旧内容', links: [target.id] })
+		const target = await store.create({ tags: ['测试'], name: 'target.md', description: '被链接的目标文件', content: '目标' })
+		const file = await store.create({ tags: ['测试'], name: 'notes.md', description: '一份会改名的笔记', content: '旧内容', links: [target.id] })
 		const before = file.updated
 		const updated = await store.update(file.id, {
 			name: 'notes.txt',
@@ -109,8 +109,8 @@ test('更新正文与改名：旧字节被替换，链接 id 不变', async () =
 
 test('删除：先移进 trash，再删索引；悬空链接保留', async () => {
 	await withStore(async (store, dir) => {
-		const target = await store.create({ name: 'target.md', description: '会被删除的目标文件', content: 'x' })
-		const source = await store.create({ name: 'source.md', description: '引用目标的来源文件', content: 'y', links: [target.id] })
+		const target = await store.create({ tags: ['测试'], name: 'target.md', description: '会被删除的目标文件', content: 'x' })
+		const source = await store.create({ tags: ['测试'], name: 'source.md', description: '引用目标的来源文件', content: 'y', links: [target.id] })
 		const result = await store.remove(target.id)
 		assert.equal(result.trashed, true)
 		assert.equal(await store.read(target.id), undefined)
@@ -125,7 +125,7 @@ test('删除：先移进 trash，再删索引；悬空链接保留', async () =>
 
 test('归档：默认列表不出现，archived 列表出现', async () => {
 	await withStore(async (store) => {
-		const file = await store.create({ name: 'old.md', description: '一份要归档的旧文件', content: 'x' })
+		const file = await store.create({ tags: ['测试'], name: 'old.md', description: '一份要归档的旧文件', content: 'x' })
 		await store.archive(file.id, true)
 		assert.equal((await store.list()).total, 0)
 		assert.equal((await store.list({ archived: true })).total, 1)
@@ -137,7 +137,7 @@ test('归档：默认列表不出现，archived 列表出现', async () => {
 test('大小上限：超过即拒绝，不落盘', async () => {
 	await withStore(async (store, dir) => {
 		await assert.rejects(
-			() => store.create({ name: 'big.bin', description: '一份过大的二进制文件', content: Buffer.alloc(64) }),
+			() => store.create({ tags: ['测试'], name: 'big.bin', description: '一份过大的二进制文件', content: Buffer.alloc(64) }),
 			/上限/,
 		)
 		const folders = await readdir(join(dir, 'files'))
@@ -147,18 +147,53 @@ test('大小上限：超过即拒绝，不落盘', async () => {
 
 test('脚本自动带可执行位，普通文件不带；改名后权限跟着变', async () => {
 	await withStore(async (store) => {
-		const script = await store.create({
+		const script = await store.create({ tags: ['测试'],
 			name: 'deploy.sh',
 			description: '部署脚本：输出 ok，演示脚本文件可直接执行',
 			content: '#!/bin/sh\necho ok\n',
 		})
 		assert.equal((await stat(script.path)).mode & 0o777, 0o700)
 		assert.equal(script.executable, true)
-		const note = await store.create({ name: 'note.md', description: '普通说明文件，不应带执行位', content: 'x' })
+		const note = await store.create({ tags: ['测试'], name: 'note.md', description: '普通说明文件，不应带执行位', content: 'x' })
 		assert.equal((await stat(note.path)).mode & 0o777, 0o600)
 		assert.equal(note.executable, false)
 		const renamed = await store.update(script.id, { name: 'deploy.txt' })
 		assert.equal((await stat(renamed.path)).mode & 0o777, 0o600)
 		assert.equal(renamed.executable, false)
+	})
+})
+
+test('标签必填：缺失、空数组、空路径都拒绝', async () => {
+	await withStore(async (store) => {
+		await assert.rejects(
+			() => store.create({ name: 'a.md', description: '没有标签的文件', content: 'x' }),
+			/标签/,
+		)
+		await assert.rejects(
+			() => store.create({ name: 'a.md', description: '标签为空数组的文件', content: 'x', tags: [] }),
+			/标签/,
+		)
+		await assert.rejects(
+			() => store.create({ name: 'a.md', description: '标签只有空段的文件', content: 'x', tags: [' / ', '#'] }),
+			/标签/,
+		)
+	})
+})
+
+test('标签是自由层级组合：任意深度、去空段、父标签过滤、多标签 AND', async () => {
+	await withStore(async (store) => {
+		const file = await store.create({
+			name: 'a.md',
+			description: '自由层级标签的测试文件',
+			content: 'x',
+			tags: ['工作/项目/元始', '类型/脚本', '#来源/会话', '工作//重复/'],
+		})
+		assert.deepEqual(file.tags, ['工作/项目/元始', '类型/脚本', '来源/会话', '工作/重复'])
+		assert.equal((await store.list({ tag: '工作' })).total, 1)
+		assert.equal((await store.list({ tag: '工作/项目' })).total, 1)
+		assert.equal((await store.list({ tag: '类型' })).total, 1)
+		assert.equal((await store.list({ tags: ['工作/项目', '类型'] })).total, 1)
+		assert.equal((await store.list({ tags: ['工作/项目', '类型/文档'] })).total, 0)
+		assert.equal((await store.list({ tag: '不存在' })).total, 0)
 	})
 })

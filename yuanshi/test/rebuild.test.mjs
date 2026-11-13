@@ -29,7 +29,7 @@ test('删掉数据库后重开：从边车重建文件、链接与检索', async
 	let store = new FileStore({ dataDir: dir })
 	await store.open()
 	const a = await store.create({ name: 'design.md', description: '甲虫设计说明，讲文件与链接', content: '元始 文件 链接', tags: ['工作流'] })
-	const b = await store.create({ name: 'audit.md', description: '蝴蝶审计说明', content: '审计 守卫' })
+	const b = await store.create({ tags: ['测试'], name: 'audit.md', description: '蝴蝶审计说明', content: '审计 守卫' })
 	await store.link(a.id, b.id)
 	store.close()
 
@@ -42,7 +42,7 @@ test('删掉数据库后重开：从边车重建文件、链接与检索', async
 	const stats = store.stats()
 	assert.equal(stats.files, 2)
 	assert.equal(stats.links, 1)
-	assert.equal(stats.tags, 1)
+	assert.equal(stats.tags, 2)
 	assert.equal((await store.list({ query: '甲虫' })).total, 1)
 	const read = await store.read(a.id)
 	assert.equal(read.links[0], b.id)
@@ -54,7 +54,7 @@ test('重建读取边车的修改：手工改描述后重建就生效', async ()
 	const dir = await tempDir()
 	let store = new FileStore({ dataDir: dir })
 	await store.open()
-	const file = await store.create({ name: 'a.md', description: '甲虫记录', content: '正文' })
+	const file = await store.create({ tags: ['测试'], name: 'a.md', description: '甲虫记录', content: '正文' })
 	store.close()
 
 	const metaPath = join(dir, 'files', file.id, 'meta.json')
@@ -77,7 +77,7 @@ test('手工把文件改名后重建：边车跟着改名并报告', async () =>
 	const dir = await tempDir()
 	let store = new FileStore({ dataDir: dir })
 	await store.open()
-	const file = await store.create({ name: 'old.md', description: '一个会被手工改名的文件', content: '正文' })
+	const file = await store.create({ tags: ['测试'], name: 'old.md', description: '一个会被手工改名的文件', content: '正文' })
 	store.close()
 
 	await rename(join(dir, 'files', file.id, 'old.md'), join(dir, 'files', file.id, 'renamed.md'))
@@ -96,8 +96,8 @@ test('手工把文件改名后重建：边车跟着改名并报告', async () =>
 
 test('缺边车、缺本体的文件夹在重建时被报告而不是静默吞掉', async () => {
 	await withFreshStore(async (store, dir) => {
-		const noMeta = await store.create({ name: 'a.md', description: '缺少边车的文件', content: 'a' })
-		const noPayload = await store.create({ name: 'b.md', description: '缺少本体的文件', content: 'b' })
+		const noMeta = await store.create({ tags: ['测试'], name: 'a.md', description: '缺少边车的文件', content: 'a' })
+		const noPayload = await store.create({ tags: ['测试'], name: 'b.md', description: '缺少本体的文件', content: 'b' })
 		store.close()
 		await rm(join(dir, 'files', noMeta.id, 'meta.json'), { force: true })
 		await rm(join(dir, 'files', noPayload.id, 'b.md'), { force: true })
@@ -114,7 +114,7 @@ test('缺边车、缺本体的文件夹在重建时被报告而不是静默吞�
 
 test('符号链接不被跟随：读取标 unsafe，重建报告问题', async () => {
 	await withFreshStore(async (store, dir) => {
-		const file = await store.create({ name: 'a.md', description: '本体将被替换成符号链接', content: '真实内容' })
+		const file = await store.create({ tags: ['测试'], name: 'a.md', description: '本体将被替换成符号链接', content: '真实内容' })
 		const outside = join(dir, 'outside.txt')
 		await writeFile(outside, '库外内容')
 		await rm(file.path, { force: true })

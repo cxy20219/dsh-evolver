@@ -119,23 +119,24 @@ export function assertDescription(value, maxChars = DEFAULT_DESCRIPTION_CHARS) {
 /**
  * Normalise one free-form tag.
  *
- * Tags are optional in the file model: links are the primary structure, and a
- * tag is only a filter. They are therefore not forced into the old six-branch
- * taxonomy. A leading `#` is accepted because that is how people write tags.
+ * A tag is a path of one or more segments separated by `/`: `工作/项目/元始`,
+ * `类型/脚本`, `来源/会话`. There is no fixed root and no fixed depth — the
+ * hierarchy is the user's, not the plugin's. A leading `#` is accepted because
+ * that is how people write tags; empty segments (`a//b`, `/a/`) collapse;
+ * whitespace inside a segment becomes `-`.
  *
  * @param {unknown} value - The raw tag.
  * @returns {string} The clean tag, or an empty string.
  */
 export function normalizeTag(value) {
-	let tag = String(value ?? '')
-		.replace(CONTROL, ' ')
-		.replace(/^#+/, '')
-		.replace(/\s+/g, '-')
-		.replace(/-+/g, '-')
-		.replace(/^[-/]+|[-/]+$/g, '')
-		.trim()
-	if (tag === '') return ''
-	if ([...tag].length > MAX_TAG_CHARS) tag = [...tag].slice(0, MAX_TAG_CHARS).join('')
+	const raw = String(value ?? '').replace(CONTROL, ' ').replace(/^#+/, '')
+	const segments = raw
+		.split('/')
+		.map((segment) => segment.trim().replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, ''))
+		.filter((segment) => segment !== '')
+	if (segments.length === 0) return ''
+	let tag = segments.join('/')
+	if ([...tag].length > MAX_TAG_CHARS) tag = [...tag].slice(0, MAX_TAG_CHARS).join('').replace(/[-/]+$/g, '')
 	return tag
 }
 
@@ -158,6 +159,25 @@ export function normalizeTags(value, limit = MAX_TAGS) {
 		if (out.length >= limit) break
 	}
 	return out
+}
+
+/**
+ * Require at least one tag.
+ *
+ * A file's id and description identify it; its tags are how it is found by
+ * classification. The user's model says every file carries tags, so an empty
+ * list is rejected at the same place as an empty description: the write is
+ * refused rather than stored as an unclassified entity.
+ *
+ * @param {unknown} value - The raw tag list.
+ * @returns {string[]} The clean tags.
+ */
+export function assertTags(value) {
+	const tags = normalizeTags(value)
+	if (tags.length === 0) {
+		throw new Error('文件至少需要一个标签：用 / 表示层级，例如 工作/项目、类型/脚本。')
+	}
+	return tags
 }
 
 /**
@@ -230,7 +250,7 @@ export function buildMeta(input) {
 		id,
 		name,
 		description,
-		tags: normalizeTags(input.tags),
+		tags: assertTags(input.tags),
 		links: normalizeLinks(input.links),
 		...(source === undefined ? {} : { source }),
 		created,

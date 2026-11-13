@@ -24,13 +24,14 @@ import { fileId, isFileId, shortIds } from './ids.js'
 import {
 	META_FILE,
 	assertDescription,
+	assertTags,
 	buildMeta,
 	clipDescription,
 	normalizeDescription,
 	normalizeLinks,
 	normalizeMeta,
 	normalizeSource,
-	normalizeTags,
+	normalizeTag,
 	serializeMeta,
 } from './meta.js'
 import { contentTypeOf, extensionOf, isExecutablePayload, isScriptName, isTextMime, isTextual, safeName } from './names.js'
@@ -254,7 +255,8 @@ export class FileStore {
 			throw new Error('文件 id 已存在。')
 		}
 		const now = new Date().toISOString()
-		const links = this.resolveLinks(input.links, { selfId: id })
+		const warnings = []
+		const links = this.resolveLinks(input.links, { selfId: id, warnings })
 		const meta = buildMeta({
 			id,
 			name,
@@ -276,7 +278,8 @@ export class FileStore {
 		await this.applyMode(this.entityPath(meta), name, buffer)
 		await this.writeMeta(meta)
 		this.db.upsert(meta)
-		return this.read(id, { text: input.text !== false })
+		const file = await this.read(id, { text: input.text !== false })
+		return warnings.length === 0 ? file : { ...file, warnings }
 	}
 
 	/**
@@ -293,6 +296,7 @@ export class FileStore {
 	async update(id, patch = {}) {
 		const current = await this.readMeta(id)
 		if (current === undefined) throw new Error('文件不存在。')
+		const warnings = []
 		const hasContent = patch.content !== undefined || patch.sourcePath !== undefined
 		const { buffer, sourceName } = hasContent ? await this.payloadOf(patch) : { buffer: undefined, sourceName: '' }
 		if (buffer !== undefined && buffer.length > this.maxBytes) {
@@ -323,8 +327,8 @@ export class FileStore {
 			id,
 			name,
 			description: patch.description === undefined ? current.description : assertDescription(patch.description),
-			tags: patch.tags === undefined ? current.tags : normalizeTags(patch.tags),
-			links: patch.links === undefined ? current.links : this.resolveLinks(patch.links, { selfId: id }),
+			tags: patch.tags === undefined ? current.tags : assertTags(patch.tags),
+			links: patch.links === undefined ? current.links : this.resolveLinks(patch.links, { selfId: id, warnings }),
 			source: patch.source === undefined ? current.source : normalizeSource(patch.source),
 			created: current.created,
 			updated: new Date().toISOString(),
@@ -337,7 +341,8 @@ export class FileStore {
 		await this.writeMeta(meta)
 		if (buffer !== undefined && oldPath !== nextPath) await rm(oldPath, { force: true }).catch(() => {})
 		this.db.upsert(meta)
-		return this.read(id, { text: true })
+		const file = await this.read(id, { text: true })
+		return warnings.length === 0 ? file : { ...file, warnings }
 	}
 
 	/**
@@ -400,8 +405,10 @@ export class FileStore {
 	async link(from, to) {
 		const current = await this.readMeta(from)
 		if (current === undefined) throw new Error('来源文件不存在。')
+		const resolved = this.resolveId(to)
+		if (resolved === from) throw new Error('不能链接到文件自己。')
 		const [target] = this.resolveLinks([to], { selfId: from })
-		if (target === undefined) throw new Error(`链接目标不存在：${String(to)}`)
+		if (target === undefined) throw new Error(`链接目标不存在或不唯一：${String(to)}`)
 		if ((current.links ?? []).includes(target)) return this.read(from)
 		return this.update(from, { links: [...(current.links ?? []), target] })
 	}
@@ -464,14 +471,20 @@ export class FileStore {
 	 * degree. Snippets are read from the payload, not from the pre-tokenised
 	 * FTS columns, so they stay readable.
 	 *
-	 * @param {{query?: string, tag?: string, mime?: string, archived?: boolean, limit?: number, offset?: number}} [options] - Filters.
+	 * @param {{query?: string, tag?: string, tags?: string[], mime?: string, archived?: boolean, limit?: number, offset?: number}} [options] - Filters.
 	 * @returns {Promise<{total: number, files: object[]}>} The page.
 	 */
 	async list(options = {}) {
 		const limit = Math.max(1, Math.min(500, Math.round(Number(options.limit) || 50)))
 		const offset = Math.max(0, Math.round(Number(options.offset) || 0))
 		const archived = options.archived === true
-		const tag = typeof options.tag === 'string' ? options.tag.trim() : ''
+		const requested = [
+			...(typeof options.tag === 'string' ? [options.tag] : []),
+			...(Array.isArray(options.tags) ? options.tags : []),
+		].map((value) => normalizeTag(value)).filter((value) => value !== '')
+		// Multiple tags are AND-ed: a file must carry every requested path (or a
+		// descendant of it). A single tag keeps the historical behaviour.
+		const wanted = [...new Set(requested)]
 		const mime = typeof options.mime === 'string' ? options.mime.trim() : ''
 		const query = typeof options.query === 'string' ? options.query.trim() : ''
 		const degrees = this.db.degrees()
@@ -483,7 +496,10 @@ export class FileStore {
 			...extra,
 		})
 		const keep = (meta) => {
-			if (tag !== '' && !(meta.tags ?? []).some((item) => item === tag || item.startsWith(`${tag}/`))) return false
+			for (const prefix of wanted) {
+				const found = (meta.tags ?? []).some((tag) => tag === prefix || tag.startsWith(`${prefix}/`))
+				if (!found) return false
+			}
 			if (mime !== '' && !(meta.mime === mime || (mime.endsWith('/') && meta.mime.startsWith(mime)))) return false
 			return true
 		}
@@ -680,15 +696,23 @@ export class FileStore {
 	 * failing the whole write — a dead link should not make a file unwritable.
 	 *
 	 * @param {unknown} values - The raw link list.
-	 * @param {{selfId?: string}} [options] - The writer's id.
+	 * @param {{selfId?: string, warnings?: string[]}} [options] - The writer's id and a sink for dropped edges.
 	 * @returns {string[]} Resolved ids.
 	 */
-	resolveLinks(values, { selfId = '' } = {}) {
+	resolveLinks(values, { selfId = '', warnings } = {}) {
 		const out = []
 		const seen = new Set()
 		for (const raw of normalizeLinks(values)) {
 			const resolved = this.resolveId(raw)
-			if (resolved === undefined || resolved === selfId || seen.has(resolved)) continue
+			if (resolved === undefined) {
+				warnings?.push(`链接目标不存在或不唯一：${raw}`)
+				continue
+			}
+			if (resolved === selfId) {
+				warnings?.push(`不能链接到文件自己：${raw}`)
+				continue
+			}
+			if (seen.has(resolved)) continue
 			seen.add(resolved)
 			out.push(resolved)
 		}

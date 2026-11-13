@@ -37,7 +37,7 @@ for (let index = 0; index < count; index += 1) {
 		name: binary ? `shot-${index}.png` : `${index}-${name}`,
 		description: binary ? `第 ${index} 张面板截图，展示文件列表` : `第 ${index} 份笔记：${body.slice(0, 18)}`,
 		content: binary ? Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, index & 0xff]) : `${body}\n\n编号 ${index}。第 ${index} 份文件。`,
-		tags: index % 3 === 0 ? ['工作流', '演化器'] : [],
+		tags: index % 3 === 0 ? ['工作流', '演化器'] : ['基准'],
 		links: index > 0 && index % 10 === 0 ? [ids[index - 1]] : [],
 	})
 	ids.push(file.id)

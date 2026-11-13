@@ -6,8 +6,8 @@ import { withStore } from './helpers.mjs'
 
 test('链接、反链与度数', async () => {
 	await withStore(async (store) => {
-		const a = await store.create({ name: 'a.md', description: '来源文件，链接到 b', content: 'a' })
-		const b = await store.create({ name: 'b.md', description: '目标文件，被 a 链接', content: 'b' })
+		const a = await store.create({ tags: ['测试'], name: 'a.md', description: '来源文件，链接到 b', content: 'a' })
+		const b = await store.create({ tags: ['测试'], name: 'b.md', description: '目标文件，被 a 链接', content: 'b' })
 		await store.link(a.id, b.id)
 
 		const readA = await store.read(a.id)
@@ -25,22 +25,24 @@ test('链接、反链与度数', async () => {
 
 test('短后缀可以当链接目标，自链与未知目标被丢弃', async () => {
 	await withStore(async (store) => {
-		const a = await store.create({ name: 'a.md', description: '来源文件，测试链接解析', content: 'a' })
-		const b = await store.create({ name: 'b.md', description: '目标文件，测试后缀解析', content: 'b' })
+		const a = await store.create({ tags: ['测试'], name: 'a.md', description: '来源文件，测试链接解析', content: 'a' })
+		const b = await store.create({ tags: ['测试'], name: 'b.md', description: '目标文件，测试后缀解析', content: 'b' })
 		await store.link(a.id, b.id.slice(-6))
 		assert.equal((await store.read(a.id)).links[0], b.id)
 
-		await assert.rejects(() => store.link(a.id, a.id), /链接目标/)
+		await assert.rejects(() => store.link(a.id, a.id), /自己/)
 		const missing = fileId(0)
 		const updated = await store.update(a.id, { links: [b.id, missing] })
 		assert.deepEqual(updated.links, [b.id])
+		assert.equal(updated.warnings.length, 1)
+		assert.match(updated.warnings[0], /不存在或不唯一/)
 	})
 })
 
 test('删除目标后链接悬空，但来源文件仍可读', async () => {
 	await withStore(async (store) => {
-		const a = await store.create({ name: 'a.md', description: '来源文件，目标会被删', content: 'a' })
-		const b = await store.create({ name: 'b.md', description: '目标文件，随后删除', content: 'b' })
+		const a = await store.create({ tags: ['测试'], name: 'a.md', description: '来源文件，目标会被删', content: 'a' })
+		const b = await store.create({ tags: ['测试'], name: 'b.md', description: '目标文件，随后删除', content: 'b' })
 		await store.link(a.id, b.id)
 		await store.remove(b.id)
 		const read = await store.read(a.id)
@@ -51,8 +53,8 @@ test('删除目标后链接悬空，但来源文件仍可读', async () => {
 
 test('取消链接', async () => {
 	await withStore(async (store) => {
-		const a = await store.create({ name: 'a.md', description: '来源文件，之后取消链接', content: 'a' })
-		const b = await store.create({ name: 'b.md', description: '目标文件，之后被取消', content: 'b' })
+		const a = await store.create({ tags: ['测试'], name: 'a.md', description: '来源文件，之后取消链接', content: 'a' })
+		const b = await store.create({ tags: ['测试'], name: 'b.md', description: '目标文件，之后被取消', content: 'b' })
 		await store.link(a.id, b.id)
 		await store.unlink(a.id, b.id)
 		assert.deepEqual((await store.read(a.id)).links, [])
@@ -63,35 +65,37 @@ test('取消链接', async () => {
 test('链接目标不存在时整次写入不失败，只在结果里消失', async () => {
 	await withStore(async (store) => {
 		const missing = fileId(0)
-		const a = await store.create({
+		const a = await store.create({ tags: ['测试'],
 			name: 'a.md',
 			description: '带一个死链的文件',
 			content: 'a',
 			links: [missing],
 		})
 		assert.deepEqual(a.links, [])
+		assert.equal(a.warnings.length, 1)
+		assert.match(a.warnings[0], /不存在或不唯一/)
 	})
 })
 
 test('场景：搜索到文档，沿两跳关系找到脚本并可直接使用', async () => {
 	await withStore(async (store) => {
-		const script = await store.create({
+		const script = await store.create({ tags: ['测试'],
 			name: 'export.sh',
 			description: '导出报表脚本：读取数据源生成 report.md',
 			content: '#!/bin/sh\necho export\n',
 		})
-		const data = await store.create({
+		const data = await store.create({ tags: ['测试'],
 			name: 'data.csv',
 			description: '报表数据源：2026 Q3 销售明细',
 			content: 'region,amount\nEast,10\n',
 		})
-		const notes = await store.create({
+		const notes = await store.create({ tags: ['测试'],
 			name: 'export-notes.md',
 			description: '导出流程说明：先看数据源，再跑脚本',
 			content: '流程说明正文，不参与索引。',
 			links: [data.id, script.id],
 		})
-		const spec = await store.create({
+		const spec = await store.create({ tags: ['测试'],
 			name: 'spec.docx',
 			description: '需求规格：Q3 报表导出，配套说明与脚本',
 			content: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]),
@@ -115,5 +119,26 @@ test('场景：搜索到文档，沿两跳关系找到脚本并可直接使用',
 		assert.equal(runnable.executable, true)
 		assert.match(runnable.path, /export\.sh$/)
 		assert.match(runnable.text, /^#!\/bin\/sh/)
+	})
+})
+
+test('任何类型的文件都可以互相链接并产生反链', async () => {
+	await withStore(async (store) => {
+		const png = await store.create({
+			name: 'shot.png',
+			description: '界面截图',
+			content: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1]),
+			tags: ['素材/截图'],
+		})
+		const script = await store.create({
+			name: 'build.sh',
+			description: '构建脚本',
+			content: '#!/bin/sh\necho build\n',
+			tags: ['类型/脚本'],
+		})
+		await store.link(png.id, script.id)
+		assert.equal((await store.read(png.id)).neighbors.out[0].id, script.id)
+		assert.equal((await store.read(script.id)).neighbors.in[0].id, png.id)
+		assert.equal((await store.read(script.id)).neighbors.in[0].mime, 'image/png')
 	})
 })
