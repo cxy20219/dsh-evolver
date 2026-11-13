@@ -40,6 +40,13 @@ function summarize(state) {
 		})),
 		unexpected: state.unexpected,
 		missing: state.missing,
+		// A static prompt line can be missed in a long session. The catalog is
+		// called exactly when the model is deciding where knowledge goes, so the
+		// empty state carries the next action instead of only harness:false.
+		...(state.present ? {} : {
+			needsInit: true,
+			next: '项目没有 harness/。本轮若有只在本仓库成立的判断/约定/命令/流程，先再次调用 harness_catalog({init:true}) 建骨架，再 harness_write；不要写进全局卡。',
+		}),
 		index: {
 			entries: state.index.refs.length,
 			notIndexed: state.index.missing,

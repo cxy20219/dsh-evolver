@@ -220,6 +220,23 @@ test('项目根从子目录向上找，认 .git、harness 与 AGENTS.md', async 
 	}
 })
 
+test('项目没有 harness 时，catalog 直接给出初始化动作', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'harness-empty-'))
+	await mkdir(join(root, '.git'), { recursive: true })
+	try {
+		const tools = Object.fromEntries(
+			createHarnessTools({ resolveProject: async () => root }).map((tool) => [tool.name, tool]),
+		)
+		const listed = await tools.harness_catalog.execute({}, { agent: { id: 'session-empty' } })
+		assert.equal(listed.harness, false)
+		assert.equal(listed.needsInit, true)
+		assert.match(listed.next, /init:true/)
+		assert.match(listed.next, /不要写进全局卡/)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
 test('写入工具要求先看过目录，校验工具直接可用', async () => {
 	const root = await project()
 	const tools = Object.fromEntries(
