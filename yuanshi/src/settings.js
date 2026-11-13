@@ -75,7 +75,7 @@ export class SettingsStore {
 	 */
 	constructor({ dataDir, logger }) {
 		this.dataDir = dataDir
-		this.path = join(dataDir, 'settings.json')
+		this.path = join(dataDir, 'system', 'settings.json')
 		this.logger = logger
 		this.values = normalizeSettings({})
 	}

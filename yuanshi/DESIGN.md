@@ -65,19 +65,20 @@
 ## 3. 磁盘布局
 
 ```
-~/.dsh/yuanshi/                 ← 数据目录（备份/迁移的单位）
-  files/
+~/.dsh/yuanshi/                 ← 数据根目录（备份/迁移的单位）
+  files/                        ← 只放文件本体与边车
     file-01M.../
       design.md                 ← 原始字节，永不改写元数据
       meta.json                 ← 唯一事实来源
-  yuanshi.db                    ← SQLite 索引（可删、可重建）
-  index.json                    ← 注入快照（每日）
-  settings.json                 ← 设置（在数据目录内，不在 ~/.dsh 旁边）
-  trash/<时间戳>-<id>/          ← 删除先移动到这里
-  logs/plugin.log
+  system/                       ← 索引与系统数据，不和文件混放
+    yuanshi.db                  ← SQLite 索引（可删、可重建）
+    index.json                  ← 注入快照（每日）
+    settings.json               ← 设置
+    logs/plugin.log
+    trash/<时间戳>-<id>/        ← 删除先移动到这里
 ```
 
-**一个数据目录**：files/、DB、快照、设置、日志、回收站全部在 `~/.dsh/yuanshi`（或组合配置的 `dataDir`）下；没有第二个配置文件。移动目录 = 移动整库。
+**一个根目录、两棵子树**：`files/` 只放内容，`system/` 放 DB、快照、设置、日志、回收站；没有第二个配置文件。备份/迁移时整根目录一起走。
 
 - 一个实体一个目录：以后要加版本、缩略图、抽取文本，都有地方放。
 - `meta.json` 原子写（临时名 + rename）；文件字节同样原子写。
@@ -245,8 +246,28 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - `index.js`：Host 装配；默认数据目录 `~/.dsh/yuanshi`，也接受组合配置里的绝对 `dataDir`；没有第二个配置文件。
 - `src/tools.js`：8 个工具（query/read/write/import/link/index/archive/remove），短 id 解析，写入结果不带正文，死链进 `warnings`。
 - `src/injection.js`：12 个文件快照（10 枢纽 + 2 最近）+ 摘要；快照无构建时间戳，同样内容重写为零字节；跨日心跳刷新；预算内先丢描述再减行。
-- `src/settings.js`、`src/logs.js`、`src/atomic.js`：设置、日志轮转、原子写都在数据目录内。
+- `src/settings.js`、`src/logs.js`、`src/atomic.js`：设置、日志轮转、原子写在 `system/` 内；`files/` 只放文件本体。
 - 重建对“边车名与大小都对得上”的健康文件只做 `stat`，不读正文；只有名/大小不一致时才读文件修复。
-- `test/settings.test.mjs`、`test/injection.test.mjs`、`test/tools.test.mjs`、`test/plugin.test.mjs`：46 条测试全绿；插件测试断言“数据目录外没有插件数据”。
+- `test/settings.test.mjs`、`test/injection.test.mjs`、`test/tools.test.mjs`、`test/plugin.test.mjs`：46 条测试全绿；插件测试断言“根目录只有 files/ 与 system/，数据目录外没有插件数据”。
+- `scripts/compare.mjs`：复制老库、迁移、分场景对比，产出 `COMPARISON.md` / `COMPARISON.json`。
 
 未做：面板/HTTP 接口（P3）、迁移（P4）、会话沉淀与每日整理（P5）；插件还没装进任何 profile。
+
+## 17. 与 evolver 1.0.0 的量化对比（2026-11-13）
+
+脚本：`node scripts/compare.mjs`；老库复制自 `~/.dsh/evolver`，新库在临时目录迁移后测量。样本 135 卡 / 10 附件，Node 26。
+
+| 指标 | evolver 1.0.0 | 元始 | 解读 |
+|---|---|---|---|
+| 注入（静态 + 12 候选） | 3450 B | 3041 B | 元始小 409 B；静态段更短，索引略小 |
+| 查询返回体（平均） | 5311 B | 2890 B | 老查询带正文；元始只回描述/元数据 |
+| 描述基线 top5 重合 | — | 19/32 | 差额含排序策略与附件进 top5 |
+| 老库额外正文命中 | +8 / 40 | — | 正文索引的额外召回，描述没写就没有 |
+| 标签 复盘 | 28 | 31 | 附件继承卡片标签 |
+| 图（审计，2 跳） | 13 节点 / 20 边 | 37 节点 / 50 边 | 附件成为节点并补了 card↔附件 links |
+| 写 100 次 | 12.6 ms | 70.7 ms | 元始每次写字节+边车+DB 三处 |
+| 重开（有索引） | 7.3 ms | 0.5 ms | 元始只开 SQLite |
+| 全量重建 | — | 23.9 ms | 扫边车 + 灌表 |
+| 存储 | 361 KB / 18 文件 | 683 KB / 292 文件 | 每实体两文件 + DB；换取可重建/可查询 |
+
+结论：元始在注入、返回体、重开、附件成图、脚本可执行上更优；evolver 在写入吞吐、存储占用、正文召回上更优。选择元始意味着把“正文理解”交给 agent，把检索预算压在描述质量上。

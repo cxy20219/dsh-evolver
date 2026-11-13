@@ -114,7 +114,7 @@ test('删除：先移进 trash，再删索引；悬空链接保留', async () =>
 		const result = await store.remove(target.id)
 		assert.equal(result.trashed, true)
 		assert.equal(await store.read(target.id), undefined)
-		const trash = await readdir(join(dir, 'trash'))
+		const trash = await readdir(join(dir, 'system', 'trash'))
 		assert.equal(trash.length, 1)
 		assert.ok(trash[0].endsWith(target.id))
 		const read = await store.read(source.id)

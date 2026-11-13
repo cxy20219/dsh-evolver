@@ -97,19 +97,21 @@ test('apply：所有数据在一个目录，注册 8 个工具与两段注入，
 		assert.match(file.id, /^file-/)
 		assert.equal(contexts[0].text(), before, '写文件不改变当天的注入文本')
 
-		const snapshot = JSON.parse(await readFile(join(result.root, 'index.json'), 'utf8'))
+		const snapshot = JSON.parse(await readFile(join(result.root, 'system', 'index.json'), 'utf8'))
 		assert.equal(snapshot.summary.files, 0, '快照仍是打开时那一版')
 
-		const listing = await readdir(result.root)
-		for (const name of ['files', 'trash', 'logs', 'yuanshi.db', 'index.json', 'settings.json']) {
-			assert.ok(listing.includes(name), `数据目录缺少 ${name}`)
+		const rootListing = await readdir(result.root)
+		assert.deepEqual(rootListing.sort(), ['files', 'system'], '根目录只分文件与系统数据两棵树')
+		const systemListing = await readdir(join(result.root, 'system'))
+		for (const name of ['trash', 'logs', 'yuanshi.db', 'index.json', 'settings.json']) {
+			assert.ok(systemListing.includes(name), `系统数据缺少 ${name}`)
 		}
 		assert.deepEqual(await readdir(home), ['yuanshi'], '数据目录外不应有插件数据')
 
 		const disposer = await effects[0]()
 		await disposer()
 		assert.equal(result.store.db.db, null, 'dispose 应该关闭索引')
-		const log = await readFile(join(result.root, 'logs', 'plugin.log'), 'utf8')
+		const log = await readFile(join(result.root, 'system', 'logs', 'plugin.log'), 'utf8')
 		assert.match(log, /数据目录/)
 	})
 })

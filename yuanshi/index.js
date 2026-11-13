@@ -75,7 +75,8 @@ export async function apply(ctx, config) {
 	}
 	const root = configured === '' ? join(resolveDshHome(), 'yuanshi') : resolve(configured)
 
-	const logs = createLogSink({ dataDir: root, forward: ctx.logger })
+	const systemDir = join(root, 'system')
+	const logs = createLogSink({ dataDir: systemDir, forward: ctx.logger })
 	const settings = new SettingsStore({ dataDir: root, logger: logs })
 	await settings.load()
 	const current = settings.get()
@@ -133,7 +134,7 @@ export async function apply(ctx, config) {
 	timer.unref?.()
 
 	const version = await readVersion()
-	logs.info(`元始 ${version}：数据目录 ${root}`)
+	logs.info(`元始 ${version}：数据目录 ${root}（文件 files/，系统数据 system/）`)
 
 	ctx.effect?.(() => async () => {
 		clearInterval(timer)

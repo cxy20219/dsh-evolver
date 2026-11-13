@@ -72,9 +72,12 @@ export class FileStore {
 	constructor({ dataDir, logger, maxBytes, readTextBytes, descriptionMaxChars }) {
 		if (typeof dataDir !== 'string' || dataDir === '') throw new Error('数据目录不能为空。')
 		this.dataDir = resolve(dataDir)
+		// Content and system data are two separate trees under one root:
+		// files/ holds only entities, system/ holds the index and its satellites.
 		this.filesDir = join(this.dataDir, 'files')
-		this.trashDir = join(this.dataDir, 'trash')
-		this.dbPath = join(this.dataDir, 'yuanshi.db')
+		this.systemDir = join(this.dataDir, 'system')
+		this.trashDir = join(this.systemDir, 'trash')
+		this.dbPath = join(this.systemDir, 'yuanshi.db')
 		this.logger = logger
 		this.maxBytes = Math.max(1, Math.round(Number(maxBytes) || DEFAULT_MAX_BYTES))
 		this.readTextBytes = Math.max(1, Math.round(Number(readTextBytes) || DEFAULT_READ_TEXT_BYTES))
@@ -107,6 +110,7 @@ export class FileStore {
 	 */
 	async open() {
 		await mkdir(this.filesDir, { recursive: true, mode: 0o700 })
+		await mkdir(this.systemDir, { recursive: true, mode: 0o700 })
 		await mkdir(this.trashDir, { recursive: true, mode: 0o700 })
 		const existed = await stat(this.dbPath).then(() => true, () => false)
 		this.db.open()

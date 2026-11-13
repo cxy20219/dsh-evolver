@@ -46,7 +46,7 @@ test('快照：12 个文件、当天、写在数据目录内；写文件不改�
 		assert.equal(snapshot.top.length, 12)
 		assert.equal(snapshot.summary.files, 13)
 		assert.equal(snapshot.summary.links, 12)
-		assert.equal((await readFile(join(dir, 'index.json'), 'utf8')).length > 0, true)
+		assert.equal((await readFile(join(dir, 'system', 'index.json'), 'utf8')).length > 0, true)
 
 		const before = await indexText(store)
 		assert.ok(before.includes('共 13 个文件'))

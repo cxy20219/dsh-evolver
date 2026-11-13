@@ -33,8 +33,8 @@ test('删掉数据库后重开：从边车重建文件、链接与检索', async
 	await store.link(a.id, b.id)
 	store.close()
 
-	for (const name of await readdir(dir)) {
-		if (name.startsWith('yuanshi.db')) await rm(join(dir, name), { force: true })
+	for (const name of await readdir(join(dir, 'system'))) {
+		if (name.startsWith('yuanshi.db')) await rm(join(dir, 'system', name), { force: true })
 	}
 
 	store = new FileStore({ dataDir: dir })

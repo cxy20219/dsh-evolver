@@ -128,7 +128,7 @@ export async function snapshotOf(store) {
  * @returns {string} The absolute path.
  */
 function indexPath(store) {
-	return join(store.dataDir, 'index.json')
+	return join(store.systemDir, 'index.json')
 }
 
 /**

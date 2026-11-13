@@ -1,0 +1,303 @@
+{
+	"generatedAt": "2026-11-13T15:19:10.590Z",
+	"node": "v26.0.0",
+	"oldRoot": "/Users/chengxinyu/Desktop/AI-work/dsh-evolver",
+	"oldData": "/Users/chengxinyu/.dsh/evolver",
+	"library": {
+		"oldCards": 135,
+		"oldAttachments": 10,
+		"newFiles": 145,
+		"newCardFiles": 135,
+		"newAttachmentFiles": 10,
+		"newLinks": 128,
+		"newTags": 223
+	},
+	"migrationMs": 206.348709,
+	"injection": {
+		"oldStatic": 1383,
+		"oldIndex": 2067,
+		"oldTotal": 3450,
+		"newStatic": 1061,
+		"newIndex": 1980,
+		"newTotal": 3041
+	},
+	"storage": {
+		"oldFiles": 18,
+		"oldBytes": 361046,
+		"newFiles": 292,
+		"newBytes": 682914,
+		"ratio": 1.8914875112866505
+	},
+	"queries": [
+		{
+			"query": "反向代理",
+			"oldDescriptionCount": 1,
+			"oldCount": 5,
+			"newCount": 1,
+			"newTotal": 1,
+			"overlap": 1,
+			"oldTop": [
+				"反向代理五个关键：改写 Host/Origin、",
+				"DSH 局域网访问要过 Host/Origin ",
+				"本机 github.com:443 被阻断但 a",
+				"TCP 握手成功但服务端收不到连接、TLS 卡在",
+				"灵魂模板「未编辑即升级」：留 STARTER_S"
+			],
+			"newTop": [
+				"反向代理五个关键：改写 Host/Origin、"
+			],
+			"oldMs": 0.3193193333333397,
+			"newMs": 0.2563609999999888,
+			"oldBytes": 7940,
+			"newBytes": 706
+		},
+		{
+			"query": "审计",
+			"oldDescriptionCount": 4,
+			"oldCount": 5,
+			"newCount": 5,
+			"newTotal": 5,
+			"overlap": 4,
+			"oldTop": [
+				"dsh-evolver 0.4.0 修复台账：审",
+				"审计 DSH 插件的六个高杠杆检查点：请求路径成",
+				"插件审计第二轮：派生数据落盘顺序、删除剪反链、净",
+				"dsh-evolver 1.0.0 全面审计的修",
+				"目录类工具输出的 token 优化三层：紧凑渲染"
+			],
+			"newTop": [
+				"dsh-evolver 1.0.0 全面审计的修",
+				"审计 DSH 插件的六个高杠杆检查点：请求路径成",
+				"dsh-evolver 0.4.0 修复台账：审",
+				"插件审计第二轮：派生数据落盘顺序、删除剪反链、净",
+				"evolver-1.0-audit.md：用途："
+			],
+			"oldMs": 0.14754199999998718,
+			"newMs": 0.20025000000000168,
+			"oldBytes": 9724,
+			"newBytes": 3691
+		},
+		{
+			"query": "链接",
+			"oldDescriptionCount": 2,
+			"oldCount": 5,
+			"newCount": 3,
+			"newTotal": 3,
+			"overlap": 2,
+			"oldTop": [
+				"概览页要求标签树与关系图等宽等高，右栏跟随左栏高",
+				"每日卡片整理的五件事：用自己的话重写、补双向链接",
+				"Harness 客户端无 Markdown 渲染",
+				"给手机访问本机服务定方案时，默认明文加强凭据、T",
+				"卡片 links 只存出边、无反链字段，back"
+			],
+			"newTop": [
+				"Harness 客户端无 Markdown 渲染",
+				"每日卡片整理的五件事：用自己的话重写、补双向链接",
+				"github-pr-credentials.md"
+			],
+			"oldMs": 0.1977496666666525,
+			"newMs": 0.17493066666668255,
+			"oldBytes": 6123,
+			"newBytes": 2214
+		},
+		{
+			"query": "标签",
+			"oldDescriptionCount": 5,
+			"oldCount": 5,
+			"newCount": 5,
+			"newTotal": 21,
+			"overlap": 1,
+			"oldTop": [
+				"概览页按只读 Markdown 预览拆成数据概览",
+				"标签类信息要按需钻取并设预算上限，不能一次全量输",
+				"顶层标签只允许践行/见闻/即兴/复盘/觉察/试错",
+				"缓存未命中要用 byCause 归因数据下结论：",
+				"面板长内容要拆子标签：设置分数据目录/导入导出/"
+			],
+			"newTop": [
+				"概览页按只读 Markdown 预览拆成数据概览",
+				"顶层标签只允许践行/见闻/即兴/复盘/觉察/试错",
+				"面板内并列分区拆子标签的四条落地规则：复用主标签",
+				"标签类信息要按需钻取并设预算上限，不能一次全量输",
+				"每日自动整理只让模型提案、插件校验与留痕：配额随"
+			],
+			"oldMs": 0.5183610000000082,
+			"newMs": 0.3943333333333309,
+			"oldBytes": 3209,
+			"newBytes": 3501
+		},
+		{
+			"query": "索引",
+			"oldDescriptionCount": 5,
+			"oldCount": 5,
+			"newCount": 5,
+			"newTotal": 6,
+			"overlap": 4,
+			"oldTop": [
+				"手写的索引一定会和文件对不上，所以索引必须生成；",
+				"卡片没有标题，唯一身份是 id + descri",
+				"注入给模型的索引必须按日快照、请求路径只读，不能",
+				"DSH 桌面端 Node 24.21 自带 no",
+				"标签树注入按索引做的设计：降级阶梯与实测数字；尾"
+			],
+			"newTop": [
+				"手写的索引一定会和文件对不上，所以索引必须生成；",
+				"index-drift.md：用途：手写的索引一",
+				"标签树注入按索引做的设计：降级阶梯与实测数字；尾",
+				"Anthropic 智能体记忆四层加 dream",
+				"卡片没有标题，唯一身份是 id + descri"
+			],
+			"oldMs": 0.13943033333333688,
+			"newMs": 0.20701400000001513,
+			"oldBytes": 5137,
+			"newBytes": 3423
+		},
+		{
+			"query": "插件",
+			"oldDescriptionCount": 5,
+			"oldCount": 5,
+			"newCount": 5,
+			"newTotal": 18,
+			"overlap": 2,
+			"oldTop": [
+				"harness 文档只写仓库内相对路径、不引用卡",
+				"装完插件后用槽查询确认它真的注册上了，具体查询方",
+				"桌面版 dsh CLI 不在 PATH，插件实际",
+				"关系图谱的连接线画直线而非曲线，参考成熟插件的平",
+				"做插件或项目优化时不背历史兼容包袱，新功能实现优"
+			],
+			"newTop": [
+				"桌面版 dsh CLI 不在 PATH，插件实际",
+				"改 link 插件宿主端不必重启：加注释触发 p",
+				"Harness 客户端无 Markdown 渲染",
+				"每日自动整理只让模型提案、插件校验与留痕：配额随",
+				"DSH 局域网访问要过 Host/Origin "
+			],
+			"oldMs": 0.25986099999996287,
+			"newMs": 0.28844466666665386,
+			"oldBytes": 2687,
+			"newBytes": 3158
+		},
+		{
+			"query": "面板",
+			"oldDescriptionCount": 5,
+			"oldCount": 5,
+			"newCount": 5,
+			"newTotal": 9,
+			"overlap": 2,
+			"oldTop": [
+				"dsh-manager 侧边栏面板注册契约：侧边",
+				"面板改动必须用 ego 打开真实 DSH web",
+				"面板导航分层：与卡片平级的另一类实体（如资源/文",
+				"移除横切功能要按数据、注入、接口、面板、测试、文",
+				"操作结果提示若渲染在可滚动区域内会滚出视野被当成"
+			],
+			"newTop": [
+				"dsh-manager 侧边栏面板注册契约：侧边",
+				"面板改动必须用 ego 打开真实 DSH web",
+				"移除横切功能要按数据、注入、接口、面板、测试、文",
+				"面板功能没生效 → 接口要在 ENDPOINTS",
+				"面板长内容要拆子标签：设置分数据目录/导入导出/"
+			],
+			"oldMs": 0.18847233333330374,
+			"newMs": 0.20558300000000904,
+			"oldBytes": 4599,
+			"newBytes": 3340
+		},
+		{
+			"query": "缓存",
+			"oldDescriptionCount": 5,
+			"oldCount": 5,
+			"newCount": 5,
+			"newTotal": 8,
+			"overlap": 3,
+			"oldTop": [
+				"提示词缓存命中率天然有上限（长会话约 98%），",
+				"系统提示、工具 schema、注入目录树里混入随",
+				"缓存未命中要用 byCause 归因数据下结论：",
+				"注入给模型的索引必须按日快照、请求路径只读，不能",
+				"系统提示词里注入会变的内容（如标签树计数）会让前"
+			],
+			"newTop": [
+				"提示词缓存命中率天然有上限（长会话约 98%），",
+				"插件升级会整段重算正在运行会话的提示词与工具 s",
+				"Hermes 用 SOUL.md 做身份槽：系统",
+				"系统提示、工具 schema、注入目录树里混入随",
+				"缓存未命中要用 byCause 归因数据下结论："
+			],
+			"oldMs": 0.14270833333332197,
+			"newMs": 0.18770866666665142,
+			"oldBytes": 3070,
+			"newBytes": 3089
+		}
+	],
+	"bodyOnly": [
+		{
+			"term": "accessible",
+			"oldHits": 1,
+			"newHits": 0,
+			"oldTop": [
+				"给第三方仓库开 PR 必须用 user toke"
+			],
+			"newTop": []
+		},
+		{
+			"term": "active",
+			"oldHits": 1,
+			"newHits": 0,
+			"oldTop": [
+				"面板内并列分区拆子标签的四条落地规则：复用主标签"
+			],
+			"newTop": []
+		},
+		{
+			"term": "agents",
+			"oldHits": 1,
+			"newHits": 4,
+			"oldTop": [
+				"用会话日志里的 skill-catalog en"
+			],
+			"newTop": [
+				"全局 ~/.dsh/AGENTS.md 只读，a",
+				"同一条经验该写卡片、harness 还是全局 A",
+				"系统提示里的人设没有可测量收益还可能引发刻板印象",
+				"提示词只列两个落点 → 模型发明第三个写进全局 "
+			]
+		}
+	],
+	"tag": {
+		"oldCount": 28,
+		"newCount": 31
+	},
+	"graph": {
+		"oldNodes": 13,
+		"oldEdges": 20,
+		"oldRelated": 8,
+		"newNodes": 37,
+		"newEdges": 50,
+		"newAttachmentNodes": 3
+	},
+	"write": {
+		"oldMs": 12.552458000000001,
+		"newMs": 70.70108400000004,
+		"oldPer": 0.12552458000000002,
+		"newPer": 0.7070108400000004
+	},
+	"startup": {
+		"oldInitMs": 10.063417000000008,
+		"newColdMs": 6.162458000000001,
+		"oldReloadMs": 7.261916999999983,
+		"newWarmMs": 0.4850829999999746,
+		"newRebuildMs": 23.87066699999997
+	},
+	"conclusions": [
+		"描述检索：新库 top5 与老库“描述基线 top5”重合 19/32；差额来自排序策略（基线是 token 重叠，元始是 BM25+新近度+度数）和附件文件进入 top5。老库默认（正文+描述）top5 共 40 条，比描述基线多 8 条，那是正文索引的额外召回。新库返回体平均 2890.25 B，老库 5311.13 B（老查询结果带正文）。",
+		"正文词检索：accessible 1→0；active 1→0；agents 1→4。2/3 个新库 0 命中，说明“描述没写就搜不到”；其余是附件描述/迁移描述带来的新命中。",
+		"注入：老 3450 B，新 3041 B，差 -409 B。",
+		"存储：老 18 个文件 / 361046 B；新 292 个文件 / 682914 B（189.15%）。新增主要是每实体的 meta.json、DB 与快照。",
+		"写入：老 12.55 ms / 100，新 70.7 ms / 100；新库每次写字节+边车+DB 三处，老库是一次追加日志。",
+		"启动：老库首次加载 10.06 ms；新库重开 0.49 ms、全量重建 23.87 ms（空库首次打开 6.16 ms，不可比）。",
+		"图：老返回 13 节点 / 20 边；新返回 37 节点 / 50 边，新库把附件也当成节点。"
+	]
+}

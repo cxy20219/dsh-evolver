@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 
@@ -12,7 +12,7 @@ test('设置文件在数据目录内，默认值可读', async () => {
 		const warnings = []
 		const settings = new SettingsStore({ dataDir: dir, logger: { warn: (message) => warnings.push(message) } })
 		await settings.load()
-		assert.equal(settings.path, join(dir, 'settings.json'))
+		assert.equal(settings.path, join(dir, 'system', 'settings.json'))
 		assert.equal(settings.get().descriptionMaxChars, 160)
 		assert.equal(settings.get().maxFileBytes, 25 * 1024 * 1024)
 		assert.equal(settings.get().injectionBudget, 4096)
@@ -52,14 +52,15 @@ test('设置越界被夹紧，保存后可重新读取', async () => {
 test('settings.json 损坏时回退默认并告警，文件保留', async () => {
 	const dir = await tempDir()
 	try {
-		await writeFile(join(dir, 'settings.json'), '{ not json')
+		await mkdir(join(dir, 'system'), { recursive: true })
+		await writeFile(join(dir, 'system', 'settings.json'), '{ not json')
 		const warnings = []
 		const settings = new SettingsStore({ dataDir: dir, logger: { warn: (message) => warnings.push(message) } })
 		await settings.load()
 		assert.equal(settings.get().descriptionMaxChars, 160)
 		assert.equal(warnings.length, 1)
 		assert.match(warnings[0], /settings\.json/)
-		assert.equal(await readFile(join(dir, 'settings.json'), 'utf8'), '{ not json')
+		assert.equal(await readFile(join(dir, 'system', 'settings.json'), 'utf8'), '{ not json')
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}
