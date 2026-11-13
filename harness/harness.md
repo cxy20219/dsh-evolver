@@ -45,7 +45,7 @@ DSH 的「演化器」插件：一个追加式卡片库 + 分层标签 + 双向�
 ## 常用入口
 
 ```bash
-npm test                          # 362 个用例
+npm test                          # 363 个用例
 node --check src/xxx.js           # 单文件语法
 node harness/tool/link-layout-metrics.mjs --data-dir ~/.dsh/evolver   # 关系图布局实测
 ```
