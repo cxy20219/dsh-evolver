@@ -1,6 +1,6 @@
 ---
 title: 项目级知识必须进项目 harness，不能退化成全局卡
-summary: 项目级知识必须进项目 harness：新提示词生效后 manager 仍只写卡不初始化，catalog 空状态补 needsInit/next；manager 已补 3 条 harness，验证 183/183。
+summary: 项目级知识必须进项目 harness：新提示词生效后 manager 仍只写卡不初始化，catalog 空状态补 needsInit/next；不代补，留给新会话观察自主建 harness。
 ---
 # 项目级知识必须进项目 harness，不能退化成全局卡
 
@@ -10,7 +10,7 @@ summary: 项目级知识必须进项目 harness：新提示词生效后 manager 
 
 2026-11-13 第一版提示词写成了“没有 harness 就写卡，不新建 harness”，用户指出这正是项目级 harness 要解决的问题，已撤回。
 
-## 新证据：20:39 会话仍然没落 harness
+## 证据：20:39 会话仍然没落 harness
 
 `session-843fbd67`（管理器搜索集成，2,065 个事件、256 次 bash、9 次 `card_write`）是在新提示词生效后结束的：
 
@@ -21,17 +21,7 @@ summary: 项目级知识必须进项目 harness：新提示词生效后 manager 
 
 结论：**静态提示词不会在长会话里稳定触发项目级动作**。catalog 是模型正在决定“知识放哪”的时刻，应该在这里给动作，而不是只在系统段写一句规则。
 
-## 当天实际落点（用户会话，不含 subagent）
-
-| 项目 | 实质会话 | 成功写卡 | 项目级落点 | 判断 |
-| --- | --- | --- | --- | --- |
-| dsh-evolver | 3 | 17 | 3 次 harness_write + 总览编辑 | ✅ |
-| dsh-manager | 2 | 8 | README 3 次编辑；无 harness | ❌（现已补 harness） |
-| jubao | 1 | 6 | 13 次直接编辑 harness | ✅（绕过工具） |
-| quant | 1 | 2 | 1 个 research README；harness 未改 | ⚠️ |
-| temp | 1 | 3 | 无 | 草稿项目，另说 |
-
-## 已做的两层修正
+## 已做的修正
 
 1. **提示词落点**：跨项目判断 → `card_write`；只在本仓库成立的判断/约定/命令/流程 → 写进本仓库 harness（没有就先 `harness_catalog({init:true})` 建骨架，再 `harness_write`，不要塞进全局卡）。
 2. **工具级护栏**：`harness_catalog` 在 `harness:false` 时返回
@@ -40,29 +30,34 @@ summary: 项目级知识必须进项目 harness：新提示词生效后 manager 
 
    这条提示出现在模型已经调用 catalog、正在做决定的时刻，比系统段更靠近动作。
 
-## dsh-manager 的补建结果
+## 没有代补：留给新会话观察
 
-用本插件初始化并写入 3 条资源：
+我起初给 dsh-manager 补建了 3 条 harness 资源，用户明确要求**不要代补**，要观察新会话能否自己建立。已回滚：
 
-- 项目总览：结构、测试与设置位置、热重载方式；
-- 搜索集成流程：定位、四层同步、验证顺序、提交前检查；
-- 搜索集成踩坑：timeRange 丢失、research schema 漂移、surrogate 截断、渠道报错、预算/抓取链、宿主热重载。
+- 删除 `AGENTS.md`、`harness/` 以及初始化留下的空目录；
+- dsh-manager 基线回到“没有项目 harness”；搜索代码提交 `d4287cb` 和 README 修正 `616b3cf` 保留，本地 **ahead 2、未推送**；
+- 使用本插件的 catalog 时需要重启宿主，才能看到新增的 `needsInit`。
 
-`harness_validate` 通过（3 个资源，索引齐全）；管理器 `npm test` 183/183 通过。这几个文件目前是 untracked，尚未提交到 dsh-manager 仓库。
+### 观察实验
+
+1. 重启 DSH（加载 `needsInit`）；
+2. 在 dsh-manager 新开一个会话，做一次会产生项目级知识的任务；
+3. 期望顺序：`harness_catalog` → `needsInit:true` → `harness_catalog({init:true})` → `harness_write`；
+4. 成功判据：项目出现 `AGENTS.md` + `harness/`，且项目级知识没有被写进全局卡；
+5. 失败判据：只写全局卡、或 catalog 后没有初始化；若连续失败，下一步改 `harness_write` 自动初始化，而不是继续加提示词。
+
+## 当天实际落点（用户会话，不含 subagent）
+
+| 项目 | 实质会话 | 成功写卡 | 项目级落点 | 判断 |
+| --- | --- | --- | --- | --- |
+| dsh-evolver | 3 | 17 | 3 次 harness_write + 总览编辑 | ✅ |
+| dsh-manager | 2 | 8 | README 3 次编辑；无 harness | ❌（观察中） |
+| jubao | 1 | 6 | 13 次直接编辑 harness | ✅（绕过工具） |
+| quant | 1 | 2 | 1 个 research README；harness 未改 | ⚠️ |
+| temp | 1 | 3 | 无 | 草稿项目，另说 |
 
 ## 体积与守卫
 
 - 主动性协议 844 → **951 B**（354→425 字）；静态段 1276 → **1383 B**（+107 B，约 +26 token/请求；静态段进前缀缓存，只在发版时失效一次）。
 - `test/proactive.test.mjs` 断言 `harness_catalog({init:true})` 与“不要塞进全局卡”。
 - `test/harness.test.mjs` 新增“没有 harness 时 catalog 直接给出初始化动作”，断言 `needsInit` 与 `next`。
-
-## 后续怎么量
-
-对每个「实质会话（≥10 次编辑）」统计：
-
-1. 是否产生只在本仓库成立的知识；
-2. 有则是否落到项目 harness（`harness_write`、就地编辑、或新建骨架都算）；
-3. 项目级知识被写进全局卡的次数，目标 **0**；
-4. 无项目知识时是否仍新建 harness，目标 **0**。
-
-如果 catalog 已经返回 `needsInit` 但仍持续不初始化，下一步不是再加提示词，而是让 `harness_write` 在无骨架时自动初始化（或让 `card_write` 对项目级内容给出警告），把“知道”变成“做不到也得做”。
