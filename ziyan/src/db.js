@@ -2,7 +2,7 @@
  * The SQLite index.
  *
  * The sidecars are the source of truth; this database is a derived view built
- * from them. That ordering matters: losing `yuanshi.db` costs one rebuild, not
+ * from them. That ordering matters: losing `ziyan.db` costs one rebuild, not
  * the library. Every write therefore updates the sidecar first and this index
  * second, and `rebuild()` can reconstruct every table from `meta.json` plus the
  * text files.

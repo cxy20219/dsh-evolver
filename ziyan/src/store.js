@@ -77,7 +77,7 @@ export class FileStore {
 		this.filesDir = join(this.dataDir, 'files')
 		this.systemDir = join(this.dataDir, 'system')
 		this.trashDir = join(this.systemDir, 'trash')
-		this.dbPath = join(this.systemDir, 'yuanshi.db')
+		this.dbPath = join(this.systemDir, 'ziyan.db')
 		this.logger = logger
 		this.maxBytes = Math.max(1, Math.round(Number(maxBytes) || DEFAULT_MAX_BYTES))
 		this.readTextBytes = Math.max(1, Math.round(Number(readTextBytes) || DEFAULT_READ_TEXT_BYTES))

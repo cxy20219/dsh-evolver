@@ -13,7 +13,7 @@ import { FileStore } from '../src/store.js'
  * @returns {Promise<{root: string, old: string, fresh: string}>} Paths.
  */
 async function fixture() {
-	const root = await mkdtemp(join(tmpdir(), 'yuanshi-migrate-'))
+	const root = await mkdtemp(join(tmpdir(), 'ziyan-migrate-'))
 	const old = join(root, 'old')
 	const fresh = join(root, 'new')
 	await mkdir(join(old, 'knowledge', 'cards'), { recursive: true })

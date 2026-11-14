@@ -1,11 +1,11 @@
 /**
- * dsh-yuanshi — the Host half.
+ * dsh-ziyan — the Host half.
  *
  * The plugin owns three things:
  *
- *   1. **the data** — one folder (`~/.dsh/yuanshi` by default) holding files,
+ *   1. **the data** — one folder (`~/.dsh/ziyan` by default) holding files,
  *      sidecars, the SQLite index, the injected snapshot, settings, logs and
- *      trash. Only a one-line pointer (`~/.dsh/yuanshi.home.json`) may live
+ *      trash. Only a one-line pointer (`~/.dsh/ziyan.home.json`) may live
  *      beside that folder;
  *   2. **the tools** — file query/read/write/import/link/index/archive/remove;
  *   3. **the injection** — a static system section and a runtime file index
@@ -24,16 +24,16 @@ import { createDataJobs } from './src/data-jobs.js'
 import { dataDirPointerPath, readDataDirPointer } from './src/home.js'
 import { createLogSink } from './src/logs.js'
 import { staticSection } from './src/prompt.js'
-import { createYuanshiHandler, ENDPOINTS } from './src/remote.js'
+import { createZiyanHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { FileStore } from './src/store.js'
 import { createTools } from './src/tools.js'
 
 /** The plugin's row name. */
-export const name = 'dsh-yuanshi'
+export const name = 'dsh-ziyan'
 
 /** The API prefix the browser calls. */
-export const API_PREFIX = '/api/yuanshi'
+export const API_PREFIX = '/api/ziyan'
 
 /** The largest request body the panel API goes on to parse. */
 const MAX_REQUEST_BYTES = 48 * 1024 * 1024
@@ -77,11 +77,11 @@ async function readVersion() {
  */
 export async function apply(ctx, config) {
 	if (ctx?.tools === undefined || ctx?.systemPrompt === undefined) {
-		throw new Error('dsh-yuanshi: tools/systemPrompt services are not available')
+		throw new Error('dsh-ziyan: tools/systemPrompt services are not available')
 	}
 	const configured = typeof config?.dataDir === 'string' ? config.dataDir.trim() : ''
 	if (configured !== '' && !isAbsolute(configured)) {
-		throw new Error('dsh-yuanshi: dataDir 必须是绝对路径。')
+		throw new Error('dsh-ziyan: dataDir 必须是绝对路径。')
 	}
 	const dshHome = resolveDshHome()
 	const pointerPath = dataDirPointerPath(dshHome)
@@ -89,13 +89,13 @@ export async function apply(ctx, config) {
 	if (pointer !== undefined) {
 		const pointerInfo = await stat(join(pointer.dataDir, 'files')).catch(() => undefined)
 		if (pointerInfo === undefined || !pointerInfo.isDirectory()) {
-			throw new Error(`dsh-yuanshi: 数据目录指针指向的不是自衍中枢库：${pointer.dataDir}（删掉 ${pointerPath} 可回到默认目录）`)
+			throw new Error(`dsh-ziyan: 数据目录指针指向的不是自衍中枢库：${pointer.dataDir}（删掉 ${pointerPath} 可回到默认目录）`)
 		}
 		if (configured !== '' && resolve(configured) !== pointer.dataDir) {
-			ctx.logger?.warn?.(`dsh-yuanshi: 数据目录指针覆盖了组合配置 dataDir（${configured}）`)
+			ctx.logger?.warn?.(`dsh-ziyan: 数据目录指针覆盖了组合配置 dataDir（${configured}）`)
 		}
 	}
-	const root = pointer?.dataDir ?? (configured === '' ? join(dshHome, 'yuanshi') : resolve(configured))
+	const root = pointer?.dataDir ?? (configured === '' ? join(dshHome, 'ziyan') : resolve(configured))
 
 	const systemDir = join(root, 'system')
 	const logs = createLogSink({ dataDir: systemDir, forward: ctx.logger })
@@ -126,13 +126,13 @@ export async function apply(ctx, config) {
 	const disposers = []
 	for (const tool of createTools({ store })) disposers.push(ctx.tools.register(tool))
 	disposers.push(ctx.systemPrompt.section({
-		name: 'dsh-yuanshi:files',
+		name: 'dsh-ziyan:files',
 		order: 900,
 		interpolate: false,
 		text: () => staticSection(),
 	}))
 	disposers.push(ctx.systemPrompt.context({
-		name: 'dsh-yuanshi:files',
+		name: 'dsh-ziyan:files',
 		order: 900,
 		interpolate: false,
 		// Served from memory, not from disk: the prompt prefers a plain string,
@@ -142,7 +142,7 @@ export async function apply(ctx, config) {
 
 	const connection = ctx.get('connection')
 	if (connection !== undefined) {
-		const handler = createYuanshiHandler({ store, settings, logs, root, version, data })
+		const handler = createZiyanHandler({ store, settings, logs, root, version, data })
 		for (const endpoint of ENDPOINTS) {
 			disposers.push(connection.fetch.register({
 				path: `${API_PREFIX}/${endpoint}`,
@@ -152,7 +152,7 @@ export async function apply(ctx, config) {
 					const declared = Number(request.headers.get('content-length') ?? '')
 					if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) {
 						return Response.json({
-							error: { code: 'yuanshi/request-too-large', message: `请求体超过 ${MAX_REQUEST_BYTES} 字节。` },
+							error: { code: 'ziyan/request-too-large', message: `请求体超过 ${MAX_REQUEST_BYTES} 字节。` },
 						}, { status: 413 })
 					}
 					let payload = {}
@@ -166,7 +166,7 @@ export async function apply(ctx, config) {
 						return Response.json(value ?? null)
 					} catch (error) {
 						return Response.json({
-							error: { code: 'yuanshi/error', message: error instanceof Error ? error.message : String(error) },
+							error: { code: 'ziyan/error', message: error instanceof Error ? error.message : String(error) },
 						}, { status: 400 })
 					}
 				},
@@ -210,6 +210,6 @@ export async function apply(ctx, config) {
 			await logs.close?.()
 			store.close()
 		})()
-	}, 'dsh-yuanshi: resources')
+	}, 'dsh-ziyan: resources')
 
 }

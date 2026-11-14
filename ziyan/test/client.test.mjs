@@ -30,7 +30,7 @@ test('客户端文件可加载：注册字典、样式、主面板与侧边栏',
 	const evaluate = new Function('window', 'document', source)
 	evaluate(window, document)
 	assert.ok(registration, 'client 调用了 __ModuleLoader__.load')
-	assert.equal(registration.id, 'dsh-yuanshi')
+	assert.equal(registration.id, 'dsh-ziyan')
 
 	const react = {
 		createElement() {
@@ -89,10 +89,10 @@ test('客户端文件可加载：注册字典、样式、主面板与侧边栏',
 	assert.equal(appended.length, 1, '注入了一份样式')
 	const panel = registered.find((item) => item[0] === 'register' && item[1] === 'main')
 	const sidebar = registered.find((item) => item[0] === 'register' && item[1] === 'sidebar.panellist')
-	assert.deepEqual(panel, ['register', 'main', 'yuanshi'])
-	assert.deepEqual(sidebar, ['register', 'sidebar.panellist', 'yuanshi'])
+	assert.deepEqual(panel, ['register', 'main', 'ziyan'])
+	assert.deepEqual(sidebar, ['register', 'sidebar.panellist', 'ziyan'])
 	const dictionary = registered.find((item) => item[0] === 'locale')
-	assert.equal(dictionary[1], 'dsh-yuanshi')
+	assert.equal(dictionary[1], 'dsh-ziyan')
 	assert.ok(dictionary[2].zh && dictionary[2].zh.panel)
 	assert.ok(dictionary[2].en && dictionary[2].en.panel)
 })

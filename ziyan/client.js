@@ -9,7 +9,7 @@
  * explicit link graph, not an inferred similarity map.
  */
 window.__ModuleLoader__.load({
-	id: 'dsh-yuanshi',
+	id: 'dsh-ziyan',
 	factory: function (require) {
 		var react = require('react');
 		var h = react.createElement;
@@ -19,10 +19,10 @@ window.__ModuleLoader__.load({
 		var useMemo = react.useMemo;
 		var useRef = react.useRef;
 
-		var NS = 'dsh-yuanshi';
-		var PANEL_ID = 'yuanshi';
+		var NS = 'dsh-ziyan';
+		var PANEL_ID = 'ziyan';
 		var PANEL_ORDER = 31;
-		var API_PREFIX = '/api/yuanshi';
+		var API_PREFIX = '/api/ziyan';
 		var MAX_UPLOAD_MB = 20;
 
 		//#region locale
@@ -875,7 +875,7 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'ysToolbar' },
 					h('input', {
 						className: 'ysInput',
-						placeholder: '/absolute/path/to/yuanshi',
+						placeholder: '/absolute/path/to/ziyan',
 						value: dir,
 						onChange: function (event) { setDir(event.target.value); }
 					}),
@@ -1364,17 +1364,17 @@ window.__ModuleLoader__.load({
 		function apply(ctx) {
 			ctx.effect(function () {
 				return ctx.locale.register(NS, { zh: zh, en: en });
-			}, 'dsh-yuanshi: dictionaries');
+			}, 'dsh-ziyan: dictionaries');
 
 			var t = ctx.locale.bind(NS);
 
 			ctx.effect(function () {
 				var style = document.createElement('style');
-				style.dataset.plugin = 'dsh-yuanshi';
+				style.dataset.plugin = 'dsh-ziyan';
 				style.textContent = css;
 				document.head.appendChild(style);
 				return function () { style.remove(); };
-			}, 'dsh-yuanshi: styles');
+			}, 'dsh-ziyan: styles');
 
 			ctx.effect(function () {
 				return ctx.slots.inject('main', function () {
@@ -1385,7 +1385,7 @@ window.__ModuleLoader__.load({
 						inject: function () { return { ctx: ctx, t: t }; }
 					}, Panel);
 				});
-			}, 'dsh-yuanshi: main panel');
+			}, 'dsh-ziyan: main panel');
 
 			ctx.effect(function () {
 				return ctx.slots.inject('sidebar.panellist', function () {
@@ -1397,7 +1397,7 @@ window.__ModuleLoader__.load({
 						label: function () { return t('panel'); }
 					}, Icon);
 				});
-			}, 'dsh-yuanshi: sidebar entry');
+			}, 'dsh-ziyan: sidebar entry');
 		}
 
 		//#endregion

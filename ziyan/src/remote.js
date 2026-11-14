@@ -1,7 +1,7 @@
 /**
  * The browser-facing API of 自衍中枢.
  *
- * One authenticated prefix (`/api/yuanshi`) owns every endpoint the panel
+ * One authenticated prefix (`/api/ziyan`) owns every endpoint the panel
  * calls. The handler takes plain JSON and returns plain JSON; the route layer
  * in `index.js` turns a thrown error into `{error:{...}}` with HTTP 400.
  *
@@ -119,8 +119,8 @@ async function logTail(root, limit = 300) {
  * @param {{store: object, settings: object, logs: object, root: string, version?: string}} deps - The open store and its satellites.
  * @returns {(endpoint: string, payload: object) => Promise<any>} The handler.
  */
-export function createYuanshiHandler({ store, settings, logs, root, version = '', data }) {
-	return async function handleYuanshi(endpoint, payload = {}) {
+export function createZiyanHandler({ store, settings, logs, root, version = '', data }) {
+	return async function handleZiyan(endpoint, payload = {}) {
 		switch (endpoint) {
 			case 'overview': {
 				const recent = await store.list({ limit: 8 })

@@ -19,7 +19,7 @@ test('接口三处对齐：ENDPOINTS、switch、client 调用同集合', async (
 
 test('客户端注册 id、前缀与注入依赖一致', async () => {
 	const client = await readFile(join(ROOT, 'client.js'), 'utf8')
-	assert.match(client, /id: 'dsh-yuanshi'/)
-	assert.match(client, /var API_PREFIX = '\/api\/yuanshi'/)
+	assert.match(client, /id: 'dsh-ziyan'/)
+	assert.match(client, /var API_PREFIX = '\/api\/ziyan'/)
 	assert.match(client, /var inject = \['slots', 'locale', 'connection'\]/)
 })

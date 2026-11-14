@@ -8,7 +8,7 @@ import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 import test from 'node:test'
 
-import { readArchiveFile, writeArchiveFile } from '../src/archive.js'
+import { LEGACY_MANIFEST_NAME, readArchiveFile, writeArchiveFile } from '../src/archive.js'
 import { FileStore } from '../src/store.js'
 import { buildTarHeader } from '../src/tar.js'
 
@@ -18,7 +18,7 @@ import { buildTarHeader } from '../src/tar.js'
  * @returns {Promise<{root: string, data: string}>} Paths.
  */
 async function library() {
-	const root = await mkdtemp(join(tmpdir(), 'yuanshi-archive-'))
+	const root = await mkdtemp(join(tmpdir(), 'ziyan-archive-'))
 	const data = join(root, 'data')
 	const store = new FileStore({ dataDir: data })
 	await store.open()
@@ -40,7 +40,7 @@ test('导出/导入往返：内容、边车、设置与可执行位；不包含 
 		assert.ok(packed.archiveBytes > 0)
 
 		const read = await readArchiveFile(archive, restored)
-		assert.equal(read.manifest.kind, 'yuanshi-export')
+		assert.equal(read.manifest.kind, 'ziyan-export')
 		assert.equal(read.manifest.schema, 1)
 
 		const store = new FileStore({ dataDir: restored })
@@ -57,7 +57,7 @@ test('导出/导入往返：内容、边车、设置与可执行位；不包含 
 			assert.deepEqual(JSON.parse(await readFile(join(restored, 'system', 'settings.json'), 'utf8')), { descriptionMaxChars: 200 })
 			const system = await readdir(join(restored, 'system'))
 			assert.ok(system.includes('settings.json'))
-			assert.ok(system.includes('yuanshi.db'))
+			assert.ok(system.includes('ziyan.db'))
 		} finally {
 			store.close()
 		}
@@ -67,7 +67,7 @@ test('导出/导入往返：内容、边车、设置与可执行位；不包含 
 })
 
 test('导入拒绝路径穿越与绝对路径', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'yuanshi-archive-bad-'))
+	const root = await mkdtemp(join(tmpdir(), 'ziyan-archive-bad-'))
 	try {
 		for (const [name, attack] of [['dotdot', 'files/../../evil.txt'], ['absolute', '/tmp/evil.txt']]) {
 			const archive = join(root, `${name}.tar.gz`)
@@ -79,6 +79,22 @@ test('导入拒绝路径穿越与绝对路径', async () => {
 			await assert.rejects(() => readArchiveFile(archive, target), /路径|不安全|越界|不允许/)
 			await rm(target, { recursive: true, force: true })
 		}
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('旧版导出清单仍可导入，避免改名丢掉已有备份', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'ziyan-archive-legacy-'))
+	const archive = join(root, 'legacy.tar.gz')
+	const target = join(root, 'restored')
+	try {
+		const manifest = Buffer.from(JSON.stringify({ schema: 1, kind: 'yuanshi-export' }))
+		const header = buildTarHeader({ path: LEGACY_MANIFEST_NAME, size: manifest.length, mode: 0o600 })
+		const chunks = [header, manifest, Buffer.alloc(512 - (manifest.length % 512)), Buffer.alloc(1024)]
+		await pipeline(Readable.from(chunks), createGzip(), createWriteStream(archive))
+		const read = await readArchiveFile(archive, target)
+		assert.equal(read.manifest.kind, 'yuanshi-export')
 	} finally {
 		await rm(root, { recursive: true, force: true })
 	}

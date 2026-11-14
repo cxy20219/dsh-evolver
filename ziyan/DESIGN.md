@@ -1,6 +1,6 @@
 # 自衍中枢 · 设计稿
 
-> 显示名：自衍中枢；内部包名 `dsh-yuanshi`、数据目录 `~/.dsh/yuanshi`、接口 `/api/yuanshi` 保留，避免破坏已迁移数据。
+> 全面改名：包名 `dsh-ziyan`、客户端 id `dsh-ziyan`、接口 `/api/ziyan`、数据目录 `~/.dsh/ziyan`、指针 `~/.dsh/ziyan.home.json`。旧目录 `~/.dsh/yuanshi` 只保留为备份。
 
 > 一句话：**一切皆文件**。每个文件是一等实体（唯一 id + 一句话描述 + 自由层级标签 + 链接），内容可以是任意类型；元数据落在边车，SQLite 只维护「描述索引 + 关系」，正文由 agent 自己去读、去解析、去执行。
 
@@ -67,13 +67,13 @@
 ## 3. 磁盘布局
 
 ```
-~/.dsh/yuanshi/                 ← 数据根目录（备份/迁移的单位）
+~/.dsh/ziyan/                 ← 数据根目录（备份/迁移的单位）
   files/                        ← 只放文件本体与边车
     file-01M.../
       design.md                 ← 原始字节，永不改写元数据
       meta.json                 ← 唯一事实来源
   system/                       ← 索引与系统数据，不和文件混放
-    yuanshi.db                  ← SQLite 索引（可删、可重建）
+    ziyan.db                  ← SQLite 索引（可删、可重建）
     index.json                  ← 注入快照（每日）
     settings.json               ← 设置
     logs/plugin.log
@@ -164,7 +164,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 顶层页签：**概览 / 文件 / 图谱 / 设置 / 日志**（不再有“卡片/资源”两分）。
 
-设置页分「常规 / 数据」两个子标签（复用主标签样式；两个子页都保持挂载，只切换 display，避免丢表单/文件选择）。「数据」子页：当前目录、下次启动目录、复制/attach 模式、导出 `.tar.gz`、导入为新库并切换。目录切换只写 `~/.dsh/yuanshi.home.json` 指针，重启生效；导入/导出只操作 `files/` 与设置，DB/索引/日志/回收站不进归档。
+设置页分「常规 / 数据」两个子标签（复用主标签样式；两个子页都保持挂载，只切换 display，避免丢表单/文件选择）。「数据」子页：当前目录、下次启动目录、复制/attach 模式、导出 `.tar.gz`、导入为新库并切换。目录切换只写 `~/.dsh/ziyan.home.json` 指针，重启生效；导入/导出只操作 `files/` 与设置，DB/索引/日志/回收站不进归档。
 
 - 文件页：搜索、按类型/标签过滤、显示归档、上传（必须填描述）、新建文本文件；列表显示名字 + 描述 + 类型 + 大小 + 度数 + 更新时间，100 条一页，可“加载更多”。
 - 详情：按类型预览（md/文本/代码、图片、PDF；Word/Office 只显示路径，交给外部程序）；编辑描述/标签/出链/正文；看反链与已解析出链；显示 path / executable；保存/归档/删除在详情顶部，不用滚到底。
@@ -233,7 +233,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 ## 14. 待定决策
 
-1. **包布局**：现在 `yuanshi/` 子包并行；验证后是替换根包，还是独立仓库/包？
+1. **包布局**：现在 `ziyan/` 子包并行；验证后是替换根包，还是独立仓库/包？
 2. **标签层级深度**：当前不限深度、总长 64 字、最多 32 个；如果实际会出现超长路径，再决定是截断还是拒绝。
 3. **工具前缀**：已用 `file_*`；如果实际装进 desktop 后发现重名，再统一改 `ys_*`。
 4. **数据库地位**：边车为准 + DB 索引（本文默认），还是 DB 为准 + 定期导出？
@@ -249,7 +249,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 已实现：
 
-- `index.js`：Host 装配；默认数据目录 `~/.dsh/yuanshi`，也接受组合配置里的绝对 `dataDir`；没有第二个配置文件。
+- `index.js`：Host 装配；默认数据目录 `~/.dsh/ziyan`，也接受组合配置里的绝对 `dataDir`；没有第二个配置文件。
 - `src/tools.js`：8 个工具（query/read/write/import/link/index/archive/remove），短 id 解析，写入结果不带正文，死链进 `warnings`。
 - `src/injection.js`：12 个文件快照（10 枢纽 + 2 最近）+ 摘要；快照无构建时间戳，同样内容重写为零字节；跨日心跳刷新；预算内先丢描述再减行。
 - `src/settings.js`、`src/logs.js`、`src/atomic.js`：设置、日志轮转、原子写在 `system/` 内；`files/` 只放文件本体。
@@ -284,7 +284,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 - `src/remote.js`：12 个接口（overview / file-list / file-read / file-write / file-upload / file-preview / file-archive / file-remove / graph / settings / settings-save / logs）；浏览器只传 id，路径由 store 解析。
 - `index.js`：每个接口经 `connection.fetch.register` 注册，`methods: ['POST']`、`requestBody: 'buffered'`；`connection` 缺失时只告警，工具与注入仍可用。
-- `client.js`：`window.__ModuleLoader__.load` 单文件客户端；侧边栏 id 与 main key 都是 `yuanshi`；概览/文件/图谱/设置/日志；文件列表分页；详情编辑描述/标签/出链/正文；上传、新建、归档、删除；图片/PDF 预览；深色/浅色主题都走 DSW token。
+- `client.js`：`window.__ModuleLoader__.load` 单文件客户端；侧边栏 id 与 main key 都是 `ziyan`；概览/文件/图谱/设置/日志；文件列表分页；详情编辑描述/标签/出链/正文；上传、新建、归档、删除；图片/PDF 预览；深色/浅色主题都走 DSW token。
 - `test/remote.test.mjs`：真实 `apply` + fake Connection，走完读/写/上传/预览/图/设置/日志/归档/删除；`test/client.test.mjs` 只做加载与注册冒烟；`test/contract.test.mjs` 静态断言 ENDPOINTS / switch / `call()` 三处同集合。50 条全绿。
 - 真实界面验证：临时 profile `ystest` + 独立 Web 端口；侧边栏出现「自衍中枢」；新建/编辑/保存、上传、归档、分页（100→103）、图谱（2 节点 1 边，点节点打开详情）、设置保存、日志都走通；浅色与深色截图各一张。
 
@@ -317,7 +317,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - 幂等：已存在 `legacy_id` 跳过；重复 `--apply` 结果为 0 新建、0 更新；只有“已有卡片 + 新附件”这种半迁移状态会补链接。
 - 验证：`test/migrate.test.mjs` 覆盖最后一条覆盖、删除、归档、孤立附件、预演不写盘、真实迁移、重复执行；全量 52 条测试。
 
-真实库结果（`~/.dsh/evolver` → `~/.dsh/yuanshi`）：
+真实库结果（`~/.dsh/evolver` → `~/.dsh/ziyan`）：
 
 - 源：340 行 / 151 唯一 / 15 删除 / 135 活跃 + 1 归档；
 - 新库：136 卡 + 10 附件 = 146 文件（145 活跃 + 1 归档）；128 条链接；224 个标签；注入 2061 B；
@@ -352,13 +352,13 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 已实现：
 
-- `src/home.js`：`~/.dsh/yuanshi.home.json` 指针，绝对路径、0600 原子写；启动时指针优先于组合配置 `dataDir`，指针指向缺失库时明确报错。
+- `src/home.js`：`~/.dsh/ziyan.home.json` 指针，绝对路径、0600 原子写；启动时指针优先于组合配置 `dataDir`，指针指向缺失库时明确报错。
 - `src/data-jobs.js`：复制当前库到新目录（只复制 `files/` + settings，目标必须不存在）、attach 已有库、导出、导入为新库；当前 store 不热切换，所有切换返回 `restartRequired`。
-- `src/archive.js` + `src/tar.js`：无依赖 tar+gzip；导出带 `yuanshi-export.json` 清单；导入只允许清单、`system/settings.json` 和 `files/`，拒绝绝对路径、`..`、反斜杠、符号链接、非普通条目，限制 32 MB 归档 / 256 MB 解压 / 64 MB 单文件。
+- `src/archive.js` + `src/tar.js`：无依赖 tar+gzip；导出带 `ziyan-export.json` 清单；导入只允许清单、`system/settings.json` 和 `files/`，拒绝绝对路径、`..`、反斜杠、符号链接、非普通条目，限制 32 MB 归档 / 256 MB 解压 / 64 MB 单文件。
 - 面板设置页「数据」区：当前/下次启动目录、复制/attach、导出下载、选择 `.tar.gz` 导入；导入目标可留空自动新建。
 - 接口从 12 个增至 16 个：`data-status`、`data-dir-save`、`data-export`、`data-import`。
 - 安全：复制先写 staging 再 rename；导入先解压到新目录并校验 `files/<id>/meta.json`、id/name/字节数，再写指针；指针写失败不覆盖旧指针。
-- 验证：`test/home.test.mjs`、`test/data-jobs.test.mjs`、`test/archive.test.mjs`，60 条全绿；隔离 profile 实测复制、指针重启生效、导出下载、上传导入、指针切换。
+- 验证：`test/home.test.mjs`、`test/data-jobs.test.mjs`、`test/archive.test.mjs`，61 条全绿；隔离 profile 实测复制、指针重启生效、导出下载、上传导入、指针切换。
 
 边界：
 

@@ -9,8 +9,8 @@ import { dataDirPointerPath, readDataDirPointer, writeDataDirPointer } from '../
 import { FileStore } from '../src/store.js'
 
 test('指针：缺失、写入、读取与非法路径', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'yuanshi-home-'))
-	const pointer = join(root, 'yuanshi.home.json')
+	const root = await mkdtemp(join(tmpdir(), 'ziyan-home-'))
+	const pointer = join(root, 'ziyan.home.json')
 	try {
 		assert.equal(await readDataDirPointer(pointer), undefined)
 		await writeDataDirPointer(pointer, join(root, 'data'))
@@ -25,7 +25,7 @@ test('指针：缺失、写入、读取与非法路径', async () => {
 })
 
 test('apply 读取指针目录，而不是默认目录', async () => {
-	const home = await mkdtemp(join(tmpdir(), 'yuanshi-home-apply-'))
+	const home = await mkdtemp(join(tmpdir(), 'ziyan-home-apply-'))
 	const pointed = join(home, 'pointed')
 	const pointer = dataDirPointerPath(home)
 	const prev = process.env.DSH_HOME
@@ -60,7 +60,7 @@ test('apply 读取指针目录，而不是默认目录', async () => {
 })
 
 test('指针指向缺失库时 apply 明确报错', async () => {
-	const home = await mkdtemp(join(tmpdir(), 'yuanshi-home-bad-'))
+	const home = await mkdtemp(join(tmpdir(), 'ziyan-home-bad-'))
 	const pointer = dataDirPointerPath(home)
 	const prev = process.env.DSH_HOME
 	try {

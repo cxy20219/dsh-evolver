@@ -3,7 +3,7 @@
  *
  * Move/copy, export and import all operate on canonical content only. The
  * current store is never closed or swapped: every operation that changes the
- * active root only writes `yuanshi.home.json`, and the next start opens the
+ * active root only writes `ziyan.home.json`, and the next start opens the
  * new root. That is why a failed copy can leave the old library completely
  * untouched.
  */
@@ -179,8 +179,8 @@ export function createDataJobs({ root, pointerPath, settings, logger, version = 
 	 * @returns {Promise<object>} The download payload.
 	 */
 	async function exportLibrary() {
-		const folder = await mkdtemp(join(tmpdir(), 'yuanshi-export-'))
-		const archive = join(folder, 'yuanshi.tar.gz')
+		const folder = await mkdtemp(join(tmpdir(), 'ziyan-export-'))
+		const archive = join(folder, 'ziyan.tar.gz')
 		try {
 			const packed = await writeArchiveFile(currentRoot, archive, { version })
 			if (packed.archiveBytes > MAX_ARCHIVE_BYTES) {
@@ -188,7 +188,7 @@ export function createDataJobs({ root, pointerPath, settings, logger, version = 
 			}
 			const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
 			return {
-				name: `yuanshi-${stamp}.tar.gz`,
+				name: `ziyan-${stamp}.tar.gz`,
 				files: packed.files,
 				bytes: packed.bytes,
 				archiveBytes: packed.archiveBytes,
@@ -219,15 +219,15 @@ export function createDataJobs({ root, pointerPath, settings, logger, version = 
 			target = resolve(requested)
 		} else {
 			const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-			target = join(dirname(currentRoot), `yuanshi-import-${stamp}`)
+			target = join(dirname(currentRoot), `ziyan-import-${stamp}`)
 			let index = 1
-			while (await stat(target).then(() => true, () => false)) target = join(dirname(currentRoot), `yuanshi-import-${stamp}-${index++}`)
+			while (await stat(target).then(() => true, () => false)) target = join(dirname(currentRoot), `ziyan-import-${stamp}-${index++}`)
 		}
 		if (target === currentRoot || isInside(currentRoot, target) || isInside(target, currentRoot)) {
 			throw new Error('导入目录不能与当前数据目录相同或互相包含。')
 		}
 		if (await stat(target).then(() => true, () => false)) throw new Error(`导入目录已存在：${target}`)
-		const tempDir = await mkdtemp(join(tmpdir(), 'yuanshi-import-'))
+		const tempDir = await mkdtemp(join(tmpdir(), 'ziyan-import-'))
 		const source = join(tempDir, 'upload.tar.gz')
 		try {
 			await writeFile(source, archive, { mode: 0o600 })

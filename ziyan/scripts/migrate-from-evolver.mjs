@@ -9,7 +9,7 @@
  *
  *   node scripts/migrate-from-evolver.mjs
  *   node scripts/migrate-from-evolver.mjs --apply
- *   node scripts/migrate-from-evolver.mjs --from ~/.dsh/evolver --to ~/.dsh/yuanshi --apply
+ *   node scripts/migrate-from-evolver.mjs --from ~/.dsh/evolver --to ~/.dsh/ziyan --apply
  */
 
 import { homedir } from 'node:os'
@@ -62,7 +62,7 @@ async function main() {
 		console.log(`用法：node scripts/migrate-from-evolver.mjs [选项]
 
   --from <dir>   老 evolver 数据目录（默认 ~/.dsh/evolver）
-  --to <dir>     自衍中枢数据目录（默认 ~/.dsh/yuanshi）
+  --to <dir>     自衍中枢数据目录（默认 ~/.dsh/ziyan）
   --apply        真正写入；默认只预演
   --json         只输出 JSON 摘要
   -h, --help     显示帮助
@@ -71,7 +71,7 @@ async function main() {
 		return
 	}
 	const from = option(argv, 'from') ?? join(homedir(), '.dsh', 'evolver')
-	const to = option(argv, 'to') ?? join(homedir(), '.dsh', 'yuanshi')
+	const to = option(argv, 'to') ?? join(homedir(), '.dsh', 'ziyan')
 	const apply = argv.includes('--apply')
 	const json = argv.includes('--json')
 	const result = await migrateEvolver({ from, to, apply, logger: json ? { info() {} } : console })

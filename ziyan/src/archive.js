@@ -21,7 +21,10 @@ import { createGunzip, createGzip } from 'node:zlib'
 import { buildTarHeader, parseTarHeader } from './tar.js'
 
 /** The manifest file at the archive root. */
-export const MANIFEST_NAME = 'yuanshi-export.json'
+export const MANIFEST_NAME = 'ziyan-export.json'
+
+/** Old exports keep their manifest name; the payload layout is identical. */
+export const LEGACY_MANIFEST_NAME = 'yuanshi-export.json'
 
 /** The largest compressed archive accepted or produced for browser transfer. */
 export const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
@@ -53,6 +56,7 @@ function isTransient(name) {
  */
 function isAllowedPath(path) {
 	return path === MANIFEST_NAME
+		|| path === LEGACY_MANIFEST_NAME
 		|| path === 'system/settings.json'
 		|| path.startsWith('files/')
 }
@@ -126,7 +130,7 @@ async function* tarChunks(root, stats, version) {
 	const collected = await collectEntries(root)
 	const manifest = Buffer.from(`${JSON.stringify({
 		schema: 1,
-		kind: 'yuanshi-export',
+		kind: 'ziyan-export',
 		version,
 		createdAt: new Date().toISOString(),
 		counts: { files: collected.entities, bytes: collected.bytes },
@@ -302,7 +306,7 @@ export async function readArchiveFile(source, target) {
 			await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
 			await writeFile(destination, content ?? Buffer.alloc(0), { mode: parsed.mode & 0o777 })
 			await chmod(destination, parsed.mode & 0o777).catch(() => {})
-			if (parsed.path === MANIFEST_NAME) {
+			if (parsed.path === MANIFEST_NAME || parsed.path === LEGACY_MANIFEST_NAME) {
 				try {
 					manifest = JSON.parse((content ?? Buffer.alloc(0)).toString('utf8'))
 				} catch {
@@ -315,7 +319,7 @@ export async function readArchiveFile(source, target) {
 		stream.destroy()
 		throw new Error(`不能读取压缩包：${error instanceof Error ? error.message : String(error)}`)
 	}
-	if (manifest === undefined || manifest.kind !== 'yuanshi-export' || manifest.schema !== 1) {
+	if (manifest === undefined || !['ziyan-export', 'yuanshi-export'].includes(manifest.kind) || manifest.schema !== 1) {
 		throw new Error('不是自衍中枢导出包（缺少合法清单）。')
 	}
 	return { manifest, files, bytes }

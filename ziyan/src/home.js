@@ -16,7 +16,7 @@ import { writeFileAtomic } from './atomic.js'
 export const POINTER_SCHEMA = 1
 
 /** The pointer file name under DSH_HOME. */
-export const POINTER_FILE = 'yuanshi.home.json'
+export const POINTER_FILE = 'ziyan.home.json'
 
 /**
  * Path of the pointer file.

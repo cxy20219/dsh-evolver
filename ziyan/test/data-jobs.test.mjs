@@ -14,14 +14,14 @@ import { FileStore } from '../src/store.js'
  * @returns {Promise<object>} Fixture.
  */
 async function fixture() {
-	const base = await mkdtemp(join(tmpdir(), 'yuanshi-data-'))
+	const base = await mkdtemp(join(tmpdir(), 'ziyan-data-'))
 	const root = join(base, 'current')
 	const store = new FileStore({ dataDir: root })
 	await store.open()
 	await store.create({ name: 'a.md', description: '数据目录测试文件 A', content: 'A', tags: ['测试/数据'] })
 	await store.create({ name: 'b.md', description: '数据目录测试文件 B', content: 'B', tags: ['测试/数据'] })
 	await store.close()
-	const pointerPath = join(base, 'yuanshi.home.json')
+	const pointerPath = join(base, 'ziyan.home.json')
 	const settings = { publicView: () => ({ dataDir: root }) }
 	const jobs = createDataJobs({ root, pointerPath, settings, version: 'test' })
 	return { base, root, pointerPath, jobs }
@@ -60,7 +60,7 @@ test('导出与导入：base64 往返、导入到新目录、当前库不变', a
 		const exported = await jobs.exportLibrary()
 		assert.equal(exported.files, 2)
 		assert.ok(exported.base64.length > 0)
-		assert.match(exported.name, /^yuanshi-.*\.tar\.gz$/)
+		assert.match(exported.name, /^ziyan-.*\.tar\.gz$/)
 
 		const imported = await jobs.importLibrary({ data: `data:application/gzip;base64,${exported.base64}` })
 		assert.equal(imported.restartRequired, true)

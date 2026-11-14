@@ -19,7 +19,7 @@ import { FileStore } from '../src/store.js'
  * @returns {Promise<any>} Whatever the body returned.
  */
 export async function withStore(body, options = {}) {
-	const dir = await mkdtemp(join(tmpdir(), 'yuanshi-test-'))
+	const dir = await mkdtemp(join(tmpdir(), 'ziyan-test-'))
 	const store = new FileStore({ dataDir: dir, ...options })
 	await store.open()
 	try {
@@ -36,5 +36,5 @@ export async function withStore(body, options = {}) {
  * @returns {Promise<string>} The path.
  */
 export async function tempDir() {
-	return mkdtemp(join(tmpdir(), 'yuanshi-test-'))
+	return mkdtemp(join(tmpdir(), 'ziyan-test-'))
 }

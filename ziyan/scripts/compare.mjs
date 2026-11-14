@@ -1,5 +1,5 @@
 /**
- * A quantitative comparison: dsh-evolver 1.0.0 vs 自衍中枢 (dsh-yuanshi).
+ * A quantitative comparison: dsh-evolver 1.0.0 vs 自衍中枢 (dsh-ziyan).
  *
  * It copies the live evolver library into a temporary folder, migrates it into
  * a temporary 自衍中枢 store, then runs the same scenarios against both:
@@ -13,7 +13,7 @@
  *
  * Everything is measured on copies; the live data folder is never written.
  *
- * Run from `yuanshi/`: `node scripts/compare.mjs`
+ * Run from `ziyan/`: `node scripts/compare.mjs`
  */
 
 import { cp, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -239,7 +239,7 @@ function renderReport(report) {
  * @returns {Promise<void>} Resolves when the report is written.
  */
 async function main() {
-	const work = await mkdtemp(join(tmpdir(), 'yuanshi-compare-'))
+	const work = await mkdtemp(join(tmpdir(), 'ziyan-compare-'))
 	const oldData = join(work, 'old')
 	const newData = join(work, 'new')
 

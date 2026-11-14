@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { FileStore } from '../src/store.js'
 
 const count = Math.max(10, Math.round(Number(process.argv[2]) || 1000))
-const dir = await mkdtemp(join(tmpdir(), 'yuanshi-bench-'))
+const dir = await mkdtemp(join(tmpdir(), 'ziyan-bench-'))
 const store = new FileStore({ dataDir: dir })
 await store.open()
 

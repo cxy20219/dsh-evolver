@@ -67,9 +67,9 @@ async function withHome(run) {
 test('apply：所有数据在一个目录，注册 8 个工具与两段注入，写入不改注入', async () => {
 	await withHome(async (home) => {
 		const { ctx, tools, sections, contexts, effects } = fakeContext()
-		const root = join(home, 'yuanshi')
+		const root = join(home, 'ziyan')
 		await apply(ctx, {})
-		assert.equal(root, join(home, 'yuanshi'))
+		assert.equal(root, join(home, 'ziyan'))
 		assert.equal(resolveDshHome(), home)
 
 		assert.equal(tools.length, 8)
@@ -104,10 +104,10 @@ test('apply：所有数据在一个目录，注册 8 个工具与两段注入，
 		const rootListing = await readdir(root)
 		assert.deepEqual(rootListing.sort(), ['files', 'system'], '根目录只分文件与系统数据两棵树')
 		const systemListing = await readdir(join(root, 'system'))
-		for (const name of ['trash', 'logs', 'yuanshi.db', 'index.json', 'settings.json']) {
+		for (const name of ['trash', 'logs', 'ziyan.db', 'index.json', 'settings.json']) {
 			assert.ok(systemListing.includes(name), `系统数据缺少 ${name}`)
 		}
-		assert.deepEqual(await readdir(home), ['yuanshi'], '数据目录外不应有插件数据')
+		assert.deepEqual(await readdir(home), ['ziyan'], '数据目录外不应有插件数据')
 
 		const disposer = await effects[0]()
 		await disposer()
@@ -119,6 +119,6 @@ test('apply：所有数据在一个目录，注册 8 个工具与两段注入，
 test('apply 拒绝相对路径的 dataDir', async () => {
 	await withHome(async () => {
 		const { ctx } = fakeContext()
-		await assert.rejects(() => apply(ctx, { dataDir: 'relative/yuanshi' }), /绝对路径/)
+		await assert.rejects(() => apply(ctx, { dataDir: 'relative/ziyan' }), /绝对路径/)
 	})
 })

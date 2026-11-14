@@ -1,0 +1,15 @@
+# dsh-ziyan — 自衍中枢：一切皆文件的知识库。
+#
+# Host half: file tools + two prompt blocks. The panel arrives later; this
+# patch is enough to load the tools and the injected index.
+#
+#   dsh plugin --profile research add /path/to/dsh-evolver/ziyan
+#
+- insert:
+    - id: dsh-ziyan
+      name: dsh-ziyan
+      inject: [tools, systemPrompt, connection]
+      config:
+        # 数据目录：留空则用 ~/.dsh/ziyan。所有数据（files/、ziyan.db、
+        # index.json、settings.json、logs/、trash/）都在这个目录下。
+        # dataDir: /Users/chengxinyu/.dsh/ziyan
