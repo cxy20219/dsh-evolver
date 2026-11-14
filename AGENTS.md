@@ -20,16 +20,17 @@ DSH 插件：**一切皆文件**的知识库。每个文件是一等实体（唯
 | `index.js` | 宿主装配：store、8 个 `file_*` 工具、两段注入、16 个面板接口、每日快照心跳 |
 | `client.js` | 浏览器半边，单文件 `window.__ModuleLoader__.load` 工厂，无构建 |
 | `src/` | `store.js`（边车 + 索引）、`db.js`（SQLite）、`injection.js`、`tools.js`、`prompt.js`、`remote.js`、`archive.js`、`data-jobs.js`、`migrate.js`、`home.js` 等 |
-| `test/` | `node --test`，63 条 |
-| `scripts/` | `bench.mjs` / `compare.mjs` / `migrate-from-evolver.mjs` |
+| `test/` | `node --test`，65 条 |
+| `scripts/` | `bench.mjs` / `compare.mjs` / `migrate-from-evolver.mjs` / `seed-demo.mjs`（合成测试库） |
 
 ## 命令
 
 ```bash
-npm test                                # 63 条
+npm test                                # 65 条
 node --check src/store.js               # 单文件语法
 node scripts/bench.mjs 500              # 500 文件基准
 node scripts/migrate-from-evolver.mjs   # 老库迁移，默认 dry-run
+node scripts/seed-demo.mjs --count 2200 # 造合成测试库（全部带 测试/批量，--reset 清掉）
 ```
 
 ## 约束（动手前先看）
@@ -38,6 +39,7 @@ node scripts/migrate-from-evolver.mjs   # 老库迁移，默认 dry-run
 - **宿主改了要重启 DSH**（`index.js` + `src/**`）；`client.js` 是浏览器半边，刷新面板即可。
 - **边车是事实，数据库是索引**：`files/<id>/meta.json` 为准，`system/ziyan.db` 随时可删、可重建；写序是 字节 → 边车 → DB，DB 失败不影响事实。
 - **新增面板接口要三处一致**：`src/remote.js` 的 `ENDPOINTS`、`createZiyanHandler` 的 switch、`client.js` 的 `call()`；`test/contract.test.mjs` 静态守这一条。
+- **列表分页在 SQL 里算**：`IndexDatabase.page()` 用同一条 WHERE 既做 `COUNT(*)` 又做 `LIMIT/OFFSET`。别退回「取固定窗口再内存过滤」——那会把窗口大小伪装成库的总数，翻页到窗口末尾就断（`test/paging.test.mjs` 守）。
 - **描述是唯一检索面**：不索引正文，所以写入要查重，描述必须说清"这个文件回答什么问题"。
 - **标签必填、链接可悬空**：至少一个标签才能写入；删除不批量改写别人的边车，查询时把悬空目标标 `missing`。
 - **Windows 平台差异**：`chmod` 只切只读位，`executable` 退化为按扩展名判断；POSIX 权限位（`0o700/0o600`）的断言必须加平台守卫，否则测试会在 Windows 上误红。

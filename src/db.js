@@ -87,6 +87,19 @@ function splitList(value) {
 }
 
 /**
+ * Escape the LIKE wildcards in a literal value.
+ *
+ * Tags and MIME filters are literals, so a `_` or `%` inside one must not turn
+ * into a wildcard; every LIKE in this file pairs with `ESCAPE '\'`.
+ *
+ * @param {string} value - The literal.
+ * @returns {string} The escaped literal.
+ */
+function escapeLike(value) {
+	return value.replace(/[\\%_]/g, (match) => `\\${match}`)
+}
+
+/**
  * Turn one database row into the metadata shape the rest of the store uses.
  *
  * @param {object} row - A row from `files` plus `tag_list`/`link_list`.
@@ -330,21 +343,45 @@ export class IndexDatabase {
 	}
 
 	/**
-	 * List files, newest first.
+	 * Page through files, newest first, with every filter applied in SQL.
 	 *
-	 * @param {{limit?: number, offset?: number, archived?: boolean, mime?: string}} [options] - Filters.
-	 * @returns {object[]} The metadata rows.
+	 * The filters live here rather than in the store because the total has to be
+	 * the real total: a library of thousands of files cannot be listed by
+	 * fetching a fixed window and filtering in memory — that window becomes the
+	 * library's apparent size, and no offset past it returns anything.
+	 *
+	 * @param {{limit?: number, offset?: number, archived?: boolean, mime?: string, tags?: string[]}} [options] - Filters.
+	 * @returns {{total: number, rows: object[]}} The total that matches, and one page.
 	 */
-	list({ limit = 50, offset = 0, archived = false, mime = '' } = {}) {
+	page({ limit = 50, offset = 0, archived = false, mime = '', tags = [] } = {}) {
 		const capped = Math.max(1, Math.min(500, Math.round(Number(limit) || 50)))
 		const skip = Math.max(0, Math.round(Number(offset) || 0))
-		const sql = mime === ''
-			? `${SELECT_FILE} WHERE f.archived = ? ORDER BY f.updated DESC, f.id DESC LIMIT ? OFFSET ?`
-			: `${SELECT_FILE} WHERE f.archived = ? AND f.mime = ? ORDER BY f.updated DESC, f.id DESC LIMIT ? OFFSET ?`
-		const rows = mime === ''
-			? this.statement('files-list', sql).all(archived === true ? 1 : 0, capped, skip)
-			: this.statement('files-list-mime', sql).all(archived === true ? 1 : 0, mime, capped, skip)
-		return rows.map((row) => rowToMeta(row))
+		const clauses = ['f.archived = ?']
+		const values = [archived === true ? 1 : 0]
+		if (mime !== '') {
+			if (mime.endsWith('/')) {
+				clauses.push("f.mime LIKE ? ESCAPE '\\'")
+				values.push(`${escapeLike(mime)}%`)
+			} else {
+				clauses.push('f.mime = ?')
+				values.push(mime)
+			}
+		}
+		// A parent tag matches its descendants: `工作` selects `工作/项目/x`.
+		for (const tag of tags) {
+			clauses.push(`EXISTS (SELECT 1 FROM tags t WHERE t.file_id = f.id AND (t.tag = ? OR t.tag LIKE ? ESCAPE '\\'))`)
+			values.push(tag, `${escapeLike(tag)}/%`)
+		}
+		const where = clauses.join(' AND ')
+		// The statement cache is keyed by SQL shape, so the key is the WHERE
+		// clause itself: two calls that differ in clauses must not share a
+		// prepared statement, and two that match `text/markdown` and `image/`
+		// produce different clauses.
+		const total = Number(this.statement(`count ${where}`, `SELECT COUNT(*) AS c FROM files f WHERE ${where}`)
+			.get(...values).c)
+		const sql = `${SELECT_FILE} WHERE ${where} ORDER BY f.updated DESC, f.id DESC LIMIT ? OFFSET ?`
+		const rows = this.statement(`page ${where}`, sql).all(...values, capped, skip)
+		return { total, rows: rows.map((row) => rowToMeta(row)) }
 	}
 
 	/**

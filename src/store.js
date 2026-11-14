@@ -520,11 +520,11 @@ export class FileStore {
 		}
 
 		if (query === '') {
-			const rows = this.db.list({ limit: 500, archived })
-			const filtered = rows.filter(keep)
-			const page = filtered.slice(offset, offset + limit)
-			const files = page.map((meta) => decorate(meta))
-			return { total: filtered.length, files }
+			// Paging and filtering happen in SQL: the total has to be the real
+			// total, or the panel's "load more" stops at whatever window the
+			// index happened to fetch.
+			const page = this.db.page({ limit, offset, archived, mime, tags: wanted })
+			return { total: page.total, files: page.rows.map((meta) => decorate(meta)) }
 		}
 
 		const hits = this.db.search(query, { limit: 200, includeArchived: archived })
