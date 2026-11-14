@@ -501,6 +501,9 @@ export class FileStore {
 		// descendant of it). A single tag keeps the historical behaviour.
 		const wanted = [...new Set(requested)]
 		const mime = typeof options.mime === 'string' ? options.mime.trim() : ''
+		// `null` means "no filter"; `''` means "names with no extension", which
+		// is a real bucket in the type matrix.
+		const suffix = typeof options.suffix === 'string' ? options.suffix : null
 		const query = typeof options.query === 'string' ? options.query.trim() : ''
 		const degrees = this.db.degrees()
 		const shortMap = this.shortMap()
@@ -516,6 +519,7 @@ export class FileStore {
 				if (!found) return false
 			}
 			if (mime !== '' && !(meta.mime === mime || (mime.endsWith('/') && meta.mime.startsWith(mime)))) return false
+			if (suffix !== null && extensionOf(meta.name) !== suffix) return false
 			return true
 		}
 
@@ -523,7 +527,7 @@ export class FileStore {
 			// Paging and filtering happen in SQL: the total has to be the real
 			// total, or the panel's "load more" stops at whatever window the
 			// index happened to fetch.
-			const page = this.db.page({ limit, offset, archived, mime, tags: wanted })
+			const page = this.db.page({ limit, offset, archived, mime, tags: wanted, suffix })
 			return { total: page.total, files: page.rows.map((meta) => decorate(meta)) }
 		}
 
@@ -619,6 +623,73 @@ export class FileStore {
 			frontier = next
 		}
 		return { nodes: [...nodes.values()], edges }
+	}
+
+	/**
+	 * The whole live library as a graph: every file, every link between them.
+	 *
+	 * `graph()` walks outwards from a seed set, which is the right shape for
+	 * "open this file and look around". The panel's graph views need the
+	 * opposite: one picture of everything. Edges whose endpoint fell outside
+	 * the node cap are dropped here so a caller never has to check, and the
+	 * caller reports the missing nodes from its own stats.
+	 *
+	 * @param {{limit?: number}} [options] - The node cap.
+	 * @returns {{nodes: object[], edges: Array<{from: string, to: string}>}} The library graph.
+	 */
+	libraryGraph({ limit = 3000 } = {}) {
+		const snapshot = this.db.snapshot({ limit })
+		const degree = this.db.degrees()
+		const short = this.shortMap()
+		const nodes = snapshot.rows.map((meta) => ({
+			id: meta.id,
+			short: short.get(meta.id) ?? meta.id,
+			name: meta.name,
+			description: meta.description,
+			mime: meta.mime,
+			tags: meta.tags ?? [],
+			degree: degree.get(meta.id) ?? { in: 0, out: 0 },
+		}))
+		const ids = new Set(nodes.map((node) => node.id))
+		const edges = snapshot.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to))
+		return { nodes, edges }
+	}
+
+	/**
+	 * The tidy-up report: what the organize page should point a human at.
+	 *
+	 * Counts come from the index, names come from the same rows the counts are
+	 * built from, so a card and its sample list can never disagree.
+	 *
+	 * @param {{staleDays?: number, sample?: number}} [options] - The staleness window and sample size.
+	 * @returns {object} Counts with samples.
+	 */
+	organizeReport({ staleDays = 90, sample = 5, now = Date.now() } = {}) {
+		const days = Math.max(1, Math.min(3650, Math.round(Number(staleDays) || 90)))
+		const staleBefore = new Date(now - days * 86_400_000).toISOString()
+		const report = this.db.organize({ staleBefore, sample })
+		const brief = (meta) => ({
+			id: meta.id,
+			name: meta.name,
+			description: meta.description,
+			updated: meta.updated,
+		})
+		const singleTags = this.db.tagCounts(1000).filter((tag) => tag.count === 1)
+		return {
+			staleDays: days,
+			staleBefore,
+			files: this.stats(),
+			orphans: { total: report.orphans.total, sample: report.orphans.files.map(brief) },
+			stale: { total: report.stale.total, sample: report.stale.files.map(brief) },
+			dangling: {
+				total: report.dangling.total,
+				sample: report.dangling.links.map((link) => {
+					const source = this.db.get(link.from)
+					return { from: link.from, fromName: source === undefined ? '' : source.name, to: link.to }
+				}),
+			},
+			singleTags: { total: singleTags.length, sample: singleTags.slice(0, Math.max(1, sample)) },
+		}
 	}
 
 	/**

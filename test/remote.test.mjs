@@ -76,12 +76,15 @@ async function post(routes, endpoint, payload = {}) {
 	return value
 }
 
-test('面板接口：16 个端点，一次完整读写/上传/预览/图/设置/日志/删除', async () => {
+test('面板接口：19 个端点，一次完整读写/上传/预览/图/注入/自衍/设置/日志/删除', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-remote-'))
+	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
+	const previousHome = process.env.DSH_HOME
+	process.env.DSH_HOME = home
 	const { ctx, routes, effects } = fakeContext()
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 16)
+		assert.equal(routes.size, 19)
 
 		const empty = await post(routes, 'overview')
 		assert.equal(empty.stats.files, 0)
@@ -92,6 +95,22 @@ test('面板接口：16 个端点，一次完整读写/上传/预览/图/设置/
 		const data = await post(routes, 'data-status')
 		assert.equal(data.current, dir)
 		assert.equal(data.files, 0)
+
+		const injection = await post(routes, 'injection')
+		assert.ok(injection.budget > 0)
+		assert.ok(injection.index.length > 0)
+		assert.match(injection.static, /文件/)
+		assert.equal(injection.stale, injection.day !== injection.today)
+
+		const digest = await post(routes, 'digest')
+		assert.deepEqual(digest.sessions, [])
+		assert.equal(digest.organize.files.files, 0)
+		assert.ok(Array.isArray(digest.organize.orphans.sample))
+		assert.ok(Array.isArray(digest.organize.singleTags.sample))
+
+		const rebuilt = await post(routes, 'rebuild')
+		assert.equal(rebuilt.files, 0)
+		assert.equal(typeof rebuilt.ms, 'number')
 
 		const created = await post(routes, 'file-write', {
 			name: 'api.md',
@@ -159,6 +178,9 @@ test('面板接口：16 个端点，一次完整读写/上传/预览/图/设置/
 		await disposer()
 		await assert.rejects(post(routes, 'overview'))
 	} finally {
+		if (previousHome === undefined) delete process.env.DSH_HOME
+		else process.env.DSH_HOME = previousHome
 		await rm(dir, { recursive: true, force: true })
+		await rm(home, { recursive: true, force: true })
 	}
 })

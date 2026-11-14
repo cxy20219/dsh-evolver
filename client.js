@@ -32,8 +32,38 @@ window.__ModuleLoader__.load({
 			'tab.overview': '概览',
 			'tab.files': '文件',
 			'tab.graph': '图谱',
+			'tab.injection': '注入',
+			'tab.organize': '自衍',
 			'tab.settings': '设置',
 			'tab.logs': '日志',
+			'injection.static': '系统段：静态纪律',
+			'injection.static.hint': '每轮请求都带，{bytes} 字节；它不发散，但会永久占住前缀。',
+			'injection.index': '运行时上下文：文件索引',
+			'injection.meta': '快照 {day} · {entries} 条候选 · {state}',
+			'injection.never': '未生成',
+			'injection.stale': '已过期，点下面的按钮重建',
+			'injection.fresh': '当天',
+			'injection.refresh': '重建快照',
+			'injection.refreshed': '快照已重建',
+			'organize.sessions': '会话',
+			'organize.sessions.hint': '最近的会话日志，用来判断哪些对话还没沉淀成文件',
+			'organize.sessions.total': '共 {n} 个会话，{m} 个太大读不出',
+			'organize.session.turns': '{n} 轮提问',
+			'organize.noSessions': '没有找到会话日志。',
+			'organize.issues': '待整理',
+			'organize.orphans': '孤立文件',
+			'organize.orphans.hint': '没有任何出链和入链',
+			'organize.dangling': '悬空链接',
+			'organize.dangling.hint': '链接目标已经不在了',
+			'organize.stale': '{days} 天没动过',
+			'organize.stale.hint': '可以考虑归档',
+			'organize.singleTags': '只用过一次的标签',
+			'organize.singleTags.hint': '可能是拼写漂移，值得合并',
+			'organize.empty': '这一类是空的',
+			'organize.actions': '维护',
+			'organize.rebuild': '重建索引',
+			'organize.reload': '重新读取',
+			'organize.rebuilt': '重建完成：{files} 个文件 · {links} 条链接 · {ms} ms',
 			'action.refresh': '刷新',
 			'action.save': '保存',
 			'action.cancel': '取消',
@@ -51,7 +81,10 @@ window.__ModuleLoader__.load({
 			'files.empty': '还没有文件。',
 			'files.select': '从列表选一个文件查看详情。',
 			'files.total': '共 {n} 个',
-			'files.more': '加载更多',
+			'files.page': '第 {a} / {b} 页',
+			'files.prev': '上一页',
+			'files.next': '下一页',
+			'files.close': '关闭',
 			'files.noMatch': '没有匹配的文件。',
 			'files.clear': '清除筛选',
 			'file.archived': '归档',
@@ -86,18 +119,21 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.more': '多',
 			'overview.heatmap.weekdays': '日,一,二,三,四,五,六',
 			'overview.heatmap.monthSuffix': '月',
-			'overview.tab.data': '数据',
-			'overview.tab.graph': '图谱',
 			'overview.types': '文件类型',
 			'overview.types.hint': '按文件后缀分组，面积和绿色深浅表示数量',
 			'overview.types.empty': '还没有文件。',
 			'overview.types.none': '无后缀',
-			'overview.tagGraph': '标签关系图',
+			'overview.types.open': '查看全部 {n} 文件',
 			'overview.tagGraph.empty': '还没有标签。',
-			'overview.linkGraph': '链接关系图',
-			'overview.linkGraph.empty': '还没有文件链接。',
-			'graph.empty': '没有可画的链接。',
-			'graph.hint': '节点 = 文件，边 = 链接；点击节点打开文件。',
+			'graph.tab.planet': '星球图',
+			'graph.tab.relations': '关系图',
+			'graph.tab.tags': '标签图',
+			'graph.sphere.hint': '球面：拖拽旋转，滚轮缩放，点击节点打开文件',
+			'graph.network.hint': '网状：拖拽平移，Shift + 拖拽旋转，滚轮缩放，点击节点打开文件',
+			'graph.tags.hint': '标签层级；点击标签按它筛选文件',
+			'graph.counts': '节点 {nodes} · 边 {edges}',
+			'graph.hidden': '还有 {n} 个文件未画出',
+			'graph.empty': '还没有文件。',
 			'settings.dataDir': '数据目录',
 			'settings.descriptionMaxChars': '描述上限（字）',
 			'settings.maxFileMb': '单文件上限（MB）',
@@ -142,8 +178,38 @@ window.__ModuleLoader__.load({
 			'tab.overview': 'Overview',
 			'tab.files': 'Files',
 			'tab.graph': 'Graph',
+			'tab.injection': 'Injection',
+			'tab.organize': 'Organize',
 			'tab.settings': 'Settings',
 			'tab.logs': 'Logs',
+			'injection.static': 'System section: the fixed discipline',
+			'injection.static.hint': 'Sent with every request, {bytes} bytes; it never changes, but it holds the prefix.',
+			'injection.index': 'Runtime context: the file index',
+			'injection.meta': 'Snapshot {day} · {entries} candidates · {state}',
+			'injection.never': 'never built',
+			'injection.stale': 'stale; rebuild it below',
+			'injection.fresh': 'today',
+			'injection.refresh': 'Rebuild snapshot',
+			'injection.refreshed': 'Snapshot rebuilt',
+			'organize.sessions': 'Sessions',
+			'organize.sessions.hint': 'Recent session logs, to judge which conversations are not distilled into files yet',
+			'organize.sessions.total': '{n} sessions, {m} too large to read',
+			'organize.session.turns': '{n} prompts',
+			'organize.noSessions': 'No session logs found.',
+			'organize.issues': 'To organize',
+			'organize.orphans': 'Orphans',
+			'organize.orphans.hint': 'No incoming and no outgoing links',
+			'organize.dangling': 'Dangling links',
+			'organize.dangling.hint': 'The target no longer exists',
+			'organize.stale': 'Untouched for {days} days',
+			'organize.stale.hint': 'Consider archiving',
+			'organize.singleTags': 'Tags used once',
+			'organize.singleTags.hint': 'Often a spelling drift worth merging',
+			'organize.empty': 'Nothing here',
+			'organize.actions': 'Maintenance',
+			'organize.rebuild': 'Rebuild index',
+			'organize.reload': 'Reload',
+			'organize.rebuilt': 'Rebuilt: {files} files · {links} links · {ms} ms',
 			'action.refresh': 'Refresh',
 			'action.save': 'Save',
 			'action.cancel': 'Cancel',
@@ -161,7 +227,10 @@ window.__ModuleLoader__.load({
 			'files.empty': 'No files yet.',
 			'files.select': 'Select a file from the list.',
 			'files.total': '{n} files',
-			'files.more': 'Load more',
+			'files.page': 'Page {a} of {b}',
+			'files.prev': 'Previous',
+			'files.next': 'Next',
+			'files.close': 'Close',
 			'files.noMatch': 'No matching files.',
 			'files.clear': 'Clear filters',
 			'file.archived': 'Archived',
@@ -196,18 +265,21 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.more': 'More',
 			'overview.heatmap.weekdays': 'S,M,T,W,T,F,S',
 			'overview.heatmap.monthSuffix': '',
-			'overview.tab.data': 'Data',
-			'overview.tab.graph': 'Graphs',
 			'overview.types': 'File types',
 			'overview.types.hint': 'Grouped by suffix; area and green depth show count',
 			'overview.types.empty': 'No files yet.',
 			'overview.types.none': 'no suffix',
-			'overview.tagGraph': 'Tag graph',
+			'overview.types.open': 'Show all {n} files',
 			'overview.tagGraph.empty': 'No tags yet.',
-			'overview.linkGraph': 'Link graph',
-			'overview.linkGraph.empty': 'No file links yet.',
-			'graph.empty': 'No links to draw.',
-			'graph.hint': 'Node = file, edge = link. Click a node to open it.',
+			'graph.tab.planet': 'Sphere',
+			'graph.tab.relations': 'Network',
+			'graph.tab.tags': 'Tags',
+			'graph.sphere.hint': 'Sphere: drag to rotate, wheel to zoom, click a node to open it',
+			'graph.network.hint': 'Network: drag to pan, Shift + drag to rotate, wheel to zoom, click a node to open it',
+			'graph.tags.hint': 'Tag hierarchy; click a tag to filter files by it',
+			'graph.counts': '{nodes} nodes · {edges} links',
+			'graph.hidden': '{n} more files are not drawn',
+			'graph.empty': 'No files yet.',
 			'settings.dataDir': 'Data directory',
 			'settings.descriptionMaxChars': 'Description cap',
 			'settings.maxFileMb': 'File cap (MB)',
@@ -287,10 +359,15 @@ window.__ModuleLoader__.load({
 			'.ysButtonPrimary:hover{background:var(--dsw-alias-button-primary-hover);border-color:transparent}',
 			'.ysButtonDanger{color:var(--dsw-alias-state-error-primary,#c45a5a)}',
 			'.ysCheck{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
-			'.ysSplit{display:grid;grid-template-columns:minmax(260px,380px) minmax(0,1fr);gap:16px;align-items:start}',
-			'@media(max-width:900px){.ysSplit{grid-template-columns:1fr}.ysList{max-height:none}}',
-			'.ysList{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);overflow:hidden;max-height:calc(100vh - 260px);overflow-y:auto;overscroll-behavior:contain}',
-			'.ysItem{display:flex;gap:10px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l2);cursor:pointer}',
+			'.ysFiles{display:flex;flex-direction:column;height:100%;min-height:0}',
+			'.ysListWrap{flex:1;min-height:0}',
+			'.ysPager{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:10px;font-size:11.5px;color:var(--dsw-alias-label-tertiary)}',
+			'.ysSheetMask{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(0,0,0,.26);z-index:55;display:flex;justify-content:flex-end}',
+			'.ysSheet{width:min(720px,94vw);height:100%;box-sizing:border-box;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);box-shadow:var(--dsw-elevation-soft);overflow:auto;padding:12px 20px 28px}',
+			'.ysSheetBar{display:flex;justify-content:flex-end;margin-bottom:4px;position:sticky;top:0;background:var(--dsw-alias-bg-base);padding:4px 0;z-index:1}',
+			'@media(max-width:900px){.ysItem{max-height:none}}',
+			'.ysList{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);overflow:hidden;height:100%;display:flex;flex-direction:column}',
+			'.ysItem{display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l2);cursor:pointer;flex:1 1 0;min-height:0;max-height:150px;overflow:hidden}',
 			'.ysItem:last-child{border-bottom:none}',
 			'.ysItem:hover{background:var(--dsw-alias-bg-layer-2)}',
 			'.ysItemActive{background:var(--dsw-alias-interactive-bg-active)}',
@@ -314,20 +391,16 @@ window.__ModuleLoader__.load({
 			'.ysActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;padding-bottom:4px;border-top:1px solid var(--dsw-alias-border-l2);position:sticky;top:0;z-index:2;background:var(--dsw-alias-bg-layer-1)}',
 			'.ysNeighbor{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer;text-align:left;border:none;background:transparent;font-family:inherit}',
 			'.ysNeighbor:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}',
-			'.ysOverviewSplit{display:grid;grid-template-columns:minmax(230px,.85fr) minmax(0,1.15fr);gap:16px;align-items:start;margin-top:18px}',
-			'.ysOverviewPane{min-width:0}',
-			'@media(max-width:900px){.ysOverviewSplit{grid-template-columns:1fr}}',
-			'.ysTypeMatrix{position:relative;width:100%;height:260px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);overflow:hidden;background:var(--dsw-alias-bg-layer-2)}',
-			'.ysTypeTile{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:10px 12px;background:var(--dsw-alias-bg-layer-2);color:#173b27;overflow:hidden;box-shadow:inset 0 0 0 2px var(--dsw-alias-bg-layer-1);cursor:default}',
+			'.ysTypeMatrix{position:relative;width:100%;height:420px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);overflow:hidden;background:var(--dsw-alias-bg-layer-2)}',
+			'.ysTypeTile{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:10px 12px;border:none;text-align:left;font-family:inherit;background:var(--dsw-alias-bg-layer-2);color:#173b27;overflow:hidden;box-shadow:inset 0 0 0 2px var(--dsw-alias-bg-layer-1);cursor:pointer}',
+			'.ysTypeTile:hover{box-shadow:inset 0 0 0 2px var(--dsw-alias-label-tertiary)}',
+			'.ysTypeTile:focus-visible{outline:2px solid var(--dsw-alias-label-primary);outline-offset:-4px}',
 			'.ysTypeTileName{font-size:12px;font-weight:600;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 			'.ysTypeTileValue{font-size:10.5px;line-height:14px;opacity:.72;font-variant-numeric:tabular-nums;white-space:nowrap}',
-			'.ysTypeLegend{display:flex;flex-wrap:wrap;gap:9px 20px;align-content:center;min-width:0;margin-top:10px}',
-			'.ysTypeRow{display:flex;align-items:center;gap:6px;font-size:12px;min-width:122px;max-width:220px}',
-			'.ysTypeDot{width:8px;height:8px;border-radius:2px;flex:none;border:1px solid rgba(23,59,39,.15)}',
-			'.ysTypeName{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-			'.ysTypeCount{color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums;font-weight:500}',
-			'.ysTypePct{color:var(--dsw-alias-label-tertiary);font-size:10.5px;margin-left:auto;font-variant-numeric:tabular-nums}',
-			'@media(max-width:700px){.ysTypeMatrix{height:220px}.ysTypeLegend{justify-content:center}}',
+			'.ysOverview{display:flex;flex-direction:column;height:100%;min-height:0}',
+			'.ysOverviewTypes{display:flex;flex-direction:column;flex:1;min-height:140px}',
+			'.ysOverviewTypes .ysTypeMatrix{flex:1;height:auto;min-height:0}',
+			'@media(max-width:700px){.ysTypeMatrix{height:300px}}',
 			'.ysHeatmapWrap{--ys-heat-gap:2px;overflow-x:auto;padding:2px 0}',
 			'.ysHeatmapBody{display:grid;grid-template-columns:12px minmax(0,1fr);gap:6px;align-items:stretch}',
 			'.ysHeatmapDays{display:grid;grid-template-rows:repeat(7,1fr);font-size:9px;color:var(--dsw-alias-label-tertiary);text-align:right}',
@@ -355,19 +428,28 @@ window.__ModuleLoader__.load({
 			'.ysTagGraphNode{cursor:pointer}',
 			'.ysTagGraphNode:hover .ysTagLabel,.ysTagGraphNode:focus .ysTagLabel{fill:var(--dsw-alias-label-primary)}',
 			'.ysTagGraphNode:focus{outline:none}',
-			'.ysGraphCompact .ysGraphWrap{border-radius:var(--dsw-radius-lg)}',
-			'.ysGraphCompact .ysGraph{height:340px}',
-			'.ysGraphWrap{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
-			'.ysGraph{display:block;width:100%;height:min(62vh,560px)}',
-			'.ysGraphEdge{stroke:var(--dsw-alias-border-l3);stroke-width:1}',
-			'.ysGraphNode{cursor:pointer}.ysGraphNode:hover{stroke:var(--dsw-alias-label-primary);stroke-width:2}',
-			'.ysGraphLabel{font-size:10px;fill:var(--dsw-alias-label-secondary);pointer-events:none}',
-			'.ysLegend{display:flex;gap:12px;flex-wrap:wrap;padding:8px 12px;font-size:11px;color:var(--dsw-alias-label-tertiary);border-top:1px solid var(--dsw-alias-border-l2)}',
-			'.ysDot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:0}',
+			'.ysCanvasWrap{position:relative}',
+			'.ysCanvas{display:block;width:100%;height:min(62vh,560px);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-base);touch-action:none;cursor:grab;outline:none}',
+			'.ysCanvas:focus-visible{box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}',
+			'@media(max-width:700px){.ysCanvas{height:420px}}',
 			'.ysEmpty{padding:28px;text-align:center;color:var(--dsw-alias-label-tertiary);font-size:12px}',
 			'.ysError{display:flex;align-items:center;gap:10px;padding:9px 12px;margin-bottom:12px;border:1px solid var(--dsw-alias-state-error-primary,#c45a5a);border-radius:var(--dsw-radius-md);color:var(--dsw-alias-state-error-primary,#c45a5a);font-size:12px}',
-			'.ysGraphHint{font-size:12.5px;color:var(--dsw-alias-label-secondary);margin-bottom:8px}',
 			'.ysHint{font-size:11.5px;color:var(--dsw-alias-label-tertiary);line-height:1.55}',
+			'.ysPre{margin:0 0 18px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.65;color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:340px;overflow:auto}',
+			'.ysMeter{position:relative;height:22px;border-radius:11px;background:var(--dsw-alias-bg-layer-3);overflow:hidden;margin:8px 0}',
+			'.ysMeterFill{position:absolute;top:0;bottom:0;left:0;background:rgba(47,174,114,.34)}',
+			'.ysMeterText{position:relative;display:block;text-align:center;font-size:11px;line-height:22px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
+			'.ysIssueGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:10px 0 18px}',
+			'.ysIssue{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:12px 14px;min-width:0}',
+			'.ysIssueTitle{font-size:12px;color:var(--dsw-alias-label-secondary)}',
+			'.ysIssueCount{font-size:24px;font-weight:600;line-height:1.3;font-variant-numeric:tabular-nums}',
+			'.ysIssueHint{font-size:11px;color:var(--dsw-alias-label-tertiary)}',
+			'.ysIssueList{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}',
+			'.ysIssueItem{font-size:11.5px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}',
+			'.ysIssueItem:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}',
+			'.ysSessionRow{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:12px}',
+			'.ysSessionTitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary)}',
+			'.ysSessionMeta{font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;font-variant-numeric:tabular-nums}',
 			'.ysToast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:60;padding:8px 14px;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);font-size:12px;box-shadow:var(--dsw-elevation-soft);max-width:70%}',
 			'.ysToastError{background:var(--dsw-alias-state-error-primary,#b34545);color:#fff}',
 			'.ysModal{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;padding:24px}',
@@ -491,69 +573,968 @@ window.__ModuleLoader__.load({
 
 		//#endregion
 
-		//#region graph layout
+		//#region canvas graph
 
-		function layoutGraph(graph) {
+		/*
+		 * The two canvas layouts are ported from 万象知识库 (dsh-wanxiang-knowledge):
+		 * the globe puts every file on one sphere, grouped into clusters that stay
+		 * together; the network is a force layout of the same nodes and links.
+		 *
+		 * The data model differs, so the adapter is here: ziyan's cluster is the
+		 * first tag root that is not the synthetic `测试` marker or the `类型`
+		 * facet, and the node colour is the same MIME palette the list uses.
+		 */
+
+		/**
+		 * The cluster one file belongs to, for the globe's grouping.
+		 *
+		 * @param {object} node - A graph node.
+		 * @returns {string} The cluster root.
+		 */
+		function clusterOf(node) {
+			var tags = node.tags || [];
+			for (var index = 0; index < tags.length; index += 1) {
+				var root = String(tags[index]).split('/')[0];
+				if (root !== '测试' && root !== '类型') return root;
+			}
+			return tags.length > 0 ? String(tags[0]).split('/')[0] : '其他';
+		}
+
+		/**
+		 * Turn one `/api/ziyan/graph` payload into what the canvas engine eats.
+		 *
+		 * @param {object} graph - The host payload.
+		 * @returns {{nodes: object[], edges: object[]}} The canvas data.
+		 */
+		function canvasGraphData(graph) {
 			var nodes = Array.isArray(graph && graph.nodes) ? graph.nodes : [];
 			var edges = Array.isArray(graph && graph.edges) ? graph.edges : [];
-			var width = 960;
-			var height = 620;
-			var at = new Map();
-			nodes.forEach(function (node, index) {
-				var angle = index * 2.399963229728653;
-				var radius = 40 + Math.sqrt(index + 1) * 42;
-				at.set(node.id, {
-					id: node.id,
-					x: width / 2 + Math.cos(angle) * radius,
-					y: height / 2 + Math.sin(angle) * radius,
-					vx: 0,
-					vy: 0
+			var known = new Set(nodes.map(function (node) { return node.id; }));
+			return {
+				nodes: nodes.map(function (node) {
+					return {
+						id: node.id,
+						title: node.name,
+						description: node.description,
+						mime: node.mime,
+						color: typeColor(node.mime),
+						cluster: clusterOf(node),
+						degree: node.degree ? node.degree.in + node.degree.out : 0
+					};
+				}),
+				edges: edges
+					.filter(function (edge) { return known.has(edge.from) && known.has(edge.to); })
+					.map(function (edge) { return { s: edge.from, t: edge.to, w: 1 }; })
+			};
+		}
+
+		function rotatePoint(point, angle) {
+			var cosine = Math.cos(angle);
+			var sine = Math.sin(angle);
+			return { x: point.x * cosine - point.y * sine, y: point.x * sine + point.y * cosine };
+		}
+
+		function rotationRadians(degrees) {
+			if (!Number.isFinite(degrees)) return 0;
+			var wrapped = ((degrees + 180) % 360 + 360) % 360 - 180;
+			return (wrapped === -180 && degrees > 0 ? 180 : wrapped) * Math.PI / 180;
+		}
+
+		function rotatedExtent(extent, angle) {
+			var cosine = Math.abs(Math.cos(angle));
+			var sine = Math.abs(Math.sin(angle));
+			return { x: extent.x * cosine + extent.y * sine, y: extent.x * sine + extent.y * cosine };
+		}
+
+		var GOLDEN = Math.PI * (3 - Math.sqrt(5));
+
+		function fibonacciPoint(index, count) {
+			var y = 1 - 2 * (index + 0.5) / count;
+			var radius = Math.sqrt(Math.max(0, 1 - y * y));
+			return { x: radius * Math.cos(index * GOLDEN), y: y, z: radius * Math.sin(index * GOLDEN) };
+		}
+
+		function variationOf(id) {
+			var hash = 2166136261;
+			for (var index = 0; index < id.length; index += 1) hash = Math.imul(hash ^ id.charCodeAt(index), 16777619);
+			return (hash >>> 0) / 4294967296;
+		}
+
+		function cloudOffset(index, count, id) {
+			var angle = index * GOLDEN + (variationOf(id) - 0.5) * 0.65;
+			var contour = 1 + 0.12 * Math.sin(angle * 3 + 0.7) + 0.07 * Math.cos(angle * 5);
+			var radius = Math.pow((index + 0.5) / count, 0.66) * contour;
+			return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+		}
+
+		/**
+		 * Group nodes by cluster, biggest cluster first, busiest node first.
+		 *
+		 * @param {object[]} nodes - The nodes.
+		 * @returns {object[][]} The groups.
+		 */
+		function communitiesOf(nodes) {
+			var groups = new Map();
+			for (var index = 0; index < nodes.length; index += 1) {
+				var node = nodes[index];
+				var members = groups.get(node.cluster) || [];
+				members.push(node);
+				groups.set(node.cluster, members);
+			}
+			return Array.from(groups.values())
+				.sort(function (left, right) {
+					return right.length - left.length || String(left[0].cluster).localeCompare(String(right[0].cluster));
+				})
+				.map(function (members) {
+					return members.slice().sort(function (left, right) {
+						return right.degree - left.degree || String(left.id).localeCompare(String(right.id));
+					});
+				});
+		}
+
+		/**
+		 * Seat every node on one sphere, each cluster inside its own cap.
+		 *
+		 * @param {object[]} nodes - The nodes.
+		 * @returns {object[]} The nodes with `x/y/z`.
+		 */
+		function sphereLayout(nodes) {
+			var groups = communitiesOf(nodes);
+			var seeds = groups.map(function (_, index) { return fibonacciPoint(index, groups.length); });
+			var forward = seeds.reduce(function (sum, seed, index) {
+				return {
+					x: sum.x + seed.x * groups[index].length,
+					y: sum.y + seed.y * groups[index].length,
+					z: sum.z + seed.z * groups[index].length
+				};
+			}, { x: 0, y: 0, z: 0 });
+			function normalize(point) {
+				var length = Math.hypot(point.x, point.y, point.z) || 1;
+				return { x: point.x / length, y: point.y / length, z: point.z / length };
+			}
+			var front = normalize(forward);
+			var right = Math.hypot(front.x, front.z) > 1e-3
+				? normalize({ x: front.z, y: 0, z: -front.x })
+				: { x: 1, y: 0, z: 0 };
+			var up = { x: front.y * right.z, y: front.z * right.x - front.x * right.z, z: -front.y * right.x };
+			function dot(a, b) {
+				return a.x * b.x + a.y * b.y + a.z * b.z;
+			}
+			var assigned = new Map();
+			groups.forEach(function (members, index) {
+				var center = seeds[index];
+				var tangent = normalize({ x: -center.z, y: 0, z: center.x });
+				var bitangent = {
+					x: center.y * tangent.z,
+					y: center.z * tangent.x - center.x * tangent.z,
+					z: -center.y * tangent.x
+				};
+				var spread = Math.min(0.95, 0.22 + 0.76 * Math.sqrt(members.length / nodes.length));
+				members.forEach(function (node, local) {
+					var offset = cloudOffset(local, members.length, node.id);
+					var radius = Math.hypot(offset.x, offset.y);
+					var angle = spread * radius;
+					var factor = radius > 0 ? Math.sin(angle) / radius : 0;
+					var point = groups.length === 1 ? fibonacciPoint(local, members.length) : {
+						x: center.x * Math.cos(angle) + (tangent.x * offset.x + bitangent.x * offset.y) * factor,
+						y: center.y * Math.cos(angle) + (tangent.y * offset.x + bitangent.y * offset.y) * factor,
+						z: center.z * Math.cos(angle) + (tangent.z * offset.x + bitangent.z * offset.y) * factor
+					};
+					var position = groups.length === 1 ? point : { x: dot(point, right), y: dot(point, up), z: dot(point, front) };
+					assigned.set(node.id, { id: node.id, x: position.x, y: position.y, z: position.z, cluster: node.cluster });
 				});
 			});
-			var pairs = edges.map(function (edge) {
-				return [at.get(edge.from), at.get(edge.to)];
-			}).filter(function (pair) { return pair[0] !== undefined && pair[1] !== undefined; });
-			var points = Array.from(at.values());
-			for (var iter = 0; iter < 110; iter += 1) {
-				var cooling = 1 - iter / 110;
-				for (var i = 0; i < points.length; i += 1) {
-					var a = points[i];
-					for (var j = i + 1; j < points.length; j += 1) {
-						var b = points[j];
-						var dx = b.x - a.x;
-						var dy = b.y - a.y;
-						var dist2 = dx * dx + dy * dy + 0.01;
-						var force = 640 / dist2;
-						var dist = Math.sqrt(dist2);
-						var fx = (dx / dist) * force;
-						var fy = (dy / dist) * force;
-						a.vx -= fx; a.vy -= fy; b.vx += fx; b.vy += fy;
+			return nodes.map(function (node) { return assigned.get(node.id); });
+		}
+
+		/**
+		 * The network layout: cluster anchors, cell repulsion, link springs.
+		 */
+		class NetworkLayout {
+			constructor(nodes, edges) {
+				var clusters = Array.from(new Set(nodes.map(function (node) { return node.cluster; })));
+				var extent = Math.max(180, Math.sqrt(nodes.length) * 16);
+				var anchors = new Map();
+				clusters.forEach(function (cluster, index) {
+					anchors.set(cluster, {
+						x: Math.cos(index * GOLDEN) * extent * 0.5,
+						y: Math.sin(index * GOLDEN) * extent * 0.5
+					});
+				});
+				this.anchors = anchors;
+				this.alpha = 1;
+				this.particles = nodes.map(function (node, index) {
+					return {
+						id: node.id,
+						cluster: node.cluster,
+						x: Math.cos(index * GOLDEN) * Math.sqrt(index + 1) * 15,
+						y: Math.sin(index * GOLDEN) * Math.sqrt(index + 1) * 15,
+						z: 0,
+						vx: 0,
+						vy: 0
+					};
+				});
+				this.byId = new Map(this.particles.map(function (particle) { return [particle.id, particle]; }));
+				this.links = edges.map(function (edge) {
+					return [this.byId.get(edge.s), this.byId.get(edge.t), edge.w];
+				}, this).filter(function (link) { return link[0] !== undefined && link[1] !== undefined; });
+			}
+
+			tick(fixed) {
+				if (this.alpha < 5e-3) return;
+				var cells = new Map();
+				var cellSize = Math.max(70, Math.sqrt(this.particles.length) * 12);
+				this.particles.forEach(function (particle) {
+					var key = Math.floor(particle.x / cellSize) + ',' + Math.floor(particle.y / cellSize);
+					var cell = cells.get(key) || { x: 0, y: 0, count: 0 };
+					cell.x += particle.x;
+					cell.y += particle.y;
+					cell.count += 1;
+					cells.set(key, cell);
+				});
+				var alpha = this.alpha;
+				this.particles.forEach(function (particle) {
+					cells.forEach(function (cell) {
+						var dx = particle.x - cell.x / cell.count;
+						var dy = particle.y - cell.y / cell.count;
+						var distance = dx * dx + dy * dy + 100;
+						var force = Math.min(2, cell.count * 30 / distance) * alpha;
+						particle.vx += dx * force;
+						particle.vy += dy * force;
+					});
+					var anchor = this.anchors.get(particle.cluster);
+					particle.vx += ((anchor.x - particle.x) * 4e-3 - particle.x * 1e-3) * alpha;
+					particle.vy += ((anchor.y - particle.y) * 4e-3 - particle.y * 1e-3) * alpha;
+				}, this);
+				this.links.forEach(function (link) {
+					var left = link[0];
+					var right = link[1];
+					var dx = right.x - left.x;
+					var dy = right.y - left.y;
+					var distance = Math.hypot(dx, dy) || 1;
+					var force = (distance - 65) / distance * 0.012 * Math.min(link[2], 2) * alpha;
+					left.vx += dx * force;
+					left.vy += dy * force;
+					right.vx -= dx * force;
+					right.vy -= dy * force;
+				});
+				this.particles.forEach(function (particle) {
+					if (particle.id === fixed) {
+						particle.vx = 0;
+						particle.vy = 0;
+						return;
+					}
+					particle.x += Math.max(-15, Math.min(15, particle.vx *= 0.55));
+					particle.y += Math.max(-15, Math.min(15, particle.vy *= 0.55));
+				});
+				this.alpha *= 0.94;
+			}
+		}
+
+		/** The great-circle interpolation between two points on the sphere. */
+		function sphereArc(left, right, t) {
+			var dot = Math.max(-1, Math.min(1, left.x * right.x + left.y * right.y + left.z * right.z));
+			var angle = Math.acos(dot);
+			if (angle < 1e-3 || Math.sin(angle) < 1e-3) {
+				return {
+					x: left.x * (1 - t) + right.x * t,
+					y: left.y * (1 - t) + right.y * t,
+					z: left.z * (1 - t) + right.z * t
+				};
+			}
+			var u = Math.sin((1 - t) * angle) / Math.sin(angle);
+			var v = Math.sin(t * angle) / Math.sin(angle);
+			return { x: left.x * u + right.x * v, y: left.y * u + right.y * v, z: left.z * u + right.z * v };
+		}
+
+		/** Keeps labels from stacking on top of each other. */
+		class LabelPlacer {
+			constructor(width, height, limit) {
+				this.width = width;
+				this.height = height;
+				this.limit = limit;
+				this.boxes = [];
+			}
+
+			place(x, y, radius, width) {
+				if (this.boxes.length >= this.limit) return undefined;
+				var height = 20;
+				var candidates = [
+					{ x: x + radius + 5, y: y - height / 2 },
+					{ x: x - radius - 5 - width, y: y - height / 2 },
+					{ x: x - width / 2, y: y - radius - height - 5 },
+					{ x: x - width / 2, y: y + radius + 5 }
+				];
+				for (var index = 0; index < candidates.length; index += 1) {
+					var box = { x: candidates[index].x, y: candidates[index].y, width: width, height: height };
+					if (box.x < 8 || box.y < 8 || box.x + width > this.width - 8 || box.y + height > this.height - 8) continue;
+					var clash = this.boxes.some(function (other) {
+						return box.x < other.x + other.width && box.x + box.width > other.x
+							&& box.y < other.y + other.height && box.y + box.height > other.y;
+					});
+					if (clash) continue;
+					this.boxes.push(box);
+					return box;
+				}
+				return undefined;
+			}
+		}
+
+		/** A coarse spatial index, so hover stays cheap with thousands of nodes. */
+		class HitGrid {
+			constructor(size) {
+				this.size = size || 32;
+				this.cells = new Map();
+			}
+
+			rebuild(points) {
+				this.cells.clear();
+				for (var index = 0; index < points.length; index += 1) {
+					var point = points[index];
+					var key = this.key(point.x, point.y);
+					var cell = this.cells.get(key) || [];
+					cell.push(point);
+					this.cells.set(key, cell);
+				}
+			}
+
+			hit(x, y) {
+				var result;
+				var cx = Math.floor(x / this.size);
+				var cy = Math.floor(y / this.size);
+				for (var dx = -1; dx <= 1; dx += 1) {
+					for (var dy = -1; dy <= 1; dy += 1) {
+						var cell = this.cells.get((cx + dx) + ',' + (cy + dy)) || [];
+						for (var index = 0; index < cell.length; index += 1) {
+							var point = cell[index];
+							if (Math.hypot(point.x - x, point.y - y) <= point.radius + 5 && (!result || point.depth >= result.depth)) result = point;
+						}
 					}
 				}
-				pairs.forEach(function (pair) {
-					var a = pair[0]; var b = pair[1];
-					var dx = b.x - a.x; var dy = b.y - a.y;
-					var dist = Math.sqrt(dx * dx + dy * dy) + 0.01;
-					var force = (dist - 110) * 0.02;
-					var fx = (dx / dist) * force;
-					var fy = (dy / dist) * force;
-					a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
-				});
-				points.forEach(function (point) {
-					point.vx += (width / 2 - point.x) * 0.002;
-					point.vy += (height / 2 - point.y) * 0.002;
-					point.x += point.vx * cooling;
-					point.y += point.vy * cooling;
-					point.vx *= 0.72;
-					point.vy *= 0.72;
-					point.x = Math.max(18, Math.min(width - 18, point.x));
-					point.y = Math.max(18, Math.min(height - 18, point.y));
-				});
+				return result === undefined ? undefined : result.id;
 			}
-			return { at: at, width: width, height: height };
+
+			key(x, y) {
+				return Math.floor(x / this.size) + ',' + Math.floor(y / this.size);
+			}
+		}
+
+		/**
+		 * The colours the canvas paints with, resolved from the panel's tokens.
+		 *
+		 * Canvas cannot use CSS variables, so the tokens are read once on mount
+		 * and again on resize; a theme switch is a repaint anyway.
+		 *
+		 * @param {HTMLCanvasElement} canvas - The canvas.
+		 * @returns {object} Resolved colours.
+		 */
+		function canvasTheme(canvas) {
+			var computed = typeof getComputedStyle === 'function' ? getComputedStyle(canvas) : null;
+			function token(name, fallback) {
+				if (computed === null) return fallback;
+				var value = String(computed.getPropertyValue(name) || '').trim();
+				return value === '' ? fallback : value;
+			}
+			var dark = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
+			return {
+				background: token('--dsw-alias-bg-base', dark ? '#141a26' : '#ffffff'),
+				grid: token('--dsw-alias-border-l2', dark ? '#273349' : '#dce7f5'),
+				label: token('--dsw-alias-label-secondary', dark ? '#c8d2e4' : '#526681'),
+				halo: dark ? '#1b2433' : '#f4f8ff'
+			};
+		}
+
+		/**
+		 * The link colour.
+		 *
+		 * Green says "relation" the way the rest of the panel does. Blue read as
+		 * interface chrome and competed with the selected node's ring; grey read
+		 * as a grid line. At this density the base stroke is mostly texture, so
+		 * it is a green wash and the focused edges are the readable ones.
+		 */
+		var EDGE_COLOR = '#2fae72';
+		var EDGE_LIT = '#17945e';
+		/** The focused label's ink: the same green, darkened for text contrast. */
+		var EDGE_TEXT = '#0f7a4a';
+
+		/**
+		 * One canvas, two layouts: `sphere` is the globe, `network` the force graph.
+		 */
+		class CanvasGraph {
+			constructor(canvas, data, options) {
+				var config = options || {};
+				this.canvas = canvas;
+				this.data = data;
+				this.onOpen = typeof config.onOpen === 'function' ? config.onOpen : function () {};
+				this.ctx = canvas.getContext('2d');
+				this.layout = config.layout === 'network' ? 'network' : 'sphere';
+				this.nodes = new Map(data.nodes.map(function (node) { return [node.id, node]; }));
+				this.sphere = sphereLayout(data.nodes);
+				this.neighbors = new Map();
+				this.incident = new Map();
+				data.edges.forEach(function (edge) {
+					[[edge.s, edge.t], [edge.t, edge.s]].forEach(function (pair) {
+						var values = this.neighbors.get(pair[0]) || new Set();
+						values.add(pair[1]);
+						this.neighbors.set(pair[0], values);
+						var incident = this.incident.get(pair[0]) || [];
+						incident.push(edge);
+						this.incident.set(pair[0], incident);
+					}, this);
+				}, this);
+				var ranked = data.edges.slice().sort(function (left, right) { return right.w - left.w; });
+				var self = this;
+				this.bridges = new Set(ranked.filter(function (edge) {
+					var left = self.nodes.get(edge.s);
+					var right = self.nodes.get(edge.t);
+					return left !== undefined && right !== undefined && left.cluster !== right.cluster;
+				}).slice(0, 120));
+				var budget = Math.min(4000, data.nodes.length * 2);
+				this.networkEdges = data.nodes.length > 300 ? ranked.slice(0, budget) : data.edges;
+				this.edges = data.nodes.length > 300
+					? Array.from(new Set([...this.bridges, ...ranked.slice(0, budget)]))
+					: data.edges;
+
+				this.selected = '';
+				this.hover = '';
+				this.width = 600;
+				this.height = 360;
+				this.zoom = 1;
+				this.pan = { x: 0, y: 0 };
+				this.yaw = 0;
+				this.pitch = 0;
+				this.velocity = { x: 0, y: 0 };
+				this.target = undefined;
+				this.drag = undefined;
+				this.frame = 0;
+				this.lastDrawAt = 0;
+				this.networkAngle = 0;
+				this.networkCenter = { x: 0, y: 0 };
+				this.networkExtent = { x: 200, y: 150 };
+				this.grid = new HitGrid();
+				this.reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+				this.lifetime = typeof AbortController === 'function' ? new AbortController() : null;
+				this.theme = canvasTheme(canvas);
+
+				var options2 = this.lifetime === null ? undefined : { signal: this.lifetime.signal };
+				this.draw = this.draw.bind(this);
+				this.pointerDown = this.pointerDown.bind(this);
+				this.pointerMove = this.pointerMove.bind(this);
+				this.pointerUp = this.pointerUp.bind(this);
+				this.wheel = this.wheel.bind(this);
+				canvas.addEventListener('pointerdown', this.pointerDown, options2);
+				canvas.addEventListener('pointermove', this.pointerMove, options2);
+				canvas.addEventListener('pointerup', this.pointerUp, options2);
+				canvas.addEventListener('pointercancel', this.pointerUp, options2);
+				canvas.addEventListener('pointerleave', this.pointerUp, options2);
+				canvas.addEventListener('dblclick', function (event) {
+					var point = this.point(event);
+					var id = this.grid.hit(point.x, point.y);
+					if (id !== undefined) {
+						this.zoom = Math.min(3, this.zoom * 1.2);
+						this.onOpen(id);
+						this.wake();
+					}
+				}.bind(this), options2);
+				canvas.addEventListener('wheel', this.wheel, options2 === undefined ? { passive: false } : { signal: options2.signal, passive: false });
+				if (typeof ResizeObserver === 'function') {
+					this.resize = new ResizeObserver(function () { this.measure(); }.bind(this));
+					this.resize.observe(canvas);
+				}
+				if (typeof document !== 'undefined') {
+					document.addEventListener('visibilitychange', function () {
+						if (document.hidden) {
+							cancelAnimationFrame(this.frame);
+							this.frame = 0;
+						} else this.wake();
+					}.bind(this), options2);
+				}
+				this.measure();
+			}
+
+			get network() {
+				if (this.networkState === undefined) {
+					this.networkState = new NetworkLayout(this.data.nodes, this.data.edges);
+					var rounds = this.data.nodes.length <= 1500 ? 80 : 4;
+					for (var index = 0; index < rounds; index += 1) this.networkState.tick();
+					var minX = Infinity;
+					var maxX = -Infinity;
+					var minY = Infinity;
+					var maxY = -Infinity;
+					this.networkState.particles.forEach(function (particle) {
+						minX = Math.min(minX, particle.x);
+						maxX = Math.max(maxX, particle.x);
+						minY = Math.min(minY, particle.y);
+						maxY = Math.max(maxY, particle.y);
+					});
+					if (Number.isFinite(minX)) {
+						this.networkCenter = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+						this.networkExtent = { x: Math.max(100, (maxX - minX) * 0.6), y: Math.max(100, (maxY - minY) * 0.6) };
+					}
+				}
+				return this.networkState;
+			}
+
+			setLayout(layout) {
+				this.layout = layout;
+				this.wake();
+			}
+
+			reset() {
+				this.zoom = 1;
+				this.pan = { x: 0, y: 0 };
+				this.yaw = 0;
+				this.pitch = 0;
+				this.networkAngle = 0;
+				this.target = undefined;
+				this.velocity = { x: 0, y: 0 };
+				this.wake();
+			}
+
+			destroy() {
+				cancelAnimationFrame(this.frame);
+				this.frame = 0;
+				if (this.lifetime !== null) this.lifetime.abort();
+				if (this.resize !== undefined) this.resize.disconnect();
+			}
+
+			point(event) {
+				var rect = this.canvas.getBoundingClientRect();
+				return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+			}
+
+			measure() {
+				var rect = this.canvas.getBoundingClientRect();
+				this.width = Math.max(1, rect.width);
+				this.height = Math.max(1, rect.height);
+				var dpr = Math.min((typeof devicePixelRatio === 'number' ? devicePixelRatio : 1) || 1, 3);
+				this.canvas.width = Math.round(this.width * dpr);
+				this.canvas.height = Math.round(this.height * dpr);
+				this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+				this.theme = canvasTheme(this.canvas);
+				this.wake();
+			}
+
+			wake() {
+				if (!this.frame && !(typeof document !== 'undefined' && document.hidden)) {
+					this.frame = requestAnimationFrame(this.draw);
+				}
+			}
+
+			networkPoint(point) {
+				return rotatePoint({ x: point.x - this.networkCenter.x, y: point.y - this.networkCenter.y }, this.networkAngle);
+			}
+
+			networkScale() {
+				var extent = rotatedExtent(this.networkExtent, this.networkAngle);
+				return Math.min(
+					Math.max(80, this.width - 100) / (extent.x * 2),
+					Math.max(80, this.height - 60) / (extent.y * 2)
+				) * this.zoom;
+			}
+
+			spherePoint(point) {
+				var x = point.x * Math.cos(this.yaw) + point.z * Math.sin(this.yaw);
+				var z0 = point.z * Math.cos(this.yaw) - point.x * Math.sin(this.yaw);
+				var y = point.y * Math.cos(this.pitch) - z0 * Math.sin(this.pitch);
+				var z = point.y * Math.sin(this.pitch) + z0 * Math.cos(this.pitch);
+				var radius = Math.min(this.width, this.height) * 0.35 * this.zoom;
+				var scale = 2.8 / (2.8 - z);
+				return { x: this.width / 2 + x * radius * scale, y: this.height / 2 + y * radius * scale, depth: z, scale: scale };
+			}
+
+			/**
+			 * Draw a small arrowhead at the tip of one focused edge.
+			 *
+			 * Direction is the one thing a plain line cannot say, and it is only
+			 * worth the ink on the edges the reader is already looking at.
+			 *
+			 * @param {number} fromX - A point behind the tip, on the line.
+			 * @param {number} fromY - A point behind the tip, on the line.
+			 * @param {number} toX - The tip.
+			 * @param {number} toY - The tip.
+			 * @returns {void}
+			 */
+			arrow(fromX, fromY, toX, toY) {
+				var angle = Math.atan2(toY - fromY, toX - fromX);
+				var size = 7;
+				var ctx = this.ctx;
+				ctx.beginPath();
+				ctx.moveTo(toX, toY);
+				ctx.lineTo(toX - size * Math.cos(angle - 0.42), toY - size * Math.sin(angle - 0.42));
+				ctx.moveTo(toX, toY);
+				ctx.lineTo(toX - size * Math.cos(angle + 0.42), toY - size * Math.sin(angle + 0.42));
+				ctx.stroke();
+			}
+
+			drawGlobe() {
+				var ctx = this.ctx;
+				ctx.strokeStyle = this.theme.grid;
+				ctx.lineWidth = 0.6;
+				ctx.globalAlpha = 0.7;
+				for (var latitude = -2; latitude <= 2; latitude += 1) {
+					ctx.beginPath();
+					for (var step = 0; step <= 64; step += 1) {
+						var angle = step * Math.PI / 32;
+						var y = Math.sin(latitude * Math.PI / 6);
+						var radius = Math.sqrt(Math.max(0, 1 - y * y));
+						var point = this.spherePoint({ x: Math.cos(angle) * radius, y: y, z: Math.sin(angle) * radius });
+						if (step === 0) ctx.moveTo(point.x, point.y);
+						else ctx.lineTo(point.x, point.y);
+					}
+					ctx.stroke();
+				}
+				for (var longitude = 0; longitude < 6; longitude += 1) {
+					ctx.beginPath();
+					for (var index = 0; index <= 64; index += 1) {
+						var sweep = index * Math.PI / 32;
+						var meridian = longitude * Math.PI / 6;
+						var projected = this.spherePoint({
+							x: Math.sin(sweep) * Math.cos(meridian),
+							y: Math.cos(sweep),
+							z: Math.sin(sweep) * Math.sin(meridian)
+						});
+						if (index === 0) ctx.moveTo(projected.x, projected.y);
+						else ctx.lineTo(projected.x, projected.y);
+					}
+					ctx.stroke();
+				}
+			}
+
+			draw(time) {
+				this.frame = 0;
+				if (!this.canvas.isConnected || (typeof document !== 'undefined' && document.hidden)) return;
+				var gap = this.data.nodes.length > 20000 ? 66 : this.data.nodes.length > 5000 ? 33 : 0;
+				if (time - this.lastDrawAt < gap) {
+					this.wake();
+					return;
+				}
+				this.lastDrawAt = time;
+				var ctx = this.ctx;
+				var theme = this.theme;
+				if (this.layout === 'network') {
+					var iterations = this.reduced ? 100 : 2;
+					for (var tick = 0; tick < iterations; tick += 1) this.network.tick(this.drag === undefined ? undefined : this.drag.node);
+				} else if (!this.reduced) {
+					if (this.target !== undefined) {
+						this.yaw += (this.target.yaw - this.yaw) * 0.12;
+						this.pitch += (this.target.pitch - this.pitch) * 0.12;
+						if (Math.abs(this.target.yaw - this.yaw) + Math.abs(this.target.pitch - this.pitch) < 1e-3) this.target = undefined;
+					} else if (this.drag === undefined) {
+						// A slow ambient spin keeps the globe alive; a flick keeps going
+						// but settles quickly (the sum of the decayed velocity is only
+						// about a tenth of the last drag step).
+						this.yaw += this.velocity.x + (this.selected === '' ? 12e-4 : 0);
+						this.pitch += this.velocity.y;
+						this.velocity.x *= 0.88;
+						this.velocity.y *= 0.88;
+					}
+				}
+				ctx.globalAlpha = 1;
+				ctx.fillStyle = theme.background;
+				ctx.fillRect(0, 0, this.width, this.height);
+				if (this.layout === 'sphere') this.drawGlobe();
+
+				var particles = this.layout === 'sphere' ? this.sphere : this.network.particles;
+				var projected = [];
+				particles.forEach(function (particle) {
+					var rotated = this.layout === 'network' ? this.networkPoint(particle) : particle;
+					var point = this.layout === 'sphere' ? this.spherePoint(particle) : {
+						x: this.width / 2 + rotated.x * this.networkScale() + this.pan.x,
+						y: this.height / 2 + rotated.y * this.networkScale() + this.pan.y,
+						depth: 0,
+						scale: 1
+					};
+					var node = this.nodes.get(particle.id);
+					var base = this.layout === 'network'
+						? Math.min(5.5, 2.5 + Math.log2(1 + node.degree) * 0.45)
+						: Math.min(4.6, 2.3 + Math.log2(1 + node.degree) * 0.32);
+					projected.push({
+						id: particle.id,
+						x: point.x,
+						y: point.y,
+						depth: point.depth,
+						radius: base * (this.layout === 'sphere' ? point.scale : 1)
+					});
+				}, this);
+				projected = projected.filter(function (point) {
+					return point.x + point.radius >= 0 && point.y + point.radius >= 0
+						&& point.x - point.radius <= this.width && point.y - point.radius <= this.height;
+				}, this).sort(function (left, right) { return left.depth - right.depth; });
+				var positions = new Map(projected.map(function (point) { return [point.id, point]; }));
+				this.grid.rebuild(projected);
+				this.positions = positions;
+
+				var visible = new Set(this.layout === 'network' ? this.networkEdges : this.edges);
+				var focus = this.hover !== '' ? this.hover : this.selected;
+				if (focus !== '') {
+					(this.incident.get(focus) || []).forEach(function (edge) { visible.add(edge); });
+				}
+				var sphereMap = new Map(this.sphere.map(function (point) { return [point.id, point]; }));
+				visible.forEach(function (edge) {
+					var left = positions.get(edge.s);
+					var right = positions.get(edge.t);
+					if (left === undefined || right === undefined) return;
+					var highlighted = edge.s === focus || edge.t === focus;
+					var bridge = this.edges === undefined ? false : this.bridges.has(edge);
+					if (this.layout === 'sphere' && !highlighted && this.data.nodes.length > 300 && !bridge) return;
+					var dx = right.x - left.x;
+					var dy = right.y - left.y;
+					var length = Math.hypot(dx, dy);
+					// A line that runs under a dot reads as a smudge at this density,
+					// so both ends stop at the circle edge.
+					if (length <= left.radius + right.radius + 1) return;
+					var ux = dx / length;
+					var uy = dy / length;
+					// The globe draws only its between-cluster bridges, so those carry
+					// the whole picture and get a little more weight than the network's
+					// background mesh.
+					var baseAlpha = this.layout === 'sphere' ? 0.16 : 0.085;
+					ctx.globalAlpha = highlighted ? 0.85 : baseAlpha;
+					ctx.strokeStyle = highlighted ? EDGE_LIT : EDGE_COLOR;
+					ctx.lineWidth = highlighted ? 1.4 : 0.7;
+					var tipX = right.x - ux * (right.radius + 1);
+					var tipY = right.y - uy * (right.radius + 1);
+					// A great circle between two distant points runs around the back
+					// of the globe, so the projected arc ends up far away from both
+					// dots it connects. Past roughly 70° the direct chord is the
+					// honest picture: it hugs the dots and still says they are related.
+					var from = sphereMap.get(edge.s);
+					var to = sphereMap.get(edge.t);
+					var cosine = from === undefined || to === undefined
+						? 1
+						: Math.max(-1, Math.min(1, from.x * to.x + from.y * to.y + from.z * to.z));
+					var onArc = this.layout === 'sphere' && (highlighted || bridge) && Math.acos(cosine) <= 1.25;
+					ctx.beginPath();
+					if (onArc) {
+						// On the globe an arc is the shortest path on the surface, so
+						// the projected great circle is the honest line; the ends are
+						// trimmed by dropping the samples that fall inside a dot.
+						var samples = [];
+						for (var step = 0; step <= 16; step += 1) {
+							samples.push(this.spherePoint(sphereArc(sphereMap.get(edge.s), sphereMap.get(edge.t), step / 16)));
+						}
+						var first = 0;
+						var last = samples.length - 1;
+						while (first <= last && Math.hypot(samples[first].x - left.x, samples[first].y - left.y) < left.radius + 0.5) first += 1;
+						while (last >= first && Math.hypot(samples[last].x - right.x, samples[last].y - right.y) < right.radius + 0.5) last -= 1;
+						if (first >= last) return;
+						ctx.moveTo(samples[first].x, samples[first].y);
+						for (var index = first + 1; index <= last; index += 1) {
+							ctx.lineTo(samples[index].x, samples[index].y);
+						}
+						tipX = samples[last].x;
+						tipY = samples[last].y;
+						if (highlighted) {
+							ctx.lineTo(tipX, tipY);
+							ctx.stroke();
+							this.arrow(samples[last - 1].x, samples[last - 1].y, tipX, tipY);
+							return;
+						}
+					} else {
+						ctx.moveTo(left.x + ux * (left.radius + 0.5), left.y + uy * (left.radius + 0.5));
+						ctx.lineTo(tipX, tipY);
+					}
+					ctx.stroke();
+					if (highlighted && !onArc) {
+						this.arrow(tipX - ux * 10, tipY - uy * 10, tipX, tipY);
+					}
+				}, this);
+
+				projected.forEach(function (point) {
+					var node = this.nodes.get(point.id);
+					var selected = point.id === this.selected || point.id === this.hover;
+					var active = focus === '' || point.id === focus || (this.neighbors.get(focus) || new Set()).has(point.id);
+					ctx.globalAlpha = (this.layout === 'sphere' ? 0.3 + (point.depth + 1) * 0.35 : 1) * (active ? 1 : 0.15);
+					var radius = point.radius * (!this.reduced ? 1 + 0.025 * Math.sin(time / 900) : 1);
+					ctx.fillStyle = node.color;
+					ctx.strokeStyle = selected ? EDGE_LIT : theme.background;
+					ctx.lineWidth = selected ? 2 : 1;
+					ctx.beginPath();
+					ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+					ctx.fill();
+					ctx.stroke();
+				}, this);
+
+				// Labels are re-placed every frame; while a network is still cooling
+				// that reads as jitter, so a moving graph shows only what is under
+				// the cursor and the rest appear once the layout settles.
+				var settled = this.layout === 'sphere' || this.network.alpha < 5e-3;
+				var placer = new LabelPlacer(this.width, this.height, Math.max(4, Math.min(12, Math.floor(this.width * this.height / 40000))));
+				var focusId = focus;
+				var candidates = settled || focusId !== '' ? projected
+					.filter(function (point) {
+						return focusId === '' || point.id === focusId || (this.neighbors.get(focusId) || new Set()).has(point.id);
+					}, this)
+					.filter(function (point) {
+						return this.nodes.get(point.id).degree >= 4 || point.id === focusId;
+					}, this)
+					.sort(function (left, right) {
+						return (right.id === focusId ? 1 : 0) - (left.id === focusId ? 1 : 0)
+							|| this.nodes.get(right.id).degree - this.nodes.get(left.id).degree
+							|| right.depth - left.depth;
+					}.bind(this)) : [];
+				ctx.textBaseline = 'middle';
+				candidates.forEach(function (point) {
+					var node = this.nodes.get(point.id);
+					var focused = point.id === focusId;
+					var text = String(node.title || '');
+					if (text.length > 15) text = text.slice(0, 15) + '…';
+					ctx.font = focused ? '600 12px sans-serif' : '11px sans-serif';
+					var box = placer.place(point.x, point.y, point.radius, Math.ceil(ctx.measureText(text).width) + 12);
+					if (box === undefined) return;
+					ctx.globalAlpha = focused ? 1 : 0.88;
+					ctx.fillStyle = theme.background;
+					ctx.beginPath();
+					if (typeof ctx.roundRect === 'function') ctx.roundRect(box.x, box.y, box.width, box.height, 4);
+					else ctx.rect(box.x, box.y, box.width, box.height);
+					ctx.fill();
+					ctx.fillStyle = focused ? EDGE_TEXT : theme.label;
+					ctx.textBaseline = 'alphabetic';
+					ctx.fillText(text, box.x + 6, box.y + 14);
+					ctx.textBaseline = 'middle';
+				}, this);
+				ctx.globalAlpha = 1;
+
+				var moving = this.layout === 'sphere'
+					? (!this.reduced && (this.target !== undefined || Math.abs(this.velocity.x) + Math.abs(this.velocity.y) > 1e-4 || this.selected === ''))
+					: (this.network.alpha >= 5e-3 || this.data.nodes.length <= 300);
+				if (moving) this.wake();
+			}
+
+			pointerDown(event) {
+				var at = this.point(event);
+				var rotate = this.layout === 'network' && event.shiftKey;
+				this.drag = {
+					x: at.x,
+					y: at.y,
+					startX: at.x,
+					startY: at.y,
+					node: rotate ? undefined : this.grid.hit(at.x, at.y),
+					rotate: rotate,
+					moved: false
+				};
+				this.target = undefined;
+				this.velocity = { x: 0, y: 0 };
+				if (typeof this.canvas.setPointerCapture === 'function') this.canvas.setPointerCapture(event.pointerId);
+			}
+
+			pointerMove(event) {
+				var at = this.point(event);
+				if (this.drag !== undefined) {
+					var dx = at.x - this.drag.x;
+					var dy = at.y - this.drag.y;
+					if (!this.drag.moved && Math.hypot(at.x - this.drag.startX, at.y - this.drag.startY) > 4) this.drag.moved = true;
+					if (this.layout === 'sphere') {
+						// The surface follows the pointer: a rightward drag spins the
+						// front of the globe right, so yaw grows with dx. A downward
+						// drag tips the front down, and positive pitch moves the front
+						// *up*, so pitch shrinks with dy — the sign is the whole
+						// difference between "the ball turns with my hand" and "it
+						// turns against it".
+						this.yaw += dx * 6e-3;
+						this.pitch -= dy * 6e-3;
+						// A flick keeps going a little, but only a little: the old
+						// factor let inertia add ~70% more rotation after the release,
+						// which read as the globe running away from the hand.
+						this.velocity = this.reduced ? { x: 0, y: 0 } : { x: dx * 0.5e-3, y: -dy * 0.5e-3 };
+					} else if (this.drag.rotate) {
+						this.networkAngle = rotationRadians(this.networkAngle * 180 / Math.PI + dx * 0.6);
+					} else if (this.drag.node !== undefined) {
+						var particle = this.network.particles.find(function (candidate) { return candidate.id === this.drag.node; }, this);
+						var movement = rotatePoint({ x: dx / this.networkScale(), y: dy / this.networkScale() }, -this.networkAngle);
+						if (particle !== undefined) {
+							particle.x += movement.x;
+							particle.y += movement.y;
+							this.network.alpha = 0.4;
+						}
+					} else {
+						this.pan.x += dx;
+						this.pan.y += dy;
+					}
+					this.drag.x = at.x;
+					this.drag.y = at.y;
+				} else {
+					this.hover = this.grid.hit(at.x, at.y) || '';
+					this.canvas.style.cursor = this.hover === '' ? 'grab' : 'pointer';
+				}
+				this.canvas.title = this.hover === ''
+					? (this.layout === 'network' ? '拖拽平移，Shift+拖拽旋转，滚轮缩放' : '拖拽旋转，滚轮缩放；点击节点打开文件')
+					: (this.nodes.get(this.hover) || {}).title || '';
+				this.wake();
+			}
+
+			pointerUp(event) {
+				if (this.drag === undefined) return;
+				var drag = this.drag;
+				this.drag = undefined;
+				this.canvas.style.cursor = 'grab';
+				if (!drag.moved && drag.node !== undefined) {
+					this.selected = drag.node;
+					this.onOpen(drag.node);
+				}
+				if (typeof this.canvas.hasPointerCapture === 'function' && this.canvas.hasPointerCapture(event.pointerId)) {
+					this.canvas.releasePointerCapture(event.pointerId);
+				}
+				this.wake();
+			}
+
+			wheel(event) {
+				event.preventDefault();
+				var at = this.point(event);
+				var before = this.zoom;
+				this.zoom = Math.max(0.2, Math.min(5, this.zoom * Math.exp(-event.deltaY * 1e-3)));
+				if (this.layout === 'network') {
+					var ratio = this.zoom / before;
+					this.pan.x = at.x - this.width / 2 - (at.x - this.width / 2 - this.pan.x) * ratio;
+					this.pan.y = at.y - this.height / 2 - (at.y - this.height / 2 - this.pan.y) * ratio;
+				}
+				this.wake();
+			}
+		}
+
+		/**
+		 * One canvas view; the engine is created on mount and disposed on unmount.
+		 *
+		 * @param {object} props - `{layout, graph, onOpen, hidden}`.
+		 * @returns {object} The element.
+		 */
+		function CanvasGraphView(props) {
+			var t = props.t;
+			var canvasRef = useRef(null);
+			var graph = props.graph;
+			var layout = props.layout;
+			var onOpen = props.onOpen;
+			useEffect(function () {
+				if (canvasRef.current === null || graph === null || graph === undefined) return undefined;
+				var data = canvasGraphData(graph);
+				if (data.nodes.length === 0) return undefined;
+				var engine = new CanvasGraph(canvasRef.current, data, {
+					layout: layout,
+					onOpen: onOpen
+				});
+				return function () { engine.destroy(); };
+			}, [graph, layout]);
+			var nodes = Array.isArray(graph && graph.nodes) ? graph.nodes.length : 0;
+			var edges = Array.isArray(graph && graph.edges) ? graph.edges.length : 0;
+			if (nodes === 0) return h('div', { className: 'ysEmpty' }, t('graph.empty'));
+			return h('div', { className: 'ysCanvasWrap' },
+				h('canvas', {
+					ref: canvasRef,
+					className: 'ysCanvas',
+					role: 'img',
+					'aria-label': t(layout === 'network' ? 'graph.tab.relations' : 'graph.tab.planet')
+				}),
+				h('div', { className: 'ysHint', style: { marginTop: 8 } },
+					(layout === 'network' ? t('graph.network.hint') : t('graph.sphere.hint'))
+					+ ' · ' + t('graph.counts').replace('{nodes}', String(nodes)).replace('{edges}', String(edges))
+					+ (graph.totals && graph.totals.hidden > 0
+						? ' · ' + t('graph.hidden').replace('{n}', String(graph.totals.hidden))
+						: '')));
 		}
 
 		//#endregion
+
 
 		//#region components
 
@@ -946,6 +1927,22 @@ window.__ModuleLoader__.load({
 		function FileTypes(props) {
 			var t = props.t;
 			var rows = Array.isArray(props.rows) ? props.rows : [];
+			var boxRef = useRef(null);
+			var [box, setBox] = useState({ width: 1000, height: 420 });
+			useEffect(function () {
+				var node = boxRef.current;
+				if (node === null || typeof ResizeObserver !== 'function') return undefined;
+				var observer = new ResizeObserver(function (entries) {
+					var rect = entries[0].contentRect;
+					setBox(function (current) {
+						var width = Math.max(1, Math.round(rect.width));
+						var height = Math.max(1, Math.round(rect.height));
+						return width === current.width && height === current.height ? current : { width: width, height: height };
+					});
+				});
+				observer.observe(node);
+				return function () { observer.disconnect(); };
+			}, []);
 			if (rows.length === 0) return h('div', { className: 'ysEmpty' }, t('overview.types.empty'));
 			var total = rows.reduce(function (sum, row) { return sum + row.count; }, 0);
 			var maxCount = rows.reduce(function (max, row) { return Math.max(max, row.count); }, 0);
@@ -954,101 +1951,72 @@ window.__ModuleLoader__.load({
 				if (rows.length <= 1 || maxCount === minCount) return 3;
 				return Math.max(1, Math.min(5, 1 + Math.round(((count - minCount) / (maxCount - minCount)) * 4)));
 			}
-			var width = 1000;
-			var height = 260;
+			// The treemap is laid out in the measured box, so tiles keep their
+			// proportions whatever the window does — the container is sized by
+			// the parent's flex rules, not by a constant here.
+			var width = box.width;
+			var height = box.height;
 			var tiles = treemapLayout(rows, width, height);
-			return h('div', null,
-				h('div', {
-					className: 'ysTypeMatrix',
-					role: 'img',
-					'aria-label': rows.map(function (row) { return (row.suffix || t('overview.types.none')) + ' ' + row.count; }).join(', ')
-				}, tiles.map(function (tile) {
-					var pct = total === 0 ? 0 : (tile.count / total) * 100;
-					var label = tile.suffix === '' ? t('overview.types.none') : '.' + tile.suffix;
-					return h('div', {
-						key: tile.suffix || 'none',
-						className: 'ysTypeTile',
-						style: {
-							left: (tile.x / width) * 100 + '%',
-							top: (tile.y / height) * 100 + '%',
-							width: (tile.w / width) * 100 + '%',
-							height: (tile.h / height) * 100 + '%',
-							background: typeGreen(levelOf(tile.count))
-						},
-						title: label + ' · ' + tile.count + ' · ' + pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%'
+			return h('div', {
+				ref: boxRef,
+				className: 'ysTypeMatrix',
+				role: 'group',
+				'aria-label': rows.map(function (row) { return (row.suffix || t('overview.types.none')) + ' ' + row.count; }).join(', ')
+			}, tiles.map(function (tile) {
+				var pct = total === 0 ? 0 : (tile.count / total) * 100;
+				var label = tile.suffix === '' ? t('overview.types.none') : '.' + tile.suffix;
+				return h('button', {
+					type: 'button',
+					key: tile.suffix || 'none',
+					className: 'ysTypeTile',
+					style: {
+						left: (tile.x / width) * 100 + '%',
+						top: (tile.y / height) * 100 + '%',
+						width: (tile.w / width) * 100 + '%',
+						height: (tile.h / height) * 100 + '%',
+						background: typeGreen(levelOf(tile.count))
 					},
-						pct >= 0.025
-							? h('div', { className: 'ysTypeTileName' }, label)
-							: null,
-						pct >= 0.025
-							? h('div', { className: 'ysTypeTileValue' }, tile.count + ' · ' + pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%')
-							: null);
-				})),
-				h('div', { className: 'ysTypeLegend' }, rows.map(function (row) {
-					var pct = total === 0 ? 0 : (row.count / total) * 100;
-					return h('div', { className: 'ysTypeRow', key: row.suffix || 'none' },
-						h('span', { className: 'ysTypeDot', style: { background: typeGreen(levelOf(row.count)) } }),
-						h('span', { className: 'ysTypeName' }, row.suffix === '' ? t('overview.types.none') : '.' + row.suffix),
-						h('span', { className: 'ysTypeCount' }, String(row.count)),
-						h('span', { className: 'ysTypePct' }, pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%'));
-				})));
+					title: t('overview.types.open').replace('{n}', label) + ' · ' + tile.count + ' · ' + pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%',
+					onClick: function () { if (props.onType !== undefined) props.onType(tile.suffix); }
+				},
+					pct >= 0.025
+						? h('span', { className: 'ysTypeTileName' }, label)
+						: null,
+					pct >= 0.025
+						? h('span', { className: 'ysTypeTileValue' }, tile.count + ' · ' + pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%')
+						: null);
+			}));
 		}
 
 		function OverviewTab(props) {
 			var t = props.t;
 			var overview = props.overview;
-			var [section, setSection] = useState('data');
 			if (overview === null || overview === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
 			var stats = overview.stats || {};
 			var year = overview.year || {};
-			var tree = buildTagTree(overview.tags);
 			var hint = t('overview.heatmap.hint')
 				.replace('{notes}', String(stats.files ?? year.notes ?? 0))
 				.replace('{days}', String(year.activeDays ?? 0));
-			var dataPanel = h('div', { role: 'tabpanel' },
-				h('div', { className: 'ysSection' }, t('overview.heatmap')),
-				h('div', { className: 'ysHint', style: { marginBottom: 8 } }, hint),
-				h(Heatmap, { t: t, activity: overview.activity }),
-				h('div', { className: 'ysGrid ysGridThree' },
-					[
-						[t('overview.files'), stats.files, t('overview.filesHint')],
-						[t('overview.tags'), stats.tags, t('overview.tagsHint')],
-						[t('overview.days'), stats.days, t('overview.daysHint')]
-					].map(function (item) {
-						return h('div', { className: 'ysCard', key: item[0] },
-							h('div', { className: 'ysStatValue' }, String(item[1] ?? 0)),
-							h('div', { className: 'ysStatLabel' }, item[0]),
-							h('div', { className: 'ysStatHint' }, item[2]));
-					})),
-				h('div', { className: 'ysSection' }, t('overview.types')),
-				h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('overview.types.hint')),
-				h(FileTypes, { t: t, rows: overview.suffixes }));
-			var graphPanel = h('div', { role: 'tabpanel' },
-				h('div', { className: 'ysOverviewSplit', style: { marginTop: 0 } },
-					h('div', { className: 'ysOverviewPane' },
-						h('div', { className: 'ysSection' }, t('overview.tagGraph')),
-						h(TagGraph, { t: t, nodes: tree, onTag: props.onTag })),
-					h('div', { className: 'ysOverviewPane' },
-						h('div', { className: 'ysSection' }, t('overview.linkGraph')),
-						h(GraphTab, { t: t, graph: overview.graph, onOpen: props.onOpen, compact: true }))));
-			return h('div', null,
-				h('div', { className: 'ysTabs ysSubtabs', role: 'tablist', 'aria-label': t('tab.overview') },
-					h('button', {
-						type: 'button',
-						role: 'tab',
-						className: 'ysTab' + (section === 'data' ? ' ysTabActive' : ''),
-						'aria-selected': section === 'data',
-						onClick: function () { setSection('data'); }
-					}, t('overview.tab.data')),
-					h('button', {
-						type: 'button',
-						role: 'tab',
-						className: 'ysTab' + (section === 'graph' ? ' ysTabActive' : ''),
-						'aria-selected': section === 'graph',
-						onClick: function () { setSection('graph'); }
-					}, t('overview.tab.graph'))),
-				h('div', { style: { display: section === 'data' ? 'block' : 'none' } }, dataPanel),
-				h('div', { style: { display: section === 'graph' ? 'block' : 'none' } }, graphPanel));
+			return h('div', { className: 'ysOverview' },
+				h('div', { className: 'ysOverviewTop' },
+					h('div', { className: 'ysSection' }, t('overview.heatmap')),
+					h('div', { className: 'ysHint', style: { marginBottom: 8 } }, hint),
+					h(Heatmap, { t: t, activity: overview.activity }),
+					h('div', { className: 'ysGrid ysGridThree' },
+						[
+							[t('overview.files'), stats.files, t('overview.filesHint')],
+							[t('overview.tags'), stats.tags, t('overview.tagsHint')],
+							[t('overview.days'), stats.days, t('overview.daysHint')]
+						].map(function (item) {
+							return h('div', { className: 'ysCard', key: item[0] },
+								h('div', { className: 'ysStatValue' }, String(item[1] ?? 0)),
+								h('div', { className: 'ysStatLabel' }, item[0]),
+								h('div', { className: 'ysStatHint' }, item[2]));
+						}))),
+				h('div', { className: 'ysOverviewTypes' },
+					h('div', { className: 'ysSection' }, t('overview.types')),
+					h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('overview.types.hint')),
+					h(FileTypes, { t: t, rows: overview.suffixes, onType: props.onType })));
 		}
 
 		function FileRow(props) {
@@ -1081,7 +2049,62 @@ window.__ModuleLoader__.load({
 			var t = props.t;
 			var files = props.files;
 			var uploadRef = useRef(null);
-			return h('div', null,
+			var listRef = useRef(null);
+			var [measured, setMeasured] = useState(0);
+			// One page fills exactly the space the list has, so the panel never
+			// scrolls as a whole. The row height is the unit the page size is
+			// derived from; rows stretch to fill any remainder.
+			useEffect(function () {
+				var node = listRef.current;
+				if (node === null || typeof ResizeObserver !== 'function') return undefined;
+				var observer = new ResizeObserver(function (entries) {
+					var height = Math.round(entries[0].contentRect.height);
+					setMeasured(function (current) { return current === height ? current : height; });
+				});
+				observer.observe(node);
+				return function () { observer.disconnect(); };
+			}, []);
+			useEffect(function () {
+				if (measured === 0) return;
+				props.onPageSize(Math.max(3, Math.min(40, Math.floor(measured / 96))));
+			}, [measured]);
+			var detailOpen = props.detail !== null && props.detail !== undefined;
+			useEffect(function () {
+				if (!detailOpen) return undefined;
+				function onKey(event) {
+					if (event.key === 'Escape') props.onCloseDetail();
+				}
+				document.addEventListener('keydown', onKey);
+				return function () { document.removeEventListener('keydown', onKey); };
+			}, [detailOpen, props.onCloseDetail]);
+			var total = files === null || files === undefined ? 0 : files.total;
+			var pages = Math.max(1, Math.ceil(total / Math.max(1, props.pageSize)));
+			var page = Math.min(props.page, pages - 1);
+			var filtered = props.query || props.tag || props.archived
+				|| (props.suffix !== null && props.suffix !== undefined);
+			var rows = files === null || files === undefined
+				? h('div', { className: 'ysEmpty' }, t('state.loading'))
+				: (files.files || []).length === 0
+					? h('div', { className: 'ysEmpty' },
+						filtered
+							? h('div', null,
+								h('div', null, t('files.noMatch')),
+								h('button', { className: 'ysButton', style: { marginTop: 8 }, onClick: props.onClear }, t('files.clear')))
+							: t('files.empty'))
+					: (files.files || []).map(function (file) {
+						return h(FileRow, { key: file.id, t: t, file: file, active: props.selectedId === file.id, onOpen: props.onOpen });
+					});
+			var typeOptions = (props.suffixes || []).slice();
+			// A filter can outlive its option (the last file of a suffix was
+			// renamed away); keep the select showing what is actually filtered.
+			if (props.suffix !== null && props.suffix !== undefined
+				&& !typeOptions.some(function (row) { return row.suffix === props.suffix; })) {
+				typeOptions.push({ suffix: props.suffix, count: 0 });
+			}
+			var suffixValue = props.suffix === null || props.suffix === undefined
+				? ''
+				: (props.suffix === '' ? '-' : props.suffix);
+			return h('div', { className: 'ysFiles' },
 				h('div', { className: 'ysToolbar' },
 					h('input', {
 						className: 'ysInput',
@@ -1097,17 +2120,22 @@ window.__ModuleLoader__.load({
 						value: props.tag,
 						onChange: function (event) { props.setTag(event.target.value); }
 					}),
+					// The type filter is the same list the overview's matrix draws:
+					// one extension per row. `-` is the "no extension" bucket.
 					h('select', {
 						className: 'ysSelect',
-						value: props.mime,
-						onChange: function (event) { props.setMime(event.target.value); }
+						value: suffixValue,
+						onChange: function (event) {
+							var value = event.target.value;
+							props.setSuffix(value === '' ? null : (value === '-' ? '' : value));
+						}
 					},
 						h('option', { value: '' }, t('files.mime')),
-						h('option', { value: 'text/' }, '文本'),
-						h('option', { value: 'image/' }, '图片'),
-						h('option', { value: 'application/pdf' }, 'PDF'),
-						h('option', { value: 'application/vnd' }, 'Office')
-					),
+						typeOptions.map(function (row) {
+							var label = row.suffix === '' ? t('overview.types.none') : '.' + row.suffix;
+							return h('option', { key: row.suffix === '' ? '-' : row.suffix, value: row.suffix === '' ? '-' : row.suffix },
+								row.count > 0 ? label + ' · ' + row.count : label);
+						})),
 					h('label', { className: 'ysCheck' },
 						h('input', { type: 'checkbox', checked: props.archived, onChange: function (event) { props.setArchived(event.target.checked); } }),
 						t('files.archived')),
@@ -1117,26 +2145,26 @@ window.__ModuleLoader__.load({
 					files !== null && files !== undefined
 						? h('span', { className: 'ysHint' }, t('files.total').replace('{n}', String(files.total)))
 						: null),
-				h('div', { className: 'ysSplit' },
-					h('div', { className: 'ysList' },
-						files === null || files === undefined
-							? h('div', { className: 'ysEmpty' }, t('state.loading'))
-							: (files.files || []).length === 0
-								? h('div', { className: 'ysEmpty' },
-									props.query || props.tag || props.mime || props.archived
-										? h('div', null,
-											h('div', null, t('files.noMatch')),
-											h('button', { className: 'ysButton', style: { marginTop: 8 }, onClick: props.onClear }, t('files.clear')))
-										: t('files.empty'))
-								: (files.files || []).map(function (file) {
-									return h(FileRow, { key: file.id, t: t, file: file, active: props.selectedId === file.id, onOpen: props.onOpen });
-								}),
-							files !== null && files !== undefined && files.files.length < files.total
-								? h('div', { style: { padding: 10, textAlign: 'center' } },
-									h('button', { className: 'ysButton', onClick: props.onMore },
-										t('files.more') + '（' + (files.total - files.files.length) + '）'))
-								: null),
-					h(DetailPane, props)));
+				h('div', { className: 'ysListWrap', ref: listRef },
+					h('div', { className: 'ysList' }, rows)),
+				h('div', { className: 'ysPager' },
+					files === null || files === undefined
+						? null
+						: h('span', null, t('files.page').replace('{a}', String(page + 1)).replace('{b}', String(pages))),
+					h('button', { className: 'ysButton', disabled: page <= 0, onClick: function () { props.onPage(page - 1); } }, t('files.prev')),
+					h('button', { className: 'ysButton', disabled: page >= pages - 1, onClick: function () { props.onPage(page + 1); } }, t('files.next'))),
+				detailOpen
+					? h('div', { className: 'ysSheetMask', role: 'presentation', onClick: props.onCloseDetail },
+						h('div', {
+							className: 'ysSheet',
+							role: 'dialog',
+							'aria-modal': 'true',
+							onClick: function (event) { event.stopPropagation(); }
+						},
+							h('div', { className: 'ysSheetBar' },
+								h('button', { className: 'ysButton', onClick: props.onCloseDetail }, t('files.close'))),
+							h(DetailPane, props)))
+					: null);
 		}
 
 		function DetailPane(props) {
@@ -1209,69 +2237,182 @@ window.__ModuleLoader__.load({
 							: h('div', { className: 'ysHint' }, '二进制文件：用路径打开；插件不预览内容。'));
 		}
 
+		/**
+		 * The graph tab: three views of the same library.
+		 *
+		 * Only the active view is mounted. A canvas engine builds its layout on
+		 * mount and keeps an animation loop alive, so two mounted canvases would
+		 * double both; the tag tree is cheap but follows the same rule so every
+		 * switch shows current data.
+		 */
 		function GraphTab(props) {
 			var t = props.t;
+			var [section, setSection] = useState('sphere');
 			var graph = props.graph;
-			var compact = props.compact === true;
-			var layout = useMemo(function () { return layoutGraph(graph); }, [graph]);
-			if (graph === null || graph === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
-			var nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
-			var edges = Array.isArray(graph.edges) ? graph.edges : [];
-			if (nodes.length === 0) return h('div', { className: 'ysEmpty' }, t(compact ? 'overview.linkGraph.empty' : 'graph.empty'));
-			var top = nodes.slice().sort(function (a, b) {
-				var da = a.degree ? a.degree.in + a.degree.out : 0;
-				var db = b.degree ? b.degree.in + b.degree.out : 0;
-				return db - da;
-			}).slice(0, 20);
-			var topIds = new Set(top.map(function (node) { return node.id; }));
-			return h('div', { className: compact ? 'ysGraphCompact' : null },
-				compact ? null : h('div', { className: 'ysGraphHint' }, t('graph.hint')),
-				h('div', { className: 'ysGraphWrap' },
-					h('svg', { className: 'ysGraph', viewBox: '0 0 ' + layout.width + ' ' + layout.height },
-						edges.map(function (edge, index) {
-							var a = layout.at.get(edge.from); var b = layout.at.get(edge.to);
-							if (a === undefined || b === undefined) return null;
-							return h('line', { key: 'e' + index, className: 'ysGraphEdge', x1: a.x, y1: a.y, x2: b.x, y2: b.y });
-						}),
-						nodes.map(function (node) {
-							var point = layout.at.get(node.id);
-							if (point === undefined) return null;
-							var degree = node.degree ? node.degree.in + node.degree.out : 0;
-							return h('g', {
-								key: node.id,
-								className: 'ysGraphNode',
-								role: 'button',
-								tabIndex: 0,
-								onClick: function () { props.onOpen(node.id); },
-								onKeyDown: function (event) {
-									if (event.key === 'Enter' || event.key === ' ') {
-										event.preventDefault();
-										props.onOpen(node.id);
-									}
-								}
-							},
-								h('circle', {
-									cx: point.x,
-									cy: point.y,
-									r: 6 + Math.min(10, degree),
-									fill: compact
-									? (TAG_BRANCH_COLORS[(node.tags?.[0] ?? '').split('/')[0]] ?? '#8a8f98')
-									: typeColor(node.mime),
-									stroke: 'var(--dsw-alias-border-l2)',
-									strokeWidth: 1
-								}, h('title', null, node.name + ' · ' + node.description)),
-								!compact && topIds.has(node.id)
-									? h('text', { x: point.x + 9, y: point.y + 3, className: 'ysGraphLabel' }, node.name)
-									: null);
-						}))),
-				compact ? null : h('div', { className: 'ysLegend' },
-					[['text/markdown', 'md'], ['image/png', 'img'], ['application/pdf', 'pdf'], ['application/x-sh', 'script']].map(function (entry) {
-						return h('span', { key: entry[0] }, h('span', { className: 'ysDot', style: { background: typeColor(entry[0]) } }), entry[1]);
+			var options = [
+				['sphere', t('graph.tab.planet')],
+				['network', t('graph.tab.relations')],
+				['tags', t('graph.tab.tags')]
+			];
+			var body;
+			if (graph === null || graph === undefined) {
+				body = h('div', { className: 'ysEmpty' }, t('state.loading'));
+			} else if (section === 'tags') {
+				body = h('div', null,
+					h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('graph.tags.hint')),
+					h(TagGraph, { t: t, nodes: buildTagTree(props.tags), onTag: props.onTag }));
+			} else {
+				body = h(CanvasGraphView, {
+					t: t,
+					layout: section === 'network' ? 'network' : 'sphere',
+					graph: graph,
+					onOpen: props.onOpen
+				});
+			}
+			return h('div', null,
+				h('div', { className: 'ysTabs ysSubtabs', role: 'tablist', 'aria-label': t('tab.graph') },
+					options.map(function (option) {
+						return h('button', {
+							key: option[0],
+							type: 'button',
+							role: 'tab',
+							className: 'ysTab' + (section === option[0] ? ' ysTabActive' : ''),
+							'aria-selected': section === option[0],
+							onClick: function () { setSection(option[0]); }
+						}, option[1]);
 					})),
-				compact ? null : h('div', { className: 'ysHint', style: { marginTop: 8 } },
-					'节点 ' + nodes.length + ' · 边 ' + edges.length + (graph.totals && graph.totals.hidden > 0 ? ' · 还有 ' + graph.totals.hidden + ' 个文件未展开' : ''),
-					edges.length === 0 ? ' · 还没有链接；在文件的出链里填目标 id 即可。' : ''),
-				compact && edges.length === 0 ? h('div', { className: 'ysHint', style: { marginTop: 8 } }, t('overview.linkGraph.empty')) : null);
+				body);
+		}
+
+		/**
+		 * 注入页：模型每轮看到的两段文本，以及快照与预算的状态。
+		 *
+		 * 两段分开显示，是因为它们的稳定性不同：静态纪律进系统段、永不变化，
+		 * 文件索引进运行时上下文、每天刷新一次。任何一边长了都会挤占另一边。
+		 */
+		function InjectionTab(props) {
+			var t = props.t;
+			var injection = props.injection;
+			var [busy, setBusy] = useState(false);
+			if (injection === null || injection === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
+			var budget = Number(injection.budget) || 0;
+			var bytes = Number(injection.bytes) || 0;
+			var percent = budget > 0 ? Math.min(100, Math.round((bytes / budget) * 100)) : 0;
+			function refresh() {
+				setBusy(true);
+				props.call('injection', { refresh: true }).then(function (value) {
+					props.onLoaded(value);
+					props.notify(t('injection.refreshed'));
+				}).catch(function (error) {
+					props.notify(messageOf(error), true);
+				}).then(function () { setBusy(false); });
+			}
+			return h('div', null,
+				h('div', { className: 'ysSection' }, t('injection.static')),
+				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
+					t('injection.static.hint').replace('{bytes}', String(injection.staticBytes ?? 0))),
+				h('pre', { className: 'ysPre' }, injection.static),
+				h('div', { className: 'ysSection' }, t('injection.index')),
+				h('div', { className: 'ysMeter' },
+					h('div', { className: 'ysMeterFill', style: { width: percent + '%' } }),
+					h('span', { className: 'ysMeterText' }, bytes + ' / ' + budget + ' B · ' + percent + '%')),
+				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
+					t('injection.meta')
+						.replace('{day}', injection.day === '' ? t('injection.never') : String(injection.day))
+						.replace('{entries}', String(injection.entries ?? 0))
+						.replace('{state}', injection.stale ? t('injection.stale') : t('injection.fresh'))),
+				h('pre', { className: 'ysPre' }, injection.index),
+				h('div', { className: 'ysActions' },
+					h('button', { className: 'ysButton', disabled: busy, onClick: refresh }, t('injection.refresh'))));
+		}
+
+		/**
+		 * 自衍页：整理会话与文件。
+		 *
+		 * 会话区回答“哪些对话还没沉淀”，文件区回答“库里哪些地方需要收拾”。
+		 * 两个维护动作（重建索引、重新读取）是这里唯一会写库的操作，会话本身
+		 * 只读——把对话变成文件仍然由 agent 在会话里完成。
+		 */
+		function OrganizeTab(props) {
+			var t = props.t;
+			var digest = props.digest;
+			var [busy, setBusy] = useState('');
+			var [message, setMessage] = useState('');
+			if (digest === null || digest === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
+			var organize = digest.organize || {};
+			var sessions = Array.isArray(digest.sessions) ? digest.sessions : [];
+			var issues = [
+				['orphans', t('organize.orphans'), t('organize.orphans.hint'), organize.orphans],
+				['dangling', t('organize.dangling'), t('organize.dangling.hint'), organize.dangling],
+				['stale', t('organize.stale').replace('{days}', String(organize.staleDays ?? 90)), t('organize.stale.hint'), organize.stale],
+				['singleTags', t('organize.singleTags'), t('organize.singleTags.hint'), organize.singleTags]
+			];
+			function rebuild() {
+				setBusy('rebuild');
+				props.call('rebuild').then(function (value) {
+					setMessage(t('organize.rebuilt')
+						.replace('{files}', String(value.files))
+						.replace('{links}', String(value.links))
+						.replace('{ms}', String(value.ms)));
+					props.onRefreshAll();
+				}).catch(function (error) {
+					props.notify(messageOf(error), true);
+				}).then(function () { setBusy(''); });
+			}
+			function reload() {
+				setBusy('reload');
+				props.call('digest').then(props.onLoaded).catch(function (error) {
+					props.notify(messageOf(error), true);
+				}).then(function () { setBusy(''); });
+			}
+			function sampleRow(key, item, index) {
+				if (key === 'singleTags') return h('li', { className: 'ysIssueItem', key: 'i' + index }, item.tag);
+				if (key === 'dangling') {
+					return h('li', { className: 'ysIssueItem', key: 'i' + index },
+						(item.fromName === '' ? item.from : item.fromName) + ' → ' + String(item.to).slice(0, 12));
+				}
+				return h('li', {
+					className: 'ysIssueItem',
+					key: 'i' + index,
+					role: 'button',
+					tabIndex: 0,
+					onClick: function () { props.onOpen(item.id); }
+				}, item.name + ' · ' + item.description);
+			}
+			return h('div', null,
+				h('div', { className: 'ysSection' }, t('organize.sessions')),
+				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
+					t('organize.sessions.hint') + ' · '
+					+ t('organize.sessions.total')
+						.replace('{n}', String(digest.sessionTotal ?? sessions.length))
+						.replace('{m}', String(digest.unreadable ?? 0))),
+				sessions.length === 0
+					? h('div', { className: 'ysEmpty' }, t('organize.noSessions'))
+					: h('div', null, sessions.map(function (session) {
+						return h('div', { className: 'ysSessionRow', key: session.id },
+							h('span', { className: 'ysSessionTitle' }, session.title === '' ? session.id : session.title),
+							h('span', { className: 'ysSessionMeta' }, t('organize.session.turns').replace('{n}', String(session.prompts))),
+							h('span', { className: 'ysSessionMeta' }, relativeTime(session.updatedAt)));
+					})),
+				h('div', { className: 'ysSection' }, t('organize.issues')),
+				h('div', { className: 'ysIssueGrid' }, issues.map(function (issue) {
+					var card = issue[3] || {};
+					var samples = Array.isArray(card.sample) ? card.sample : [];
+					return h('div', { className: 'ysIssue', key: issue[0] },
+						h('div', { className: 'ysIssueTitle' }, issue[1]),
+						h('div', { className: 'ysIssueCount' }, String(card.total ?? 0)),
+						h('div', { className: 'ysIssueHint' }, issue[2]),
+						samples.length === 0
+							? h('div', { className: 'ysIssueHint' }, t('organize.empty'))
+							: h('ul', { className: 'ysIssueList' }, samples.map(function (item, index) {
+								return sampleRow(issue[0], item, index);
+							})));
+				})),
+				h('div', { className: 'ysSection' }, t('organize.actions')),
+				h('div', { className: 'ysActions' },
+					h('button', { className: 'ysButton', disabled: busy !== '', onClick: rebuild }, t('organize.rebuild')),
+					h('button', { className: 'ysButton', disabled: busy !== '', onClick: reload }, t('organize.reload')),
+					message === '' ? null : h('span', { className: 'ysHint', style: { alignSelf: 'center' } }, message)));
 		}
 
 
@@ -1518,13 +2659,20 @@ window.__ModuleLoader__.load({
 			var [files, setFiles] = useState(null);
 			var [query, setQuery] = useState('');
 			var [tagFilter, setTagFilter] = useState('');
-			var [mime, setMime] = useState('');
+			// `null` means no suffix filter; `''` means "files without an
+			// extension", which the type matrix has a tile for.
+			var [suffix, setSuffix] = useState(null);
 			var [archived, setArchived] = useState(false);
+			// One page of the list, sized to the height the list is given.
+			var [page, setPage] = useState(0);
+			var [pageSize, setPageSize] = useState(10);
 			var [selectedId, setSelectedId] = useState('');
 			var [detail, setDetail] = useState(null);
 			var [draft, setDraft] = useState(null);
 			var [preview, setPreview] = useState(null);
 			var [graph, setGraph] = useState(null);
+			var [injection, setInjection] = useState(null);
+			var [digest, setDigest] = useState(null);
 			var [settings, setSettings] = useState(null);
 			var [logs, setLogs] = useState(null);
 			var [dataStatus, setDataStatus] = useState(null);
@@ -1555,29 +2703,30 @@ window.__ModuleLoader__.load({
 				return call('file-list', {
 					query: query,
 					tags: tagFilter === '' ? [] : [tagFilter],
-					mime: mime,
+					suffix: suffix,
 					archived: archived,
-					limit: 100
-				}).then(function (value) {
-					if (token === seq.current.files) { setFiles(value); setLoadError(null); }
-				}).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
-			}, [call, query, tagFilter, mime, archived, notify]);
-
-			var loadMore = useCallback(function () {
-				if (files === null || files === undefined || files.files.length >= files.total) return Promise.resolve();
-				var token = ++seq.current.files;
-				return call('file-list', {
-					query: query,
-					tags: tagFilter === '' ? [] : [tagFilter],
-					mime: mime,
-					archived: archived,
-					limit: 100,
-					offset: files.files.length
+					limit: pageSize,
+					offset: page * pageSize
 				}).then(function (value) {
 					if (token !== seq.current.files) return;
-					setFiles({ total: value.total, files: files.files.concat(value.files) });
-				}).catch(function (error) { notify(messageOf(error), true); });
-			}, [call, files, query, tagFilter, mime, archived, notify]);
+					// A filter can shrink the result under the current page; walk
+					// back instead of showing an empty page.
+					var pages = Math.max(1, Math.ceil(value.total / Math.max(1, pageSize)));
+					if (page > pages - 1) {
+						setPage(pages - 1);
+						return;
+					}
+					setFiles(value);
+					setLoadError(null);
+				}).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
+			}, [call, query, tagFilter, suffix, archived, page, pageSize, notify]);
+
+			var closeDetail = useCallback(function () {
+				setSelectedId('');
+				setDetail(null);
+				setDraft(null);
+				setPreview(null);
+			}, []);
 
 			var loadDetail = useCallback(function (id) {
 				var token = ++seq.current.detail;
@@ -1637,7 +2786,13 @@ window.__ModuleLoader__.load({
 				if (tab !== 'files') return undefined;
 				var timer = setTimeout(loadFiles, query === '' ? 0 : 220);
 				return function () { clearTimeout(timer); };
-			}, [tab, query, tagFilter, mime, archived, loadFiles]);
+			}, [tab, query, tagFilter, suffix, archived, page, pageSize, loadFiles]);
+
+			// A changed filter means a new result set, and page 4 of the old one
+			// is meaningless in it.
+			useEffect(function () {
+				setPage(0);
+			}, [query, tagFilter, suffix, archived]);
 
 			useEffect(function () {
 				if (tab !== 'graph') return undefined;
@@ -1648,6 +2803,18 @@ window.__ModuleLoader__.load({
 			useEffect(function () {
 				if (tab !== 'logs') return undefined;
 				call('logs', { limit: 200 }).then(setLogs).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
+				return undefined;
+			}, [tab, call, notify]);
+
+			useEffect(function () {
+				if (tab !== 'injection') return undefined;
+				call('injection').then(setInjection).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
+				return undefined;
+			}, [tab, call, notify]);
+
+			useEffect(function () {
+				if (tab !== 'organize') return undefined;
+				call('digest').then(setDigest).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
 				return undefined;
 			}, [tab, call, notify]);
 
@@ -1758,8 +2925,10 @@ window.__ModuleLoader__.load({
 
 			var tabs = [
 				['overview', t('tab.overview')],
-				['files', t('tab.files')],
 				['graph', t('tab.graph')],
+				['files', t('tab.files')],
+				['injection', t('tab.injection')],
+				['organize', t('tab.organize')],
 				['settings', t('tab.settings')],
 				['logs', t('tab.logs')]
 			];
@@ -1791,7 +2960,11 @@ window.__ModuleLoader__.load({
 							h('button', { className: 'ysButton', onClick: refreshAll }, '重试'))
 						: null,
 					tab === 'overview'
-						? h(OverviewTab, { t: t, overview: overview, onOpen: openFile, onTag: function (tag) { setTagFilter(tag); setTab('files'); } })
+						? h(OverviewTab, {
+							t: t,
+							overview: overview,
+							onType: function (value) { setSuffix(value); setTab('files'); }
+						})
 						: tab === 'files'
 							? h(FilesTab, {
 								t: t,
@@ -1801,8 +2974,9 @@ window.__ModuleLoader__.load({
 								setQuery: setQuery,
 								tag: tagFilter,
 								setTag: setTagFilter,
-								mime: mime,
-								setMime: setMime,
+								suffix: suffix,
+								setSuffix: setSuffix,
+								suffixes: overview === null || overview === undefined ? [] : overview.suffixes,
 								archived: archived,
 								setArchived: setArchived,
 								detail: detail,
@@ -1816,8 +2990,12 @@ window.__ModuleLoader__.load({
 								onRemove: removeFile,
 								onPickFile: pickFile,
 								onNew: function () { setDialog({ kind: 'create', name: 'note.md', description: '', tags: '', links: '', content: '' }); },
-								onMore: loadMore,
-								onClear: function () { setQuery(''); setTagFilter(''); setMime(''); setArchived(false); },
+								page: page,
+								pageSize: pageSize,
+								onPage: setPage,
+								onPageSize: setPageSize,
+								onCloseDetail: closeDetail,
+								onClear: function () { setQuery(''); setTagFilter(''); setSuffix(null); setArchived(false); },
 								onCopy: function (path) {
 									if (typeof navigator !== 'undefined' && navigator.clipboard) {
 										navigator.clipboard.writeText(String(path || '')).then(function () { notify(t('action.copied')); }).catch(function () { notify('复制失败', true); });
@@ -1825,7 +3003,13 @@ window.__ModuleLoader__.load({
 								}
 							})
 							: tab === 'graph'
-								? h(GraphTab, { t: t, graph: graph, onOpen: openFile })
+								? h(GraphTab, {
+									t: t,
+									graph: graph,
+									tags: overview === null || overview === undefined ? [] : overview.tags,
+									onOpen: openFile,
+									onTag: function (tag) { setTagFilter(tag); setTab('files'); }
+								})
 								: tab === 'settings'
 									? h(SettingsTab, {
 										t: t,
@@ -1842,9 +3026,26 @@ window.__ModuleLoader__.load({
 											}).catch(function (error) { notify(messageOf(error), true); });
 										}
 									})
-									: h(LogsTab, { t: t, logs: logs, onRefresh: function () { call('logs', { limit: 200 }).then(setLogs).catch(function (error) { notify(messageOf(error), true); }); } })),
-				dialog ? h(Dialog, { t: t, dialog: dialog, setDialog: setDialog, busy: busy, onSubmit: submitDialog, onClose: function () { setDialog(null); } }) : null,
-				toast ? h('div', { className: 'ysToast' + (toast.error ? ' ysToastError' : ''), role: 'status', 'aria-live': 'polite' }, toast.message) : null);
+									: tab === 'injection'
+										? h(InjectionTab, {
+											t: t,
+											injection: injection,
+											call: call,
+											notify: notify,
+											onLoaded: setInjection
+										})
+										: tab === 'organize'
+											? h(OrganizeTab, {
+												t: t,
+												digest: digest,
+												call: call,
+												notify: notify,
+												onOpen: openFile,
+												onLoaded: setDigest,
+												onRefreshAll: refreshAll
+											})
+											: h(LogsTab, { t: t, logs: logs, onRefresh: function () { call('logs', { limit: 200 }).then(setLogs).catch(function (error) { notify(messageOf(error), true); }); } })),
+				dialog ? h(Dialog, { t: t, dialog: dialog, setDialog: setDialog, busy: busy, onSubmit: submitDialog, onClose: function () { setDialog(null); } }) : null,				toast ? h('div', { className: 'ysToast' + (toast.error ? ' ysToastError' : ''), role: 'status', 'aria-live': 'polite' }, toast.message) : null);
 		}
 
 		//#endregion

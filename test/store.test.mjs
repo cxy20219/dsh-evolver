@@ -243,3 +243,43 @@ test('文件后缀统计：按最后一个点分组，归档文件不计入', as
 		assert.equal(rows.reduce((sum, row) => sum + row.count, 0), 4)
 	})
 })
+
+test('整理报告：孤立、悬空、未更新与单例标签各自独立计数', async () => {
+	await withStore(async (store) => {
+		const lonely = await store.create({ name: 'lonely.md', description: '没有任何链接的孤立文件', content: 'x', tags: ['测试/整理'] })
+		const doc = await store.create({ name: 'doc.md', description: '会链接别人也被链接的文件', content: 'x', tags: ['测试/整理', '测试/整理/唯一'] })
+		const target = await store.create({ name: 'target.md', description: '被删掉的目标文件', content: 'x', tags: ['测试/整理'] })
+		await store.update(doc.id, { links: [target.id] })
+		await store.remove(target.id)
+
+		// Two days later, so the staleness cut-off has something to catch.
+		const later = Date.now() + 2 * 86_400_000
+		const report = store.organizeReport({ staleDays: 1, now: later })
+
+		assert.equal(report.orphans.total, 1)
+		assert.equal(report.orphans.sample[0].id, lonely.id)
+		assert.equal(report.dangling.total, 1)
+		assert.equal(report.dangling.sample[0].from, doc.id)
+		assert.equal(report.stale.total, 2, '两个活跃文件都已过陈旧线')
+		assert.equal(report.singleTags.total, 1, '「测试/整理/唯一」只用过一次')
+		assert.equal(report.singleTags.sample[0].tag, '测试/整理/唯一')
+	})
+})
+
+test('按后缀筛选：扩展名与「无后缀」是两个不同的桶', async () => {
+	await withStore(async (store) => {
+		await store.create({ name: 'a.md', description: '后缀用例：Markdown 文件', content: 'x', tags: ['测试/后缀筛选'] })
+		await store.create({ name: 'b.MD', description: '后缀用例：大写扩展名', content: 'x', tags: ['测试/后缀筛选'] })
+		await store.create({ name: 'README', description: '后缀用例：没有扩展名', content: 'x', tags: ['测试/后缀筛选'] })
+		await store.create({ name: 'c.tar.gz', description: '后缀用例：多段扩展名', content: 'x', tags: ['测试/后缀筛选'] })
+
+		assert.equal((await store.list({ suffix: 'md', limit: 10 })).total, 2, '大小写不敏感')
+		assert.equal((await store.list({ suffix: '', limit: 10 })).total, 1, '空串只选没有扩展名的')
+		assert.equal((await store.list({ suffix: 'gz', limit: 10 })).total, 1)
+		assert.equal((await store.list({ suffix: 'tar', limit: 10 })).total, 0, '只比最后一段')
+		assert.equal((await store.list({ limit: 10 })).total, 4, '不传后缀就是不过滤')
+
+		// 搜索路径也要认后缀：候选先按 FTS 命中，再用同一套后缀规则过滤。
+		assert.equal((await store.list({ query: '后缀用例', suffix: 'md', limit: 10 })).total, 2)
+	})
+})

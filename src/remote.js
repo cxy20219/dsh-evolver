@@ -11,10 +11,13 @@
  */
 
 import { readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { indexText } from './injection.js'
+import { dayKey, indexText, readIndex, refreshIndex } from './injection.js'
 import { isTextMime } from './names.js'
+import { staticSection } from './prompt.js'
+import { listSessions } from './sessions.js'
 
 /** The endpoints the panel may call. */
 export const ENDPOINTS = [
@@ -30,11 +33,30 @@ export const ENDPOINTS = [
 	'settings',
 	'settings-save',
 	'logs',
+	'injection',
+	'digest',
+	'rebuild',
 	'data-status',
 	'data-dir-save',
 	'data-export',
 	'data-import',
 ]
+
+/**
+ * Where the host keeps its session logs.
+ *
+ * The store's own data folder sits inside the same home, but the sessions are
+ * the host's, not the library's: this is the one place the plugin reads outside
+ * its data directory, and it only ever reads summaries.
+ *
+ * @returns {string} The absolute path.
+ */
+function sessionsRoot() {
+	const home = typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME !== ''
+		? process.env.DSH_HOME
+		: join(homedir(), '.dsh')
+	return join(home, 'sessions')
+}
 
 /** A preview larger than this is not sent as base64. */
 export const MAX_PREVIEW_BYTES = 8 * 1024 * 1024
@@ -151,6 +173,9 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 					tags: list(payload, 'tags'),
 					tag: text(payload, 'tag'),
 					mime: text(payload, 'mime'),
+					// The type matrix sends an extension; '' asks for names with
+					// none, and an absent field means "no suffix filter".
+					suffix: typeof payload?.suffix === 'string' ? payload.suffix : null,
 					archived: payload?.archived === true,
 					limit: Math.min(200, Math.max(1, Math.round(Number(payload?.limit) || 50))),
 					offset: Math.max(0, Math.round(Number(payload?.offset) || 0)),
@@ -234,8 +259,7 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 				return store.remove(id)
 			}
 			case 'graph': {
-				const listed = await store.list({ limit: 500 })
-				const graph = store.graph(listed.files.map((file) => file.id), { hops: 1, limit: 500 })
+				const graph = store.libraryGraph({ limit: 3000 })
 				const stats = store.stats()
 				return {
 					...graph,
@@ -243,7 +267,7 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 						files: stats.files,
 						links: stats.links,
 						shown: graph.nodes.length,
-						hidden: Math.max(0, stats.files - listed.files.length),
+						hidden: Math.max(0, stats.files - graph.nodes.length),
 					},
 				}
 			}
@@ -266,6 +290,41 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 			case 'logs': {
 				const tail = await logTail(root, payload?.limit)
 				return { ...tail, status: { dataDir: root, settings: settings.publicView() } }
+			}
+			case 'injection': {
+				const budget = Number(settings.get().injectionBudget) || 4096
+				if (payload?.refresh === true) await refreshIndex(store)
+				const snapshot = await readIndex(store)
+				const index = await indexText(store, budget)
+				const today = dayKey()
+				return {
+					static: staticSection(),
+					index,
+					bytes: Buffer.byteLength(index, 'utf8'),
+					staticBytes: Buffer.byteLength(staticSection(), 'utf8'),
+					budget,
+					day: snapshot === undefined ? '' : String(snapshot.day),
+					today,
+					entries: snapshot === undefined || !Array.isArray(snapshot.top) ? 0 : snapshot.top.length,
+					stale: snapshot === undefined || String(snapshot.day) !== today,
+				}
+			}
+			case 'digest': {
+				const listing = await listSessions({ root: sessionsRoot(), limit: payload?.limit })
+				return {
+					sessions: listing.sessions,
+					sessionTotal: listing.total,
+					unreadable: listing.unreadable,
+					organize: store.organizeReport({
+						staleDays: Number(payload?.staleDays) || 90,
+						sample: Number(payload?.sample) || 5,
+					}),
+				}
+			}
+			case 'rebuild': {
+				const began = performance.now()
+				const report = await store.rebuild()
+				return { ...report, ms: Math.round(performance.now() - began) }
 			}
 			case 'data-status': {
 				return data.status()

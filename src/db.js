@@ -350,10 +350,10 @@ export class IndexDatabase {
 	 * fetching a fixed window and filtering in memory — that window becomes the
 	 * library's apparent size, and no offset past it returns anything.
 	 *
-	 * @param {{limit?: number, offset?: number, archived?: boolean, mime?: string, tags?: string[]}} [options] - Filters.
+	 * @param {{limit?: number, offset?: number, archived?: boolean, mime?: string, tags?: string[], suffix?: string | null}} [options] - Filters. `suffix` is an extension without the dot; `''` selects names with no extension, `null` disables the filter.
 	 * @returns {{total: number, rows: object[]}} The total that matches, and one page.
 	 */
-	page({ limit = 50, offset = 0, archived = false, mime = '', tags = [] } = {}) {
+	page({ limit = 50, offset = 0, archived = false, mime = '', tags = [], suffix = null } = {}) {
 		const capped = Math.max(1, Math.min(500, Math.round(Number(limit) || 50)))
 		const skip = Math.max(0, Math.round(Number(offset) || 0))
 		const clauses = ['f.archived = ?']
@@ -365,6 +365,16 @@ export class IndexDatabase {
 			} else {
 				clauses.push('f.mime = ?')
 				values.push(mime)
+			}
+		}
+		// The type matrix counts by extension, not by MIME: one suffix is one
+		// tile, and `''` means "no extension at all" rather than "no filter".
+		if (typeof suffix === 'string') {
+			if (suffix === '') {
+				clauses.push("f.name NOT LIKE '%.%'")
+			} else {
+				clauses.push("f.name LIKE ? ESCAPE '\\'")
+				values.push(`%.${escapeLike(suffix)}`)
 			}
 		}
 		// A parent tag matches its descendants: `工作` selects `工作/项目/x`.
@@ -441,6 +451,29 @@ export class IndexDatabase {
 	}
 
 	/**
+	 * Every live file and every link, for the graph views.
+	 *
+	 * The panel draws the whole library, so the snapshot cannot be one page of
+	 * it: a graph that stops at a page boundary shows a shape the library does
+	 * not have. The node cap stays because the canvas is not a database — the
+	 * caller reports what was left out.
+	 *
+	 * @param {{limit?: number}} [options] - The node cap.
+	 * @returns {{rows: object[], edges: Array<{from: string, to: string}>}} The snapshot.
+	 */
+	snapshot({ limit = 3000 } = {}) {
+		const capped = Math.max(1, Math.min(5000, Math.round(Number(limit) || 3000)))
+		const rows = this.statement(
+			'graph-nodes',
+			`${SELECT_FILE} WHERE f.archived = 0 ORDER BY f.updated DESC, f.id DESC LIMIT ?`,
+		).all(capped)
+		const edges = this.statement('graph-edges', 'SELECT from_id, to_id FROM links')
+			.all()
+			.map((row) => ({ from: String(row.from_id), to: String(row.to_id) }))
+		return { rows: rows.map((row) => rowToMeta(row)), edges }
+	}
+
+	/**
 	 * Counts for the overview and the injected summary.
 	 *
 	 * @returns {{files: number, archived: number, links: number, tags: number, tagAssignments: number, mimes: Array<{mime: string, count: number}>}} The stats.
@@ -462,6 +495,47 @@ export class IndexDatabase {
 			'SELECT mime, COUNT(*) AS c FROM files WHERE archived = 0 GROUP BY mime ORDER BY c DESC, mime ASC',
 		).all().map((row) => ({ mime: String(row.mime), count: Number(row.c) }))
 		return { files, archived, links, tags, tagAssignments, mimes }
+	}
+
+	/**
+	 * What a tidy-up would touch: orphans, dangling links and stale files.
+	 *
+	 * Each count and its sample come from the same WHERE, so the number on a
+	 * card always matches the list under it.
+	 *
+	 * @param {{staleBefore: string, sample?: number}} options - The staleness cut-off and how many samples to return.
+	 * @returns {{orphans: object, dangling: object, stale: object}} Counts with samples.
+	 */
+	organize({ staleBefore, sample = 5 } = {}) {
+		const take = Math.max(1, Math.min(20, Math.round(Number(sample) || 5)))
+		const rows = (sql, ...values) => this.statement(sql, sql).all(...values).map((row) => rowToMeta(row))
+		const count = (sql, ...values) => Number(this.statement(sql, sql).get(...values).c)
+		const all = (sql, ...values) => this.statement(sql, sql).all(...values)
+
+		// Orphans: no outgoing and no incoming edge, so the library has nothing
+		// to find them by except a search.
+		const orphanWhere = 'f.archived = 0 AND NOT EXISTS (SELECT 1 FROM links l WHERE l.from_id = f.id OR l.to_id = f.id)'
+		// Stale: untouched for longer than the caller's cut-off.
+		const staleWhere = 'f.archived = 0 AND f.updated < ?'
+		// Dangling: a sidecar still names a target that no longer exists. The
+		// store never creates one, but a delete or a hand-edited sidecar can.
+		const danglingJoins = 'FROM links l LEFT JOIN files f ON f.id = l.to_id WHERE f.id IS NULL'
+
+		return {
+			orphans: {
+				total: count(`SELECT COUNT(*) AS c FROM files f WHERE ${orphanWhere}`),
+				files: rows(`${SELECT_FILE} WHERE ${orphanWhere} ORDER BY f.updated ASC LIMIT ?`, take),
+			},
+			stale: {
+				total: count(`SELECT COUNT(*) AS c FROM files f WHERE ${staleWhere}`, staleBefore),
+				files: rows(`${SELECT_FILE} WHERE ${staleWhere} ORDER BY f.updated ASC LIMIT ?`, staleBefore, take),
+			},
+			dangling: {
+				total: count(`SELECT COUNT(*) AS c ${danglingJoins}`),
+				links: all(`SELECT l.from_id AS from_id, l.to_id AS to_id ${danglingJoins} ORDER BY l.from_id LIMIT ?`, take)
+					.map((row) => ({ from: String(row.from_id), to: String(row.to_id) })),
+			},
+		}
 	}
 
 	/**

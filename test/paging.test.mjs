@@ -113,3 +113,26 @@ test('store.list 分页：总数是真的，过滤在 SQL 里算', async () => {
 		assert.equal((await store.list({ archived: true, limit: 5 })).total, 1)
 	})
 })
+
+test('全库图：不按页截断，只保留两端都在节点集里的边', async () => {
+	await withStore(async (store) => {
+		const base = Date.parse('2026-01-01T00:00:00.000Z')
+		// The index is what the graph reads, so rows go straight in: 620 files
+		// would take minutes through create(), and the graph does not care where
+		// the payloads are.
+		for (let index = 0; index < 620; index += 1) {
+			store.db.upsert({ ...row(index, base), links: index === 0 ? [] : [`file-seed-${String(index - 1).padStart(4, '0')}`] })
+		}
+
+		const graph = store.libraryGraph()
+		assert.equal(graph.nodes.length, 620, '一页装不下，图必须给全')
+		assert.equal(graph.edges.length, 619)
+		assert.equal(graph.nodes[0].degree.out + graph.nodes[0].degree.in >= 0, true)
+
+		const capped = store.libraryGraph({ limit: 100 })
+		assert.equal(capped.nodes.length, 100)
+		const ids = new Set(capped.nodes.map((node) => node.id))
+		assert.ok(capped.edges.length < 619, '上限外的边要丢掉，而不是留成悬空')
+		assert.ok(capped.edges.every((edge) => ids.has(edge.from) && ids.has(edge.to)))
+	})
+})
