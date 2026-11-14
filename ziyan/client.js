@@ -89,9 +89,8 @@ window.__ModuleLoader__.load({
 			'overview.tab.data': '数据',
 			'overview.tab.graph': '图谱',
 			'overview.types': '文件类型',
-			'overview.types.hint': '按文件后缀统计',
+			'overview.types.hint': '按文件后缀分组，面积表示数量',
 			'overview.types.empty': '还没有文件。',
-			'overview.types.files': '文件',
 			'overview.types.none': '无后缀',
 			'overview.tagGraph': '标签关系图',
 			'overview.tagGraph.empty': '还没有标签。',
@@ -200,9 +199,8 @@ window.__ModuleLoader__.load({
 			'overview.tab.data': 'Data',
 			'overview.tab.graph': 'Graphs',
 			'overview.types': 'File types',
-			'overview.types.hint': 'Grouped by file suffix',
+			'overview.types.hint': 'Grouped by suffix; area shows count',
 			'overview.types.empty': 'No files yet.',
-			'overview.types.files': 'files',
 			'overview.types.none': 'no suffix',
 			'overview.tagGraph': 'Tag graph',
 			'overview.tagGraph.empty': 'No tags yet.',
@@ -319,18 +317,17 @@ window.__ModuleLoader__.load({
 			'.ysOverviewSplit{display:grid;grid-template-columns:minmax(230px,.85fr) minmax(0,1.15fr);gap:16px;align-items:start;margin-top:18px}',
 			'.ysOverviewPane{min-width:0}',
 			'@media(max-width:900px){.ysOverviewSplit{grid-template-columns:1fr}}',
-			'.ysTypeWrap{display:grid;grid-template-columns:180px minmax(0,1fr);gap:22px;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:18px}',
-			'.ysTypeDonut{width:180px;aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none}',
-			'.ysTypeHole{width:112px;aspect-ratio:1;border-radius:50%;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}',
-			'.ysTypeTotal{font-size:24px;font-weight:600;line-height:28px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}',
-			'.ysTypeCaption{font-size:10.5px;color:var(--dsw-alias-label-tertiary)}',
-			'.ysTypeLegend{display:flex;flex-wrap:wrap;gap:9px 20px;align-content:center;min-width:0}',
+			'.ysTypeMatrix{position:relative;width:100%;height:260px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);overflow:hidden;background:var(--dsw-alias-bg-layer-2)}',
+			'.ysTypeTile{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:10px 12px;color:#fff;overflow:hidden;box-shadow:inset 0 0 0 2px var(--dsw-alias-bg-layer-1);cursor:default;text-shadow:0 1px 2px rgba(0,0,0,.22)}',
+			'.ysTypeTileName{font-size:12px;font-weight:600;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+			'.ysTypeTileValue{font-size:10.5px;line-height:14px;opacity:.9;font-variant-numeric:tabular-nums;white-space:nowrap}',
+			'.ysTypeLegend{display:flex;flex-wrap:wrap;gap:9px 20px;align-content:center;min-width:0;margin-top:10px}',
 			'.ysTypeRow{display:flex;align-items:center;gap:6px;font-size:12px;min-width:122px;max-width:220px}',
 			'.ysTypeDot{width:8px;height:8px;border-radius:2px;flex:none}',
 			'.ysTypeName{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 			'.ysTypeCount{color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums;font-weight:500}',
 			'.ysTypePct{color:var(--dsw-alias-label-tertiary);font-size:10.5px;margin-left:auto;font-variant-numeric:tabular-nums}',
-			'@media(max-width:700px){.ysTypeWrap{grid-template-columns:1fr;justify-items:center}.ysTypeLegend{justify-content:center}}',
+			'@media(max-width:700px){.ysTypeMatrix{height:220px}.ysTypeLegend{justify-content:center}}',
 			'.ysHeatmapWrap{--ys-heat-gap:2px;overflow-x:auto;padding:2px 0}',
 			'.ysHeatmapBody{display:grid;grid-template-columns:12px minmax(0,1fr);gap:6px;align-items:stretch}',
 			'.ysHeatmapDays{display:grid;grid-template-rows:repeat(7,1fr);font-size:9px;color:var(--dsw-alias-label-tertiary);text-align:right}',
@@ -910,7 +907,60 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * File-type donut, grouped by suffix rather than MIME.
+		 * Split a fixed rectangle into proportional tiles.
+		 *
+		 * A binary treemap: each cut takes the half of the remaining rows whose
+		 * area is closest to half, and splits along the longer side. The result
+		 * is deterministic and every tile's area stays proportional to its
+		 * count; one type simply fills the whole block.
+		 *
+		 * @param {Array<{suffix: string, count: number}>} rows - Sorted counts.
+		 * @param {number} width - Layout width.
+		 * @param {number} height - Layout height.
+		 * @returns {Array<object>} The tiles.
+		 */
+		function treemapLayout(rows, width, height) {
+			var total = rows.reduce(function (sum, row) { return sum + row.count; }, 0);
+			var items = rows.map(function (row) {
+				return { suffix: row.suffix, count: row.count, area: total === 0 ? 0 : (row.count / total) * width * height };
+			});
+			var tiles = [];
+			function sumArea(list) {
+				return list.reduce(function (sum, item) { return sum + item.area; }, 0);
+			}
+			function place(list, x, y, w, h) {
+				if (list.length === 1) {
+					tiles.push({ suffix: list[0].suffix, count: list[0].count, x: x, y: y, w: w, h: h });
+					return;
+				}
+				var area = sumArea(list);
+				var acc = 0;
+				var cut = 1;
+				var best = Infinity;
+				for (var index = 1; index < list.length; index += 1) {
+					acc += list[index - 1].area;
+					var diff = Math.abs(acc - area / 2);
+					if (diff < best) { best = diff; cut = index; }
+				}
+				var first = list.slice(0, cut);
+				var second = list.slice(cut);
+				var ratio = sumArea(first) / area;
+				if (w >= h) {
+					var w1 = w * ratio;
+					place(first, x, y, w1, h);
+					place(second, x + w1, y, w - w1, h);
+				} else {
+					var h1 = h * ratio;
+					place(first, x, y, w, h1);
+					place(second, x, y + h1, w, h - h1);
+				}
+			}
+			if (items.length > 0) place(items, 0, 0, width, height);
+			return tiles;
+		}
+
+		/**
+		 * File-type matrix, grouped by suffix.
 		 *
 		 * @param {object} props - Component props.
 		 * @returns {object} The element tree.
@@ -920,22 +970,36 @@ window.__ModuleLoader__.load({
 			var rows = Array.isArray(props.rows) ? props.rows : [];
 			if (rows.length === 0) return h('div', { className: 'ysEmpty' }, t('overview.types.empty'));
 			var total = rows.reduce(function (sum, row) { return sum + row.count; }, 0);
-			var offset = 0;
-			var stops = rows.map(function (row) {
-				var start = offset;
-				offset += total === 0 ? 0 : (row.count / total) * 100;
-				return suffixColor(row.suffix) + ' ' + start.toFixed(3) + '% ' + offset.toFixed(3) + '%';
-			});
-			return h('div', { className: 'ysTypeWrap' },
+			var width = 1000;
+			var height = 260;
+			var tiles = treemapLayout(rows, width, height);
+			return h('div', null,
 				h('div', {
-					className: 'ysTypeDonut',
-					style: { background: 'conic-gradient(' + stops.join(',') + ')' },
+					className: 'ysTypeMatrix',
 					role: 'img',
 					'aria-label': rows.map(function (row) { return (row.suffix || t('overview.types.none')) + ' ' + row.count; }).join(', ')
-				},
-					h('div', { className: 'ysTypeHole' },
-						h('div', { className: 'ysTypeTotal' }, String(total)),
-						h('div', { className: 'ysTypeCaption' }, t('overview.types.files')))),
+				}, tiles.map(function (tile) {
+					var pct = total === 0 ? 0 : (tile.count / total) * 100;
+					var label = tile.suffix === '' ? t('overview.types.none') : '.' + tile.suffix;
+					return h('div', {
+						key: tile.suffix || 'none',
+						className: 'ysTypeTile',
+						style: {
+							left: (tile.x / width) * 100 + '%',
+							top: (tile.y / height) * 100 + '%',
+							width: (tile.w / width) * 100 + '%',
+							height: (tile.h / height) * 100 + '%',
+							background: suffixColor(tile.suffix)
+						},
+						title: label + ' · ' + tile.count + ' · ' + pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%'
+					},
+						pct >= 0.025
+							? h('div', { className: 'ysTypeTileName' }, label)
+							: null,
+						pct >= 0.025
+							? h('div', { className: 'ysTypeTileValue' }, tile.count + ' · ' + pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%')
+							: null);
+				})),
 				h('div', { className: 'ysTypeLegend' }, rows.map(function (row) {
 					var pct = total === 0 ? 0 : (row.count / total) * 100;
 					return h('div', { className: 'ysTypeRow', key: row.suffix || 'none' },
