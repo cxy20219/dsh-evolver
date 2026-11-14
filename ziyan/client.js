@@ -89,7 +89,7 @@ window.__ModuleLoader__.load({
 			'overview.tab.data': '数据',
 			'overview.tab.graph': '图谱',
 			'overview.types': '文件类型',
-			'overview.types.hint': '按文件后缀分组，面积表示数量',
+			'overview.types.hint': '按文件后缀分组，面积和绿色深浅表示数量',
 			'overview.types.empty': '还没有文件。',
 			'overview.types.none': '无后缀',
 			'overview.tagGraph': '标签关系图',
@@ -199,7 +199,7 @@ window.__ModuleLoader__.load({
 			'overview.tab.data': 'Data',
 			'overview.tab.graph': 'Graphs',
 			'overview.types': 'File types',
-			'overview.types.hint': 'Grouped by suffix; area shows count',
+			'overview.types.hint': 'Grouped by suffix; area and green depth show count',
 			'overview.types.empty': 'No files yet.',
 			'overview.types.none': 'no suffix',
 			'overview.tagGraph': 'Tag graph',
@@ -318,12 +318,12 @@ window.__ModuleLoader__.load({
 			'.ysOverviewPane{min-width:0}',
 			'@media(max-width:900px){.ysOverviewSplit{grid-template-columns:1fr}}',
 			'.ysTypeMatrix{position:relative;width:100%;height:260px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);overflow:hidden;background:var(--dsw-alias-bg-layer-2)}',
-			'.ysTypeTile{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:10px 12px;background:var(--dsw-alias-bg-layer-2);background:color-mix(in srgb,var(--ys-type-fill) 22%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);overflow:hidden;box-shadow:inset 0 0 0 2px var(--dsw-alias-bg-layer-1);cursor:default}',
+			'.ysTypeTile{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:10px 12px;background:var(--dsw-alias-bg-layer-2);color:#173b27;overflow:hidden;box-shadow:inset 0 0 0 2px var(--dsw-alias-bg-layer-1);cursor:default}',
 			'.ysTypeTileName{font-size:12px;font-weight:600;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 			'.ysTypeTileValue{font-size:10.5px;line-height:14px;opacity:.72;font-variant-numeric:tabular-nums;white-space:nowrap}',
 			'.ysTypeLegend{display:flex;flex-wrap:wrap;gap:9px 20px;align-content:center;min-width:0;margin-top:10px}',
 			'.ysTypeRow{display:flex;align-items:center;gap:6px;font-size:12px;min-width:122px;max-width:220px}',
-			'.ysTypeDot{width:8px;height:8px;border-radius:2px;flex:none}',
+			'.ysTypeDot{width:8px;height:8px;border-radius:2px;flex:none;border:1px solid rgba(23,59,39,.15)}',
 			'.ysTypeName{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 			'.ysTypeCount{color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums;font-weight:500}',
 			'.ysTypePct{color:var(--dsw-alias-label-tertiary);font-size:10.5px;margin-left:auto;font-variant-numeric:tabular-nums}',
@@ -867,44 +867,21 @@ window.__ModuleLoader__.load({
 						h('g', null, nodeEls))));
 		}
 
-		var SUFFIX_COLORS = {
-			md: '#5b7cfa',
-			markdown: '#5b7cfa',
-			sh: '#4f8a6e',
-			bash: '#4f8a6e',
-			png: '#a77b55',
-			jpg: '#a77b55',
-			jpeg: '#a77b55',
-			webp: '#a77b55',
-			gif: '#a77b55',
-			svg: '#a77b55',
-			pdf: '#9b6b6b',
-			json: '#87679a',
-			yaml: '#87679a',
-			yml: '#87679a',
-			toml: '#87679a',
-			txt: '#657ea6',
-			log: '#657ea6',
-			js: '#4f8794',
-			mjs: '#4f8794',
-			cjs: '#4f8794',
-			ts: '#4f8794',
-			py: '#4f8794'
-		};
-		var SUFFIX_FALLBACK = ['#5b7cfa', '#4f8a6e', '#a77b55', '#87679a', '#4f8794', '#9b6b6b', '#657ea6', '#c08a3e'];
+		/**
+		 * Five green steps, from the palest tint to a medium green. The matrix
+		 * uses only this family so the panel stays visually quiet and the
+		 * heatmap and type matrix read as the same system.
+		 */
+		var TYPE_GREEN_SHADES = ['#eef8f1', '#d9f0e1', '#bde5cc', '#98d5b2', '#72c497'];
 
 		/**
-		 * A stable color for one suffix.
+		 * Look up one green step.
 		 *
-		 * @param {string} suffix - The lower-case suffix, or empty.
+		 * @param {number} level - 1 (palest) to 5 (deepest).
 		 * @returns {string} A CSS color.
 		 */
-		function suffixColor(suffix) {
-			if (suffix === '') return '#8a8f98';
-			if (SUFFIX_COLORS[suffix] !== undefined) return SUFFIX_COLORS[suffix];
-			var hash = 0;
-			for (var index = 0; index < suffix.length; index += 1) hash = (hash * 31 + suffix.charCodeAt(index)) >>> 0;
-			return SUFFIX_FALLBACK[hash % SUFFIX_FALLBACK.length];
+		function typeGreen(level) {
+			return TYPE_GREEN_SHADES[Math.max(0, Math.min(4, level - 1))];
 		}
 
 		/**
@@ -971,6 +948,12 @@ window.__ModuleLoader__.load({
 			var rows = Array.isArray(props.rows) ? props.rows : [];
 			if (rows.length === 0) return h('div', { className: 'ysEmpty' }, t('overview.types.empty'));
 			var total = rows.reduce(function (sum, row) { return sum + row.count; }, 0);
+			var maxCount = rows.reduce(function (max, row) { return Math.max(max, row.count); }, 0);
+			var minCount = rows.reduce(function (min, row) { return Math.min(min, row.count); }, Infinity);
+			function levelOf(count) {
+				if (rows.length <= 1 || maxCount === minCount) return 3;
+				return Math.max(1, Math.min(5, 1 + Math.round(((count - minCount) / (maxCount - minCount)) * 4)));
+			}
 			var width = 1000;
 			var height = 260;
 			var tiles = treemapLayout(rows, width, height);
@@ -990,7 +973,7 @@ window.__ModuleLoader__.load({
 							top: (tile.y / height) * 100 + '%',
 							width: (tile.w / width) * 100 + '%',
 							height: (tile.h / height) * 100 + '%',
-							'--ys-type-fill': suffixColor(tile.suffix)
+							background: typeGreen(levelOf(tile.count))
 						},
 						title: label + ' · ' + tile.count + ' · ' + pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%'
 					},
@@ -1004,7 +987,7 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'ysTypeLegend' }, rows.map(function (row) {
 					var pct = total === 0 ? 0 : (row.count / total) * 100;
 					return h('div', { className: 'ysTypeRow', key: row.suffix || 'none' },
-						h('span', { className: 'ysTypeDot', style: { background: suffixColor(row.suffix) } }),
+						h('span', { className: 'ysTypeDot', style: { background: typeGreen(levelOf(row.count)) } }),
 						h('span', { className: 'ysTypeName' }, row.suffix === '' ? t('overview.types.none') : '.' + row.suffix),
 						h('span', { className: 'ysTypeCount' }, String(row.count)),
 						h('span', { className: 'ysTypePct' }, pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%'));
