@@ -86,6 +86,8 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.more': '多',
 			'overview.heatmap.weekdays': '日,一,二,三,四,五,六',
 			'overview.heatmap.monthSuffix': '月',
+			'overview.tab.data': '数据',
+			'overview.tab.graph': '图谱',
 			'overview.tagGraph': '标签关系图',
 			'overview.tagGraph.empty': '还没有标签。',
 			'overview.linkGraph': '链接关系图',
@@ -190,6 +192,8 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.more': 'More',
 			'overview.heatmap.weekdays': 'S,M,T,W,T,F,S',
 			'overview.heatmap.monthSuffix': '',
+			'overview.tab.data': 'Data',
+			'overview.tab.graph': 'Graphs',
 			'overview.tagGraph': 'Tag graph',
 			'overview.tagGraph.empty': 'No tags yet.',
 			'overview.linkGraph': 'Link graph',
@@ -847,6 +851,7 @@ window.__ModuleLoader__.load({
 		function OverviewTab(props) {
 			var t = props.t;
 			var overview = props.overview;
+			var [section, setSection] = useState('data');
 			if (overview === null || overview === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
 			var stats = overview.stats || {};
 			var year = overview.year || {};
@@ -854,7 +859,7 @@ window.__ModuleLoader__.load({
 			var hint = t('overview.heatmap.hint')
 				.replace('{notes}', String(stats.files ?? year.notes ?? 0))
 				.replace('{days}', String(year.activeDays ?? 0));
-			return h('div', null,
+			var dataPanel = h('div', { role: 'tabpanel' },
 				h('div', { className: 'ysSection' }, t('overview.heatmap')),
 				h('div', { className: 'ysHint', style: { marginBottom: 8 } }, hint),
 				h(Heatmap, { t: t, activity: overview.activity }),
@@ -868,14 +873,33 @@ window.__ModuleLoader__.load({
 							h('div', { className: 'ysStatValue' }, String(item[1] ?? 0)),
 							h('div', { className: 'ysStatLabel' }, item[0]),
 							h('div', { className: 'ysStatHint' }, item[2]));
-					})),
-				h('div', { className: 'ysOverviewSplit' },
+					})));
+			var graphPanel = h('div', { role: 'tabpanel' },
+				h('div', { className: 'ysOverviewSplit', style: { marginTop: 0 } },
 					h('div', { className: 'ysOverviewPane' },
 						h('div', { className: 'ysSection' }, t('overview.tagGraph')),
 						h(TagGraph, { t: t, nodes: tree, onTag: props.onTag })),
 					h('div', { className: 'ysOverviewPane' },
 						h('div', { className: 'ysSection' }, t('overview.linkGraph')),
 						h(GraphTab, { t: t, graph: overview.graph, onOpen: props.onOpen, compact: true }))));
+			return h('div', null,
+				h('div', { className: 'ysTabs ysSubtabs', role: 'tablist', 'aria-label': t('tab.overview') },
+					h('button', {
+						type: 'button',
+						role: 'tab',
+						className: 'ysTab' + (section === 'data' ? ' ysTabActive' : ''),
+						'aria-selected': section === 'data',
+						onClick: function () { setSection('data'); }
+					}, t('overview.tab.data')),
+					h('button', {
+						type: 'button',
+						role: 'tab',
+						className: 'ysTab' + (section === 'graph' ? ' ysTabActive' : ''),
+						'aria-selected': section === 'graph',
+						onClick: function () { setSection('graph'); }
+					}, t('overview.tab.graph'))),
+				h('div', { style: { display: section === 'data' ? 'block' : 'none' } }, dataPanel),
+				h('div', { style: { display: section === 'graph' ? 'block' : 'none' } }, graphPanel));
 		}
 
 		function FileRow(props) {
