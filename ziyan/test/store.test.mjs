@@ -224,3 +224,18 @@ test('活动统计：新建文件计入当天，天数从首个文件算起', as
 		assert.equal(activity.activity.at(-1).count, 1)
 	})
 })
+
+test('文件后缀统计：按最后一个点分组，归档文件不计入', async () => {
+	await withStore(async (store) => {
+		await store.create({ name: 'a.md', description: '后缀统计的 Markdown 文件', content: 'x', tags: ['测试/后缀'] })
+		await store.create({ name: 'b.sh', description: '后缀统计的脚本文件', content: 'x', tags: ['测试/后缀'] })
+		await store.create({ name: 'README', description: '没有后缀的说明文件', content: 'x', tags: ['测试/后缀'] })
+		await store.create({ name: 'archive.tar.gz', description: '多后缀的压缩包文件', content: 'x', tags: ['测试/后缀'] })
+		const archived = await store.create({ name: 'old.png', description: '已归档的图片文件', content: 'x', tags: ['测试/后缀'] })
+		await store.archive(archived.id, true)
+		const rows = store.suffixCounts()
+		const counts = Object.fromEntries(rows.map((row) => [row.suffix, row.count]))
+		assert.deepEqual(counts, { '': 1, md: 1, sh: 1, gz: 1 })
+		assert.equal(rows.reduce((sum, row) => sum + row.count, 0), 4)
+	})
+})

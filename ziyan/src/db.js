@@ -447,6 +447,15 @@ export class IndexDatabase {
 	}
 
 	/**
+	 * Names of live files, for suffix grouping.
+	 *
+	 * @returns {string[]} The stored names.
+	 */
+	liveNames() {
+		return this.statement('live-names', 'SELECT name FROM files WHERE archived = 0').all().map((row) => String(row.name))
+	}
+
+	/**
 	 * Creation timestamps for the activity heatmap.
 	 *
 	 * @returns {string[]} The stored ISO timestamps.

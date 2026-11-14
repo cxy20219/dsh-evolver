@@ -643,6 +643,28 @@ export class FileStore {
 
 
 	/**
+	 * Live files grouped by the last suffix in their name.
+	 *
+	 * A suffix is the human-facing type distinction (`.md`, `.sh`, `.png`);
+	 * MIME is the transport hint and can collapse many suffixes into one.
+	 * Names without a dot get an empty suffix.
+	 *
+	 * @returns {Array<{suffix: string, count: number}>} Counts, busiest first.
+	 */
+	suffixCounts() {
+		const counts = new Map()
+		for (const name of this.db.liveNames()) {
+			const value = String(name)
+			const index = value.lastIndexOf('.')
+			const suffix = index <= 0 || index === value.length - 1 ? '' : value.slice(index + 1).toLowerCase()
+			counts.set(suffix, (counts.get(suffix) ?? 0) + 1)
+		}
+		return [...counts.entries()]
+			.map(([suffix, count]) => ({ suffix, count }))
+			.sort((left, right) => right.count - left.count || left.suffix.localeCompare(right.suffix))
+	}
+
+	/**
 	 * Calendar activity for the overview heatmap.
 	 *
 	 * Files, including archived ones, stay on the day they were created: the

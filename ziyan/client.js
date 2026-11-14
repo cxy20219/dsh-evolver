@@ -88,6 +88,11 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.monthSuffix': '月',
 			'overview.tab.data': '数据',
 			'overview.tab.graph': '图谱',
+			'overview.types': '文件类型',
+			'overview.types.hint': '按文件后缀统计',
+			'overview.types.empty': '还没有文件。',
+			'overview.types.files': '文件',
+			'overview.types.none': '无后缀',
 			'overview.tagGraph': '标签关系图',
 			'overview.tagGraph.empty': '还没有标签。',
 			'overview.linkGraph': '链接关系图',
@@ -194,6 +199,11 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.monthSuffix': '',
 			'overview.tab.data': 'Data',
 			'overview.tab.graph': 'Graphs',
+			'overview.types': 'File types',
+			'overview.types.hint': 'Grouped by file suffix',
+			'overview.types.empty': 'No files yet.',
+			'overview.types.files': 'files',
+			'overview.types.none': 'no suffix',
 			'overview.tagGraph': 'Tag graph',
 			'overview.tagGraph.empty': 'No tags yet.',
 			'overview.linkGraph': 'Link graph',
@@ -309,6 +319,18 @@ window.__ModuleLoader__.load({
 			'.ysOverviewSplit{display:grid;grid-template-columns:minmax(230px,.85fr) minmax(0,1.15fr);gap:16px;align-items:start;margin-top:18px}',
 			'.ysOverviewPane{min-width:0}',
 			'@media(max-width:900px){.ysOverviewSplit{grid-template-columns:1fr}}',
+			'.ysTypeWrap{display:grid;grid-template-columns:180px minmax(0,1fr);gap:22px;align-items:center;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:18px}',
+			'.ysTypeDonut{width:180px;aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none}',
+			'.ysTypeHole{width:112px;aspect-ratio:1;border-radius:50%;background:var(--dsw-alias-bg-layer-1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}',
+			'.ysTypeTotal{font-size:24px;font-weight:600;line-height:28px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}',
+			'.ysTypeCaption{font-size:10.5px;color:var(--dsw-alias-label-tertiary)}',
+			'.ysTypeLegend{display:flex;flex-wrap:wrap;gap:9px 20px;align-content:center;min-width:0}',
+			'.ysTypeRow{display:flex;align-items:center;gap:6px;font-size:12px;min-width:122px;max-width:220px}',
+			'.ysTypeDot{width:8px;height:8px;border-radius:2px;flex:none}',
+			'.ysTypeName{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+			'.ysTypeCount{color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums;font-weight:500}',
+			'.ysTypePct{color:var(--dsw-alias-label-tertiary);font-size:10.5px;margin-left:auto;font-variant-numeric:tabular-nums}',
+			'@media(max-width:700px){.ysTypeWrap{grid-template-columns:1fr;justify-items:center}.ysTypeLegend{justify-content:center}}',
 			'.ysHeatmapWrap{--ys-heat-gap:2px;overflow-x:auto;padding:2px 0}',
 			'.ysHeatmapBody{display:grid;grid-template-columns:12px minmax(0,1fr);gap:6px;align-items:stretch}',
 			'.ysHeatmapDays{display:grid;grid-template-rows:repeat(7,1fr);font-size:9px;color:var(--dsw-alias-label-tertiary);text-align:right}',
@@ -848,6 +870,82 @@ window.__ModuleLoader__.load({
 						h('g', null, nodeEls))));
 		}
 
+		var SUFFIX_COLORS = {
+			md: '#5b7cfa',
+			markdown: '#5b7cfa',
+			sh: '#4f8a6e',
+			bash: '#4f8a6e',
+			png: '#a77b55',
+			jpg: '#a77b55',
+			jpeg: '#a77b55',
+			webp: '#a77b55',
+			gif: '#a77b55',
+			svg: '#a77b55',
+			pdf: '#9b6b6b',
+			json: '#87679a',
+			yaml: '#87679a',
+			yml: '#87679a',
+			toml: '#87679a',
+			txt: '#657ea6',
+			log: '#657ea6',
+			js: '#4f8794',
+			mjs: '#4f8794',
+			cjs: '#4f8794',
+			ts: '#4f8794',
+			py: '#4f8794'
+		};
+		var SUFFIX_FALLBACK = ['#5b7cfa', '#4f8a6e', '#a77b55', '#87679a', '#4f8794', '#9b6b6b', '#657ea6', '#c08a3e'];
+
+		/**
+		 * A stable color for one suffix.
+		 *
+		 * @param {string} suffix - The lower-case suffix, or empty.
+		 * @returns {string} A CSS color.
+		 */
+		function suffixColor(suffix) {
+			if (SUFFIX_COLORS[suffix] !== undefined) return SUFFIX_COLORS[suffix];
+			var hash = 0;
+			for (var index = 0; index < suffix.length; index += 1) hash = (hash * 31 + suffix.charCodeAt(index)) >>> 0;
+			return SUFFIX_FALLBACK[hash % SUFFIX_FALLBACK.length];
+		}
+
+		/**
+		 * File-type donut, grouped by suffix rather than MIME.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function FileTypes(props) {
+			var t = props.t;
+			var rows = Array.isArray(props.rows) ? props.rows : [];
+			if (rows.length === 0) return h('div', { className: 'ysEmpty' }, t('overview.types.empty'));
+			var total = rows.reduce(function (sum, row) { return sum + row.count; }, 0);
+			var offset = 0;
+			var stops = rows.map(function (row) {
+				var start = offset;
+				offset += total === 0 ? 0 : (row.count / total) * 100;
+				return suffixColor(row.suffix) + ' ' + start.toFixed(3) + '% ' + offset.toFixed(3) + '%';
+			});
+			return h('div', { className: 'ysTypeWrap' },
+				h('div', {
+					className: 'ysTypeDonut',
+					style: { background: 'conic-gradient(' + stops.join(',') + ')' },
+					role: 'img',
+					'aria-label': rows.map(function (row) { return (row.suffix || t('overview.types.none')) + ' ' + row.count; }).join(', ')
+				},
+					h('div', { className: 'ysTypeHole' },
+						h('div', { className: 'ysTypeTotal' }, String(total)),
+						h('div', { className: 'ysTypeCaption' }, t('overview.types.files')))),
+				h('div', { className: 'ysTypeLegend' }, rows.map(function (row) {
+					var pct = total === 0 ? 0 : (row.count / total) * 100;
+					return h('div', { className: 'ysTypeRow', key: row.suffix || 'none' },
+						h('span', { className: 'ysTypeDot', style: { background: suffixColor(row.suffix) } }),
+						h('span', { className: 'ysTypeName' }, row.suffix === '' ? t('overview.types.none') : '.' + row.suffix),
+						h('span', { className: 'ysTypeCount' }, String(row.count)),
+						h('span', { className: 'ysTypePct' }, pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%'));
+				})));
+		}
+
 		function OverviewTab(props) {
 			var t = props.t;
 			var overview = props.overview;
@@ -873,7 +971,10 @@ window.__ModuleLoader__.load({
 							h('div', { className: 'ysStatValue' }, String(item[1] ?? 0)),
 							h('div', { className: 'ysStatLabel' }, item[0]),
 							h('div', { className: 'ysStatHint' }, item[2]));
-					})));
+					})),
+				h('div', { className: 'ysSection' }, t('overview.types')),
+				h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('overview.types.hint')),
+				h(FileTypes, { t: t, rows: overview.suffixes }));
 			var graphPanel = h('div', { role: 'tabpanel' },
 				h('div', { className: 'ysOverviewSplit', style: { marginTop: 0 } },
 					h('div', { className: 'ysOverviewPane' },
