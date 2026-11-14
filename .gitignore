@@ -2,6 +2,9 @@ node_modules/
 *.log
 .DS_Store
 
+# Agent scratch space: temporary probes and prototypes, never shipped.
+.scratch/
+
 # Local packaging / export artifacts (the panel exports archives).
 /dsh-ziyan-*.zip
 *.tgz

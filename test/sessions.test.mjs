@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
 import test from 'node:test'
 
-import { listSessions } from '../src/sessions.js'
+import { listSessions, readSessionText } from '../src/sessions.js'
 
 /**
  * Build one session log the way the host appends it: one frame per line.
@@ -91,6 +91,128 @@ test('会话列表：按修改时间倒序，缺日志的目录被跳过', async
 		const first = await listSessions({ root, limit: 1 })
 		assert.equal(first.sessions.length, 1)
 		assert.equal(first.sessions[0].id, 'session-new')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('会话全文：只收用户输入与助手文本，注入消息与工具/思考块不收', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'ziyan-sessions-'))
+	try {
+		await seed(root, '--E-AI-work-demo--', 'session-full', logOf([
+			{
+				type: 'session',
+				id: 'session-full',
+				createdAt: Date.parse('2026-11-02T08:00:00Z'),
+				cwd: 'E:\\AI-work\\demo',
+				isSeeded: false,
+				delegationDepth: 0,
+			},
+			{ type: 'session/title', time: Date.parse('2026-11-02T08:00:01Z'), data: { title: '全文测试' } },
+			{
+				type: 'user/message',
+				seq: 1,
+				time: Date.parse('2026-11-02T08:01:00Z'),
+				data: { content: [{ type: 'text', text: '人打的第一问' }], source: { kind: 'user' } },
+			},
+			{
+				type: 'user/message',
+				seq: 2,
+				time: Date.parse('2026-11-02T08:01:01Z'),
+				data: { content: [{ type: 'text', text: '<system-reminder>注入的上下文</system-reminder>' }], source: { kind: 'runtime-context' } },
+			},
+			{
+				type: 'user/message',
+				seq: 3,
+				time: Date.parse('2026-11-02T08:01:02Z'),
+				data: { content: [{ type: 'text', text: '技能目录' }], source: { kind: 'skill-catalog' } },
+			},
+			{
+				type: 'assistant/message',
+				seq: 4,
+				time: Date.parse('2026-11-02T08:02:00Z'),
+				data: {
+					message: {
+						role: 'assistant',
+						content: [
+							{ type: 'reasoning', text: '内心戏不该出现' },
+							{ type: 'text', text: '可见回答' },
+							{ type: 'tool-call', id: 'call-1', name: 'file_read', arguments: '{}' },
+						],
+					},
+				},
+			},
+			{
+				type: 'user/message',
+				seq: 5,
+				time: Date.parse('2026-11-02T08:03:00Z'),
+				data: { content: [{ type: 'text', text: '人打的第二问' }], source: { kind: 'user' } },
+			},
+		]))
+
+		const session = await readSessionText({ root, id: 'session-full' })
+		assert.ok(session !== undefined)
+		assert.equal(session.id, 'session-full')
+		assert.equal(session.title, '全文测试')
+		assert.equal(session.cwd, 'E:\\AI-work\\demo')
+		assert.equal(session.isSeeded, false)
+		assert.equal(session.delegationDepth, 0)
+		assert.equal(session.truncated, false)
+		assert.equal(session.throughSeq, 5)
+		assert.deepEqual(session.messages.map((message) => [message.role, message.text]), [
+			['user', '人打的第一问'],
+			['assistant', '可见回答'],
+			['user', '人打的第二问'],
+		])
+		assert.equal(session.chars, '人打的第一问'.length + '可见回答'.length + '人打的第二问'.length)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('会话全文：条数/字符上限生效并标记截断', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'ziyan-sessions-'))
+	try {
+		const entries = [{ type: 'session', id: 'session-caps', createdAt: Date.parse('2026-11-03T08:00:00Z') }]
+		// Each message is long enough that the character cap, not the count cap,
+		// is what stops the read.
+		for (let index = 0; index < 100; index += 1) {
+			entries.push({
+				type: 'user/message',
+				seq: index + 1,
+				time: Date.parse('2026-11-03T08:00:00Z') + index * 1000,
+				data: { content: [{ type: 'text', text: `第${index + 1}条` + 'x'.repeat(300) }], source: { kind: 'user' } },
+			})
+		}
+		await seed(root, '--E-AI-work-caps--', 'session-caps', logOf(entries))
+
+		const byCount = await readSessionText({ root, id: 'session-caps', maxMessages: 3 })
+		assert.equal(byCount.messages.length, 3)
+		assert.equal(byCount.truncated, true)
+		assert.match(byCount.messages[0].text, /^第1条/)
+
+		const byChars = await readSessionText({ root, id: 'session-caps', maxChars: 1000 })
+		assert.equal(byChars.messages.length, 3)
+		assert.equal(byChars.truncated, true)
+		assert.ok(byChars.chars <= 1000)
+
+		const clipped = await readSessionText({ root, id: 'session-caps', maxMessages: 1, maxMessageChars: 200 })
+		assert.equal(clipped.messages[0].text.length, 201)
+		assert.ok(clipped.messages[0].text.endsWith('…'))
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('会话全文：不存在的会话返回 undefined，非法 id 拒绝', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'ziyan-sessions-'))
+	try {
+		await seed(root, '--E-AI-work-demo--', 'session-ok', logOf([
+			{ type: 'session', id: 'session-ok', createdAt: Date.parse('2026-11-04T08:00:00Z') },
+		]))
+		assert.equal(await readSessionText({ root, id: 'session-missing' }), undefined)
+		await assert.rejects(readSessionText({ root, id: '../escape' }), /不合法/)
+		await assert.rejects(readSessionText({ root, id: '' }), /不合法/)
 	} finally {
 		await rm(root, { recursive: true, force: true })
 	}

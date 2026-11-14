@@ -95,4 +95,12 @@ test('客户端文件可加载：注册字典、样式、主面板与侧边栏',
 	assert.equal(dictionary[1], 'dsh-ziyan')
 	assert.ok(dictionary[2].zh && dictionary[2].zh.panel)
 	assert.ok(dictionary[2].en && dictionary[2].en.panel)
+
+	// The panel no longer performs manual maintenance and no longer renders a
+	// runtime index at all. Nothing may call `rebuild`, and the injection read
+	// never asks for a refresh.
+	assert.doesNotMatch(source, /call\(\s*'rebuild'/, '不再调用 rebuild')
+	assert.doesNotMatch(source, /refresh\s*:\s*true/, '不再请求重建快照')
+	assert.doesNotMatch(source, /重建索引|重建快照/, '不再有手动维护按钮文案')
+	assert.doesNotMatch(source, /injectionBudget/, '不再有注入预算设置')
 })

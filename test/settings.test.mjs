@@ -15,7 +15,7 @@ test('设置文件在数据目录内，默认值可读', async () => {
 		assert.equal(settings.path, join(dir, 'system', 'settings.json'))
 		assert.equal(settings.get().descriptionMaxChars, 160)
 		assert.equal(settings.get().maxFileBytes, 25 * 1024 * 1024)
-		assert.equal(settings.get().injectionBudget, 4096)
+		assert.equal('injectionBudget' in settings.get(), false, '注入预算已不再属于设置')
 		assert.deepEqual(warnings, [])
 		const raw = JSON.parse(await readFile(settings.path, 'utf8'))
 		assert.equal(raw.schema, 1)
@@ -34,16 +34,34 @@ test('设置越界被夹紧，保存后可重新读取', async () => {
 			descriptionMaxChars: 500,
 			maxFileBytes: 1,
 			readTextBytes: 1024,
-			injectionBudget: 99_999,
 		})
 		assert.equal(saved.descriptionMaxChars, 200)
 		assert.equal(saved.maxFileBytes, 1024 * 1024)
 		assert.equal(saved.readTextBytes, 4096)
-		assert.equal(saved.injectionBudget, 16 * 1024)
 		const again = new SettingsStore({ dataDir: dir })
 		await again.load()
 		assert.equal(again.get().descriptionMaxChars, 200)
-		assert.equal(again.get().injectionBudget, 16 * 1024)
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+})
+
+test('settings.json 里残留的 injectionBudget 被忽略，不写回 publicView', async () => {
+	const dir = await tempDir()
+	try {
+		await mkdir(join(dir, 'system'), { recursive: true })
+		await writeFile(
+			join(dir, 'system', 'settings.json'),
+			JSON.stringify({ schema: 1, descriptionMaxChars: 99, injectionBudget: 8192 }),
+		)
+		const settings = new SettingsStore({ dataDir: dir })
+		await settings.load()
+		assert.equal(settings.get().descriptionMaxChars, 99)
+		assert.equal('injectionBudget' in settings.get(), false)
+		assert.equal('injectionBudget' in settings.publicView(), false)
+		await settings.save({ descriptionMaxChars: 100 })
+		const raw = JSON.parse(await readFile(settings.path, 'utf8'))
+		assert.equal('injectionBudget' in raw, false, '保存后不再写回旧键')
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}

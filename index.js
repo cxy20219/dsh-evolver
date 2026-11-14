@@ -4,25 +4,30 @@
  * The plugin owns three things:
  *
  *   1. **the data** — one folder (`~/.dsh/ziyan` by default) holding files,
- *      sidecars, the SQLite index, the injected snapshot, settings, logs and
- *      trash. Only a one-line pointer (`~/.dsh/ziyan.home.json`) may live
- *      beside that folder;
- *   2. **the tools** — file query/read/write/import/link/index/archive/remove;
- *   3. **the injection** — a static system section and a runtime file index
- *      read from a snapshot, so a write does not rewrite the prompt prefix.
+ *      sidecars, the SQLite index, settings, logs and trash. Only a one-line
+ *      pointer (`~/.dsh/ziyan.home.json`) may live beside that folder;
+ *   2. **the tools** — file query/read/write/import/link/index/archive/remove,
+ *      plus the `project_harness_*` set that maintains a project's own
+ *      `harness/` resources and promotes the reusable ones into the library;
+ *   3. **the injection** — one static system section, and nothing else. No
+ *      library index is injected, so a write never rewrites the prompt prefix;
+ *      an agent that needs a file searches for it with `file_query`.
  *
- * The browser half is `client.js`: five tabs, settings, and data import/export.
- * The host half remains loadable on its own for tools and injection.
+ * The browser half is `client.js`: the panel tabs, settings, and data
+ * import/export. The host half remains loadable on its own for tools and
+ * injection.
  */
 
 import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
-import { indexText, refreshIndex, dayKey } from './src/injection.js'
 import { createDataJobs } from './src/data-jobs.js'
+import { projectRootOf } from './src/harness/store.js'
+import { createHarnessTools } from './src/harness/tools.js'
 import { dataDirPointerPath, readDataDirPointer } from './src/home.js'
 import { createLogSink } from './src/logs.js'
+import { createOrganizer } from './src/organize-jobs.js'
 import { staticSection } from './src/prompt.js'
 import { createZiyanHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
@@ -37,9 +42,6 @@ export const API_PREFIX = '/api/ziyan'
 
 /** The largest request body the panel API goes on to parse. */
 const MAX_REQUEST_BYTES = 48 * 1024 * 1024
-
-/** How often the midnight snapshot check runs. */
-const SNAPSHOT_HEARTBEAT_MS = 10 * 60 * 1000
 
 /**
  * The DSH home directory.
@@ -111,38 +113,70 @@ export async function apply(ctx, config) {
 	})
 	await store.open()
 
-	// Build the snapshot once, before the first request. A fresh install, a
-	// moved folder or an imported archive has none, and the fallback would rank
-	// the whole library on every request until the next daily run.
-	try {
-		await refreshIndex(store)
-	} catch (error) {
-		logs.warn(`自衍中枢：构建注入快照失败：${error instanceof Error ? error.message : String(error)}`)
-	}
-	let injected = await indexText(store, current.injectionBudget)
 	const version = await readVersion()
 	const data = createDataJobs({ root, pointerPath, settings, logger: logs, version })
+	// The organize engine is optional at the transport level: a host without
+	// `llm` still gets a working status endpoint and a readable start refusal.
+	// It starts a job only when the panel asks, or when the auto-organize
+	// switches (off by default) fire; the plugin never spends model calls by
+	// itself on a fresh install.
+	const organizer = createOrganizer({
+		store,
+		settings,
+		logs,
+		root,
+		llm: ctx.get('llm'),
+		modelSelection: ctx.get('agentDefaultModel'),
+		sessionsRoot: join(dshHome, 'sessions'),
+	})
+
+	/**
+	 * Find the project a harness tool call belongs to.
+	 *
+	 * Tools do not receive a working directory — the run context carries only
+	 * the agent id — so it is read back from the session header, which the host
+	 * records when the session starts. `sessionQuery` is optional: a host
+	 * without it still loads, and the tools ask for an explicit `project`.
+	 *
+	 * @param {{project?: string, agent?: {id?: string}}} exec - The call context.
+	 * @returns {Promise<string | undefined>} The project root.
+	 */
+	// One entry per agent id; a long-lived host would otherwise keep every id
+	// it has ever seen. Small enough to make the lookup still worth it.
+	const projectCache = new Map()
+	const PROJECT_CACHE_MAX = 64
+	async function resolveProject(exec) {
+		const explicit = String(exec?.project ?? '').trim()
+		if (explicit !== '') return projectRootOf(explicit)
+		const id = String(exec?.agent?.id ?? '')
+		if (id === '') return undefined
+		if (projectCache.has(id)) return projectCache.get(id)
+		const query = ctx.get('sessionQuery')
+		if (query === undefined || typeof query.filterSessions !== 'function') return undefined
+		const records = await query.filterSessions([{ kind: 'id', values: [id] }]).catch(() => [])
+		const cwd = records?.[0]?.header?.cwd
+		const resolved = typeof cwd === 'string' ? await projectRootOf(cwd) : undefined
+		if (projectCache.size >= PROJECT_CACHE_MAX) projectCache.delete(projectCache.keys().next().value)
+		projectCache.set(id, resolved)
+		return resolved
+	}
 
 	const disposers = []
-	for (const tool of createTools({ store })) disposers.push(ctx.tools.register(tool))
+	// One array goes to both places on purpose: registering and describing must
+	// stay the same set, so the panel cannot show a tool the model does not have
+	// (or miss one it does).
+	const tools = [...createTools({ store }), ...createHarnessTools({ resolveProject, store })]
+	for (const tool of tools) disposers.push(ctx.tools.register(tool))
 	disposers.push(ctx.systemPrompt.section({
-		name: 'dsh-ziyan:files',
+		name: 'dsh-ziyan:discipline',
 		order: 900,
 		interpolate: false,
 		text: () => staticSection(),
 	}))
-	disposers.push(ctx.systemPrompt.context({
-		name: 'dsh-ziyan:files',
-		order: 900,
-		interpolate: false,
-		// Served from memory, not from disk: the prompt prefers a plain string,
-		// and the text must stay byte-stable until the snapshot is refreshed.
-		text: () => injected,
-	}))
 
 	const connection = ctx.get('connection')
 	if (connection !== undefined) {
-		const handler = createZiyanHandler({ store, settings, logs, root, version, data })
+		const handler = createZiyanHandler({ store, settings, logs, root, version, data, tools, organize: organizer })
 		for (const endpoint of ENDPOINTS) {
 			disposers.push(connection.fetch.register({
 				path: `${API_PREFIX}/${endpoint}`,
@@ -177,28 +211,15 @@ export async function apply(ctx, config) {
 		logs.warn('自衍中枢：connection 服务不可用，面板接口未注册；工具与注入仍然可用。')
 	}
 
-	// The injected text is a daily artifact. A host that stays open across
-	// midnight gets one rebuild per day; writes in between do not touch it.
-	let day = dayKey()
-	const timer = setInterval(async () => {
-		const nextDay = dayKey()
-		if (nextDay === day) return
-		day = nextDay
-		try {
-			await refreshIndex(store)
-			injected = await indexText(store, settings.get().injectionBudget)
-			logs.info('自衍中枢：跨日，已刷新注入快照')
-		} catch (error) {
-			logs.warn(`自衍中枢：刷新注入快照失败：${error instanceof Error ? error.message : String(error)}`)
-		}
-	}, SNAPSHOT_HEARTBEAT_MS)
-	timer.unref?.()
-
+	// The injected text is a constant: no daily rebuild, no timer. A host that
+	// stays open for weeks sends the same prompt prefix.
 	logs.info(`自衍中枢 ${version}：数据目录 ${root}（文件 files/，系统数据 system/）`)
 	if (pointer !== undefined) logs.info(`自衍中枢：数据目录由指针 ${pointerPath} 指定`)
 
 	ctx.effect(() => () => {
-		clearInterval(timer)
+		// Abort an in-flight organize job before the store closes; its record is
+		// already on disk, and the next start reads it back as interrupted.
+		organizer.close()
 		return (async () => {
 			for (const dispose of disposers) {
 				try {

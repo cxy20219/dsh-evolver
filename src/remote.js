@@ -14,11 +14,11 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { dayKey, indexText, readIndex, refreshIndex } from './injection.js'
 import { isTextMime } from './names.js'
 import { readPreferences, writePreferences } from './preferences.js'
 import { staticSection } from './prompt.js'
 import { listSessions } from './sessions.js'
+import { describeTools } from './tools.js'
 
 /** The endpoints the panel may call. */
 export const ENDPOINTS = [
@@ -35,14 +35,19 @@ export const ENDPOINTS = [
 	'settings-save',
 	'logs',
 	'injection',
+	'tools',
 	'preferences',
 	'preferences-save',
 	'digest',
-	'rebuild',
 	'data-status',
 	'data-dir-save',
 	'data-export',
 	'data-import',
+	'organize-status',
+	'organize-save',
+	'organize-start',
+	'organize-jobs',
+	'organize-cancel',
 ]
 
 /**
@@ -149,10 +154,25 @@ async function logTail(root, limit = 300) {
 /**
  * Create the endpoint handler.
  *
- * @param {{store: object, settings: object, logs: object, root: string, version?: string}} deps - The open store and its satellites.
+ * @param {{store: object, settings: object, logs: object, root: string, version?: string, data?: object, tools?: object[], organize?: object}} deps - The open store and its satellites; `tools` is what `createTools` returned, `organize` the engine from `createOrganizer`.
  * @returns {(endpoint: string, payload: object) => Promise<any>} The handler.
  */
-export function createZiyanHandler({ store, settings, logs, root, version = '', data }) {
+export function createZiyanHandler({ store, settings, logs, root, version = '', data, tools = [], organize }) {
+	// Described once, at registration: the catalog is static for the life of
+	// the host process, and a missing `tools` dep yields an empty catalog.
+	const catalog = describeTools(tools)
+
+	/**
+	 * The organize engine, or a readable refusal on a host that mounted the
+	 * plugin without the optional services it degrades from.
+	 *
+	 * @returns {object} The engine.
+	 */
+	function organizer() {
+		if (organize === undefined) throw new Error('整理引擎不可用：宿主装配没有提供 organize 依赖。')
+		return organize
+	}
+
 	return async function handleZiyan(endpoint, payload = {}) {
 		switch (endpoint) {
 			case 'overview': {
@@ -174,7 +194,6 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 					graph,
 					suffixes: store.suffixCounts(),
 					recent: recent.files,
-					injection: await indexText(store, settings.get().injectionBudget),
 					settings: settings.publicView(),
 				}
 			}
@@ -287,7 +306,7 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 			}
 			case 'settings-save': {
 				const patch = {}
-				for (const field of ['descriptionMaxChars', 'maxFileBytes', 'readTextBytes', 'injectionBudget']) {
+				for (const field of ['descriptionMaxChars', 'maxFileBytes', 'readTextBytes']) {
 					if (payload?.[field] !== undefined) patch[field] = Number(payload[field])
 				}
 				const saved = await settings.save(patch)
@@ -303,22 +322,13 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 				return { ...tail, status: { dataDir: root, settings: settings.publicView() } }
 			}
 			case 'injection': {
-				const budget = Number(settings.get().injectionBudget) || 4096
-				if (payload?.refresh === true) await refreshIndex(store)
-				const snapshot = await readIndex(store)
-				const index = await indexText(store, budget)
-				const today = dayKey()
-				return {
-					static: staticSection(),
-					index,
-					bytes: Buffer.byteLength(index, 'utf8'),
-					staticBytes: Buffer.byteLength(staticSection(), 'utf8'),
-					budget,
-					day: snapshot === undefined ? '' : String(snapshot.day),
-					today,
-					entries: snapshot === undefined || !Array.isArray(snapshot.top) ? 0 : snapshot.top.length,
-					stale: snapshot === undefined || String(snapshot.day) !== today,
-				}
+				// The panel's injection tab shows the one static section the host
+				// registers. There is no runtime index to size, refresh or date.
+				const staticText = staticSection()
+				return { static: staticText, staticBytes: Buffer.byteLength(staticText, 'utf8') }
+			}
+			case 'tools': {
+				return { total: catalog.length, tools: catalog }
 			}
 			case 'preferences': {
 				return readPreferences(dshHome())
@@ -338,10 +348,20 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 					}),
 				}
 			}
-			case 'rebuild': {
-				const began = performance.now()
-				const report = await store.rebuild()
-				return { ...report, ms: Math.round(performance.now() - began) }
+			case 'organize-status': {
+				return organizer().status()
+			}
+			case 'organize-save': {
+				return organizer().save(payload ?? {})
+			}
+			case 'organize-start': {
+				return organizer().start(payload ?? {})
+			}
+			case 'organize-jobs': {
+				return organizer().jobs(payload ?? {})
+			}
+			case 'organize-cancel': {
+				return organizer().cancel(payload ?? {})
 			}
 			case 'data-status': {
 				return data.status()

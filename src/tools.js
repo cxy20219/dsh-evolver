@@ -282,3 +282,49 @@ export function createTools({ store }) {
 		},
 	]
 }
+
+/**
+ * What each tool does to the library, for the panel's tool catalog.
+ *
+ * The panel groups by this instead of parsing descriptions. An unknown tool
+ * defaults to `write`: a tool nobody classified more likely changes the
+ * library than only reads it, and showing a read-only tool as `write` is a
+ * harmless conservative error while showing a mutating tool as `read` invites
+ * careless use. `destructive` is never inferred — it must be listed here.
+ */
+const TOOL_CATEGORIES = {
+	file_query: 'read',
+	file_read: 'read',
+	file_index: 'read',
+	file_write: 'write',
+	file_import: 'write',
+	file_link: 'write',
+	file_archive: 'write',
+	file_remove: 'destructive',
+	// The harness set reads and writes project folders, not the library:
+	// catalog/validate only report, write/promote change something.
+	project_harness_catalog: 'read',
+	project_harness_validate: 'read',
+	project_harness_write: 'write',
+	project_harness_promote: 'write',
+}
+
+/**
+ * Describe the tools as a JSON-serializable catalog.
+ *
+ * The live definitions carry `output.render`, a function that cannot cross the
+ * panel API; only `name`, `description`, `parameters` and `category` go out.
+ * `parameters` is cloned so a panel that edits its copy cannot mutate the
+ * registered tools.
+ *
+ * @param {object[]} [tools] - The registered tools (`file_*` plus the `project_harness_*` set).
+ * @returns {{name: string, description: string, parameters: object, category: string}[]} The catalog, in tool order.
+ */
+export function describeTools(tools = []) {
+	return tools.map((tool) => ({
+		name: tool.name,
+		description: tool.description,
+		parameters: sanitize(tool.parameters ?? { type: 'object', properties: {} }),
+		category: TOOL_CATEGORIES[tool.name] ?? 'write',
+	}))
+}

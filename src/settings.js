@@ -32,10 +32,40 @@ const READ_BYTES_MIN = 4 * 1024
 const READ_BYTES_MAX = 4 * 1024 * 1024
 const READ_BYTES_DEFAULT = 256 * 1024
 
-/** Bounds for the injected file index. */
-const BUDGET_MIN = 1024
-const BUDGET_MAX = 16 * 1024
-const BUDGET_DEFAULT = 4096
+/** The longest provider/model id an organize run may name. */
+const MODEL_ID_MAX = 200
+
+/** Defaults and bounds for the automatic organizer. */
+const AUTO_IDLE_MINUTES_DEFAULT = 30
+const AUTO_IDLE_MINUTES_MIN = 5
+const AUTO_IDLE_MINUTES_MAX = 240
+const AUTO_FILES_HOUR_DEFAULT = 3
+const AUTO_FILES_HOUR_MIN = 0
+const AUTO_FILES_HOUR_MAX = 23
+
+/**
+ * Normalise the organize model selection.
+ *
+ * `null` means "follow the chat". A configured selection needs both a provider
+ * and a model; anything half-filled degrades to `null` instead of failing the
+ * whole settings file, because the host may have been configured before the
+ * provider was known.
+ *
+ * @param {unknown} raw - The raw value from the settings file.
+ * @returns {null | {provider: string, model: string, reasoningEffort?: string}} The selection.
+ */
+function normalizeOrganizeModel(raw) {
+	if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) return null
+	const provider = typeof raw.provider === 'string' ? raw.provider.trim() : ''
+	const model = typeof raw.model === 'string' ? raw.model.trim() : ''
+	if (provider === '' || model === '') return null
+	const effort = typeof raw.reasoningEffort === 'string' ? raw.reasoningEffort.trim() : ''
+	return {
+		provider: provider.slice(0, MODEL_ID_MAX),
+		model: model.slice(0, MODEL_ID_MAX),
+		...(effort === '' ? {} : { reasoningEffort: effort.slice(0, MODEL_ID_MAX) }),
+	}
+}
 
 /**
  * Clamp a number to a range.
@@ -53,6 +83,79 @@ function clamp(value, fallback, min, max) {
 }
 
 /**
+ * Normalise the automatic-organize switches.
+ *
+ * Both are off by default: a host that loads a new plugin version must never
+ * start spending money just because the feature exists. The panel is the only
+ * place that can switch them on. The idle window and the daily hour are clamped
+ * rather than rejected, so a hand-edited settings file cannot make the
+ * scheduler fire every few seconds or never.
+ *
+ * @param {unknown} raw - The raw `organize.auto` block.
+ * @returns {{sessions: {enabled: boolean, idleMinutes: number}, files: {enabled: boolean, hour: number}}} The block.
+ */
+function normalizeOrganizeAuto(raw) {
+	return {
+		sessions: {
+			enabled: raw?.sessions?.enabled === true,
+			idleMinutes: clamp(raw?.sessions?.idleMinutes, AUTO_IDLE_MINUTES_DEFAULT, AUTO_IDLE_MINUTES_MIN, AUTO_IDLE_MINUTES_MAX),
+		},
+		files: {
+			enabled: raw?.files?.enabled === true,
+			hour: clamp(raw?.files?.hour, AUTO_FILES_HOUR_DEFAULT, AUTO_FILES_HOUR_MIN, AUTO_FILES_HOUR_MAX),
+		},
+	}
+}
+
+/**
+ * The organize defaults.
+ *
+ * The model is the selection every run uses ("follow the chat" is `null`); the
+ * `auto` half only says *when* the host may start a run by itself. With both
+ * switches off nothing is scheduled, so a settings save can never schedule a
+ * model call on its own.
+ *
+ * @param {unknown} raw - The raw `organize` block.
+ * @returns {{model: null | {provider: string, model: string, reasoningEffort?: string}, auto: {sessions: {enabled: boolean, idleMinutes: number}, files: {enabled: boolean, hour: number}}}} The block.
+ */
+function normalizeOrganize(raw) {
+	return {
+		model: normalizeOrganizeModel(raw?.model),
+		auto: normalizeOrganizeAuto(raw?.auto),
+	}
+}
+
+/**
+ * Merge one organize patch into the stored block.
+ *
+ * The organize block is the only nested object in the settings file, and the
+ * store's `save()` is a shallow merge. Saving the model through a shallow
+ * spread would silently reset the automatic switches (and saving a switch
+ * would reset the model), so the two halves are merged field by field here.
+ * An absent key means "leave it alone"; `model: null` still means "follow the
+ * chat" and an unknown `auto` shape is ignored.
+ *
+ * @param {{model: unknown, auto: object}} current - The block on disk.
+ * @param {unknown} patch - The incoming patch.
+ * @returns {{model: unknown, auto: object}} The merged block.
+ */
+function mergeOrganize(current, patch) {
+	const next = { ...current, auto: { ...current.auto, sessions: { ...current.auto.sessions }, files: { ...current.auto.files } } }
+	if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) return next
+	if (Object.prototype.hasOwnProperty.call(patch, 'model')) next.model = patch.model
+	const auto = patch.auto
+	if (auto !== null && typeof auto === 'object' && !Array.isArray(auto)) {
+		for (const kind of ['sessions', 'files']) {
+			const part = auto[kind]
+			if (part !== null && typeof part === 'object' && !Array.isArray(part)) {
+				next.auto[kind] = { ...next.auto[kind], ...part }
+			}
+		}
+	}
+	return next
+}
+
+/**
  * Normalise one raw settings object.
  *
  * @param {object} raw - The parsed JSON.
@@ -64,7 +167,7 @@ function normalizeSettings(raw) {
 		descriptionMaxChars: clamp(raw?.descriptionMaxChars, DESCRIPTION_DEFAULT, DESCRIPTION_MIN, DESCRIPTION_MAX),
 		maxFileBytes: clamp(raw?.maxFileBytes, MAX_BYTES_DEFAULT, MAX_BYTES_MIN, MAX_BYTES_MAX),
 		readTextBytes: clamp(raw?.readTextBytes, READ_BYTES_DEFAULT, READ_BYTES_MIN, READ_BYTES_MAX),
-		injectionBudget: clamp(raw?.injectionBudget, BUDGET_DEFAULT, BUDGET_MIN, BUDGET_MAX),
+		organize: normalizeOrganize(raw?.organize),
 	}
 }
 
@@ -121,11 +224,19 @@ export class SettingsStore {
 	/**
 	 * Merge and persist a patch.
 	 *
+	 * A patch that names `organize` is merged with the stored block (the only
+	 * nested object in the file), so a panel save can change the model without
+	 * resetting the automatic switches and vice versa.
+	 *
 	 * @param {object} patch - The fields to change.
 	 * @returns {Promise<object>} The new settings.
 	 */
 	async save(patch = {}) {
-		this.values = normalizeSettings({ ...this.values, ...patch })
+		const next = { ...this.values, ...patch }
+		if (patch !== null && typeof patch === 'object' && Object.prototype.hasOwnProperty.call(patch, 'organize')) {
+			next.organize = mergeOrganize(this.values.organize, patch.organize)
+		}
+		this.values = normalizeSettings(next)
 		await writeFileAtomic(this.path, `${JSON.stringify(this.values, null, '\t')}\n`)
 		return this.get()
 	}

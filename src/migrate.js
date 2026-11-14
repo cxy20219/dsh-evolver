@@ -15,7 +15,6 @@
 import { lstat, readFile, readdir } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
 
-import { refreshIndex } from './injection.js'
 import { clipDescription } from './meta.js'
 import { FileStore } from './store.js'
 
@@ -387,14 +386,6 @@ export async function migrateEvolver({ from, to, apply = false, logger = console
 				cardsUpdated += 1
 			} catch (error) {
 				warnings.push(`卡片 ${card.legacyId} 更新链接/正文失败：${error instanceof Error ? error.message : String(error)}`)
-			}
-		}
-
-		if (apply) {
-			try {
-				await refreshIndex(store)
-			} catch (error) {
-				warnings.push(`迁移后刷新注入快照失败：${error instanceof Error ? error.message : String(error)}`)
 			}
 		}
 

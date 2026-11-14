@@ -2,8 +2,8 @@
  * Seed a large synthetic library.
  *
  * The panel, the search paths and the graph all behave differently at scale
- * than they do with ten files, so tests need a library big enough to page,
- * to crowd the tag tree and to make the injected index hit its budget.
+ * than they do with ten files, so tests need a library big enough to page and
+ * to crowd the tag tree.
  *
  * Everything written here carries the `测试/批量` tag, so `--reset` removes
  * exactly the synthetic files and nothing else. Deterministic by default:
@@ -18,7 +18,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { refreshIndex } from '../src/injection.js'
 import { FileStore } from '../src/store.js'
 
 /** The tag every synthetic file carries, and the marker `--reset` looks for. */
@@ -320,7 +319,6 @@ for (const [from, targets] of bySource) {
 }
 for (const id of temporary) await store.remove(id)
 
-await refreshIndex(store)
 const stats = store.stats()
 const elapsed = Math.round(performance.now() - began)
 

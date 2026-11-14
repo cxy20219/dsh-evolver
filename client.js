@@ -24,6 +24,8 @@ window.__ModuleLoader__.load({
 		var PANEL_ORDER = 31;
 		var API_PREFIX = '/api/ziyan';
 		var MAX_UPLOAD_MB = 20;
+		// 作业轮询间隔：只在有 queued/running 作业时续定时器。
+		var ORGANIZE_POLL_MS = 2000;
 
 		//#region locale
 
@@ -38,8 +40,8 @@ window.__ModuleLoader__.load({
 			'tab.logs': '日志',
 			'injection.static': '系统段：静态纪律',
 			'injection.tab.prompts': '提示词',
+			'injection.tab.tools': '工具',
 			'injection.tab.preferences': '偏好',
-			'injection.total': '合计 {total} B：静态纪律 {static} B + 文件索引 {index} B（预算只管索引）',
 			'preferences.hint': '这一段写在 DSH 的全局 AGENTS.md 里，由加载器在每次会话开始时注入；插件只碰自己那对标记之间的内容，文件里其他规则原样保留。',
 			'preferences.file': '文件',
 			'preferences.link': '这是个软链，实际写入它指向的文件，链接本身保留：{target}',
@@ -50,32 +52,68 @@ window.__ModuleLoader__.load({
 			'preferences.save': '保存',
 			'preferences.saved': '偏好已保存',
 			'injection.static.hint': '每轮请求都带，{bytes} 字节；它不发散，但会永久占住前缀。',
-			'injection.index': '运行时上下文：文件索引',
-			'injection.meta': '快照 {day} · {entries} 条候选 · {state}',
-			'injection.never': '未生成',
-			'injection.stale': '已过期，点下面的按钮重建',
-			'injection.fresh': '当天',
-			'injection.refresh': '重建快照',
-			'injection.refreshed': '快照已重建',
-			'organize.sessions': '会话',
-			'organize.sessions.hint': '最近的会话日志，用来判断哪些对话还没沉淀成文件',
-			'organize.sessions.total': '共 {n} 个会话，{m} 个太大读不出',
-			'organize.session.turns': '{n} 轮提问',
-			'organize.noSessions': '没有找到会话日志。',
-			'organize.issues': '待整理',
-			'organize.orphans': '孤立文件',
-			'organize.orphans.hint': '没有任何出链和入链',
-			'organize.dangling': '悬空链接',
-			'organize.dangling.hint': '链接目标已经不在了',
-			'organize.stale': '{days} 天没动过',
-			'organize.stale.hint': '可以考虑归档',
-			'organize.singleTags': '只用过一次的标签',
-			'organize.singleTags.hint': '可能是拼写漂移，值得合并',
-			'organize.empty': '这一类是空的',
-			'organize.actions': '维护',
-			'organize.rebuild': '重建索引',
-			'organize.reload': '重新读取',
-			'organize.rebuilt': '重建完成：{files} 个文件 · {links} 条链接 · {ms} ms',
+			'injection.runtime.removed': '运行时不再注入文件索引；agent 需要文件时用 file_query 按描述/标签/links 自己搜；项目依赖与约定由项目 harness 管理。',
+			'injection.tools.hint': '插件向 DSH 注册了 {n} 个工具，Agent 在任意会话里都能直接调用；工具在会话启动时绑定，换插件版本要重启宿主。',
+			'injection.tools.read': '只读',
+			'injection.tools.write': '写入',
+			'injection.tools.destructive': '危险',
+			'injection.tools.empty': '没有注册任何工具。',
+			'injection.tools.failed': '工具目录读取失败：{error}',
+			'injection.tools.params': '{n} 个参数',
+			'injection.tools.noParams': '无参数',
+			'injection.tools.required': '必填',
+			'injection.tools.retry': '重试',
+			'organize.hint': '整理由 agent 作业在会话外运行：作业读会话或库，自己决定写什么。这里只负责选模型、开关自动整理、看结果；注入快照由宿主每天自动重建。',
+			'organize.enabled': '开',
+			'organize.disabled': '关',
+			'organize.model': '整理模型',
+			'organize.model.hint': '所有整理作业共用这里选的模型；默认跟随聊天里当前选中的模型。',
+			'organize.model.follow': '跟随聊天',
+			'organize.model.provider': '服务商',
+			'organize.model.model': '模型',
+			'organize.model.effort': '思考强度',
+			'organize.model.defaultEffort': '默认',
+			'organize.model.save': '保存模型',
+			'organize.model.saved': '模型设置已保存',
+			'organize.model.catalogFailed': '模型目录读取失败：宿主没有 llm 服务或暂时不可用，现在不能启动整理作业。',
+			'organize.model.unavailable': '还没有可用模型：先在聊天里选好模型，或配置一个 provider 再刷新。',
+			'organize.sessions.title': '会话整理',
+			'organize.sessions.hint': '把空闲的会话沉淀成库里的文件：作业读会话全文（有上限），先查重再写。',
+			'organize.sessions.enable': '自动运行',
+			'organize.sessions.idle': '空闲',
+			'organize.sessions.idleUnit': '分钟后',
+			'organize.sessions.total': '共 {n} 个会话',
+			'organize.sessions.pending': '待整理 {n} 个',
+			'organize.sessions.run': '立即整理',
+			'organize.files.title': '文件整理',
+			'organize.files.hint': '每天整理一次库：合并重复、补链接、重写描述和标签、归档陈旧文件。',
+			'organize.files.enable': '每天自动运行',
+			'organize.files.hour': '在每天',
+			'organize.files.hourUnit': '点后',
+			'organize.files.run': '立即整理',
+			'organize.never': '还没整理过',
+			'organize.lastRun': '上次整理：{at}',
+			'organize.lastResult': '上次结果：{result}',
+			'organize.lastError': '上次失败：{error}',
+			'organize.busy': '已有作业在运行，等它结束或先取消。',
+			'organize.saved': '自动整理设置已保存',
+			'organize.jobs': '最近作业',
+			'organize.job.none': '还没有作业。打开自动整理或点「立即整理」后，作业会显示在这里。',
+			'organize.job.started': '作业已启动',
+			'organize.job.cancel': '取消',
+			'organize.job.cancelRequested': '已请求取消，等当前步骤结束。',
+			'organize.job.noChanges': '没有改动',
+			'organize.job.counts': '创建 {created} · 更新 {updated} · 合并 {merged} · 归档 {archived} · 删除 {removed} · 改标签 {retagged} · 加链接 {linked}',
+			'organize.job.log': '日志',
+			'organize.job.error': '失败原因：{error}',
+			'organize.job.queued': '排队中',
+			'organize.job.running': '运行中',
+			'organize.job.done': '完成',
+			'organize.job.failed': '失败',
+			'organize.job.cancelled': '已取消',
+			'organize.job.kind.sessions': '会话',
+			'organize.job.kind.files': '文件',
+			'organize.job.kind.all': '全部',
 			'action.refresh': '刷新',
 			'action.save': '保存',
 			'action.cancel': '取消',
@@ -150,7 +188,6 @@ window.__ModuleLoader__.load({
 			'settings.descriptionMaxChars': '描述上限（字）',
 			'settings.maxFileMb': '单文件上限（MB）',
 			'settings.readTextKb': '单次读取上限（KB）',
-			'settings.injectionBudget': '注入预算（字节）',
 			'settings.tab.general': '常规',
 			'settings.tab.data': '数据',
 			'settings.data.current': '当前数据目录',
@@ -196,8 +233,8 @@ window.__ModuleLoader__.load({
 			'tab.logs': 'Logs',
 			'injection.static': 'System section: the fixed discipline',
 			'injection.tab.prompts': 'Prompts',
+			'injection.tab.tools': 'Tools',
 			'injection.tab.preferences': 'Preferences',
-			'injection.total': '{total} B total: {static} B discipline + {index} B index (the budget covers the index only)',
 			'preferences.hint': 'This block lives in DSH global AGENTS.md and the loader injects it into every session. The plugin only touches what sits between its two markers; the rest of the file is left alone.',
 			'preferences.file': 'File',
 			'preferences.link': 'This is a symlink. The write lands on its target and the link stays: {target}',
@@ -208,32 +245,68 @@ window.__ModuleLoader__.load({
 			'preferences.save': 'Save',
 			'preferences.saved': 'Preferences saved',
 			'injection.static.hint': 'Sent with every request, {bytes} bytes; it never changes, but it holds the prefix.',
-			'injection.index': 'Runtime context: the file index',
-			'injection.meta': 'Snapshot {day} · {entries} candidates · {state}',
-			'injection.never': 'never built',
-			'injection.stale': 'stale; rebuild it below',
-			'injection.fresh': 'today',
-			'injection.refresh': 'Rebuild snapshot',
-			'injection.refreshed': 'Snapshot rebuilt',
-			'organize.sessions': 'Sessions',
-			'organize.sessions.hint': 'Recent session logs, to judge which conversations are not distilled into files yet',
-			'organize.sessions.total': '{n} sessions, {m} too large to read',
-			'organize.session.turns': '{n} prompts',
-			'organize.noSessions': 'No session logs found.',
-			'organize.issues': 'To organize',
-			'organize.orphans': 'Orphans',
-			'organize.orphans.hint': 'No incoming and no outgoing links',
-			'organize.dangling': 'Dangling links',
-			'organize.dangling.hint': 'The target no longer exists',
-			'organize.stale': 'Untouched for {days} days',
-			'organize.stale.hint': 'Consider archiving',
-			'organize.singleTags': 'Tags used once',
-			'organize.singleTags.hint': 'Often a spelling drift worth merging',
-			'organize.empty': 'Nothing here',
-			'organize.actions': 'Maintenance',
-			'organize.rebuild': 'Rebuild index',
-			'organize.reload': 'Reload',
-			'organize.rebuilt': 'Rebuilt: {files} files · {links} links · {ms} ms',
+			'injection.runtime.removed': 'The host no longer injects a file index; when an agent needs files it searches them itself with file_query by description, tags or links. Project dependencies and conventions live in the project harness.',
+			'injection.tools.hint': 'The plugin registers {n} tools with DSH; any agent session can call them directly. Tools are bound when a session starts, so plugin changes need a host restart.',
+			'injection.tools.read': 'Read-only',
+			'injection.tools.write': 'Write',
+			'injection.tools.destructive': 'Destructive',
+			'injection.tools.empty': 'No tools are registered.',
+			'injection.tools.failed': 'Failed to load the tool catalog: {error}',
+			'injection.tools.params': '{n} parameters',
+			'injection.tools.noParams': 'No parameters',
+			'injection.tools.required': 'required',
+			'injection.tools.retry': 'Retry',
+			'organize.hint': 'Organize jobs run outside the chat: the agent reads sessions or the library and decides what to write. This page only picks the model, toggles the schedule and shows results; the host rebuilds the injected snapshot daily.',
+			'organize.enabled': 'On',
+			'organize.disabled': 'Off',
+			'organize.model': 'Organize model',
+			'organize.model.hint': 'Every organize job shares the model chosen here; it follows the chat by default.',
+			'organize.model.follow': 'Follow the chat',
+			'organize.model.provider': 'Provider',
+			'organize.model.model': 'Model',
+			'organize.model.effort': 'Reasoning effort',
+			'organize.model.defaultEffort': 'Default',
+			'organize.model.save': 'Save model',
+			'organize.model.saved': 'Model setting saved',
+			'organize.model.catalogFailed': 'The model catalog is unavailable (no llm service, or temporarily offline); organize jobs cannot start right now.',
+			'organize.model.unavailable': 'No usable model yet: pick one in the chat or configure a provider, then refresh.',
+			'organize.sessions.title': 'Session organizing',
+			'organize.sessions.hint': 'Turns idle conversations into files: the job reads the full session (bounded) and checks for duplicates before writing.',
+			'organize.sessions.enable': 'Run automatically',
+			'organize.sessions.idle': 'After',
+			'organize.sessions.idleUnit': 'idle minutes',
+			'organize.sessions.total': '{n} sessions in total',
+			'organize.sessions.pending': '{n} pending',
+			'organize.sessions.run': 'Run now',
+			'organize.files.title': 'Library organizing',
+			'organize.files.hint': 'Organizes the library once a day: merges duplicates, adds links, rewrites descriptions and tags, archives stale files.',
+			'organize.files.enable': 'Run daily',
+			'organize.files.hour': 'Every day at',
+			'organize.files.hourUnit': ':00',
+			'organize.files.run': 'Run now',
+			'organize.never': 'never',
+			'organize.lastRun': 'Last run: {at}',
+			'organize.lastResult': 'Last result: {result}',
+			'organize.lastError': 'Last failure: {error}',
+			'organize.busy': 'A job is already running; wait for it or cancel it first.',
+			'organize.saved': 'Automatic organize settings saved',
+			'organize.jobs': 'Recent jobs',
+			'organize.job.none': 'No jobs yet. Turn on a schedule or press "Run now" and the job shows up here.',
+			'organize.job.started': 'Job started',
+			'organize.job.cancel': 'Cancel',
+			'organize.job.cancelRequested': 'Cancellation requested; waiting for the current step.',
+			'organize.job.noChanges': 'no changes',
+			'organize.job.counts': 'created {created} · updated {updated} · merged {merged} · archived {archived} · removed {removed} · retagged {retagged} · linked {linked}',
+			'organize.job.log': 'Log',
+			'organize.job.error': 'Failed: {error}',
+			'organize.job.queued': 'Queued',
+			'organize.job.running': 'Running',
+			'organize.job.done': 'Done',
+			'organize.job.failed': 'Failed',
+			'organize.job.cancelled': 'Cancelled',
+			'organize.job.kind.sessions': 'Sessions',
+			'organize.job.kind.files': 'Files',
+			'organize.job.kind.all': 'Everything',
 			'action.refresh': 'Refresh',
 			'action.save': 'Save',
 			'action.cancel': 'Cancel',
@@ -308,7 +381,6 @@ window.__ModuleLoader__.load({
 			'settings.descriptionMaxChars': 'Description cap',
 			'settings.maxFileMb': 'File cap (MB)',
 			'settings.readTextKb': 'Read cap (KB)',
-			'settings.injectionBudget': 'Injection budget (bytes)',
 			'settings.tab.general': 'General',
 			'settings.tab.data': 'Data',
 			'settings.data.current': 'Current data directory',
@@ -365,6 +437,10 @@ window.__ModuleLoader__.load({
 			'.ysBody{flex:1;min-height:0;overflow:auto;padding:18px 28px 36px}',
 			'.ysGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}',
 			'.ysCard{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:14px 16px}',
+			'.ysOrganizeCards{display:flex;flex-direction:column;gap:12px}',
+			'.ysCardHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}',
+			'.ysCardTitle{font-size:13px;font-weight:600}',
+			'.ysCardCount{margin-left:auto;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
 			'.ysStatValue{font-size:22px;font-weight:600;line-height:28px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}',
 			'.ysStatLabel{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-top:2px}',
 			'.ysStatHint{font-size:10.5px;color:var(--dsw-alias-label-tertiary);margin-top:1px}',
@@ -375,6 +451,7 @@ window.__ModuleLoader__.load({
 			'.ysToolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}',
 			'.ysInput,.ysSelect,.ysTextarea{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;padding:6px 9px;min-width:0}',
 			'.ysInput{flex:1;min-width:160px}.ysInput:focus,.ysSelect:focus,.ysTextarea:focus{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}',
+			'.ysInputNarrow{flex:none;width:76px}',
 			'.ysTextarea{width:100%;resize:vertical;font-family:var(--dsw-font-family-mono,ui-monospace,SFMono-Regular,Menlo,monospace);font-size:12px;line-height:1.55}',
 			'.ysButton{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 11px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}',
 			'.ysButton:hover{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l3)}',
@@ -460,20 +537,33 @@ window.__ModuleLoader__.load({
 			'.ysError{display:flex;align-items:center;gap:10px;padding:9px 12px;margin-bottom:12px;border:1px solid var(--dsw-alias-state-error-primary,#c45a5a);border-radius:var(--dsw-radius-md);color:var(--dsw-alias-state-error-primary,#c45a5a);font-size:12px}',
 			'.ysHint{font-size:11.5px;color:var(--dsw-alias-label-tertiary);line-height:1.55}',
 			'.ysPre{margin:0 0 18px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.65;color:var(--dsw-alias-label-secondary);white-space:pre-wrap;overflow-wrap:anywhere;max-height:340px;overflow:auto}',
-			'.ysMeter{position:relative;height:22px;border-radius:11px;background:var(--dsw-alias-bg-layer-3);overflow:hidden;margin:8px 0}',
-			'.ysMeterFill{position:absolute;top:0;bottom:0;left:0;background:rgba(47,174,114,.34)}',
-			'.ysMeterText{position:relative;display:block;text-align:center;font-size:11px;line-height:22px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
-			'.ysIssueGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:10px 0 18px}',
 			'.ysIssue{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:12px 14px;min-width:0}',
-			'.ysIssueTitle{font-size:12px;color:var(--dsw-alias-label-secondary)}',
-			'.ysIssueCount{font-size:24px;font-weight:600;line-height:1.3;font-variant-numeric:tabular-nums}',
-			'.ysIssueHint{font-size:11px;color:var(--dsw-alias-label-tertiary)}',
-			'.ysIssueList{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}',
-			'.ysIssueItem{font-size:11.5px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}',
-			'.ysIssueItem:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}',
-			'.ysSessionRow{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:12px}',
-			'.ysSessionTitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary)}',
-			'.ysSessionMeta{font-size:11px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;font-variant-numeric:tabular-nums}',
+			'.ysToolGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin:10px 0 16px}',
+			'.ysTool{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:10px 12px;min-width:0;display:flex;flex-direction:column;gap:4px}',
+			'.ysToolHead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}',
+			'.ysToolName{font-family:var(--dsw-font-family-mono,ui-monospace,monospace);font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary);word-break:break-all}',
+			'.ysToolDesc{font-size:11.5px;color:var(--dsw-alias-label-secondary);line-height:1.5}',
+			'.ysBadge{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);font-size:10.5px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+			'.ysBadgeRead{color:var(--dsw-alias-state-business-primary)}',
+			'.ysBadgeWrite{color:var(--dsw-alias-label-primary)}',
+			'.ysBadgeDestructive{color:var(--dsw-alias-state-error-primary,#c45a5a)}',
+			'.ysToolToggle{align-self:flex-start;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}',
+			'.ysToolToggle:hover{color:var(--dsw-alias-label-primary)}',
+			'.ysToolParams{list-style:none;margin:2px 0 0;padding:6px 0 0;border-top:1px solid var(--dsw-alias-border-l1);display:flex;flex-direction:column;gap:3px}',
+			'.ysToolParam{display:flex;gap:6px;flex-wrap:wrap;font-size:11px;line-height:1.5;color:var(--dsw-alias-label-tertiary)}',
+			'.ysToolParamName{font-family:var(--dsw-font-family-mono,ui-monospace,monospace);font-weight:600;color:var(--dsw-alias-label-secondary)}',
+			'.ysToolParamType{color:var(--dsw-alias-label-tertiary);white-space:nowrap}',
+			'.ysToolParamDesc{flex:1 1 180px;min-width:0;color:var(--dsw-alias-label-tertiary)}',
+			'.ysJobRow{padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}',
+			'.ysJobRow:last-child{border-bottom:none}',
+			'.ysJobLine{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+			'.ysJobKind{font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
+			'.ysJobMeta{font-size:11px;color:var(--dsw-alias-label-tertiary);line-height:1.6;font-variant-numeric:tabular-nums}',
+			'.ysJobRunning{color:var(--dsw-alias-state-business-primary)}',
+			'.ysJobFailed{color:var(--dsw-alias-state-error-primary,#c45a5a)}',
+			'.ysJobLog{margin-top:4px}',
+			'.ysJobLog summary{cursor:pointer;font-size:11px;color:var(--dsw-alias-label-tertiary)}',
+			'.ysJobLog .ysPre{margin-top:6px}',
 			'.ysToast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:60;padding:8px 14px;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);font-size:12px;box-shadow:var(--dsw-elevation-soft);max-width:70%}',
 			'.ysToastError{background:var(--dsw-alias-state-error-primary,#b34545);color:#fff}',
 			'.ysModal{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;padding:24px}',
@@ -603,17 +693,27 @@ window.__ModuleLoader__.load({
 		 * The two canvas layouts started as a port of 万象知识库
 		 * (dsh-wanxiang-knowledge): the globe puts every file on one sphere,
 		 * grouped into clusters that stay together; the network is a force layout
-		 * of the same nodes and links.
-		 *
-		 * Where this departs from the original, and why:
+		 * of the same nodes and links. Both are now relaxed by forces that know
+		 * how much room a dot actually takes:
 		 *
 		 * - Size and mass come from the degree normalised against the busiest
-		 *   file (`radiusOf` / `massOf`), not from a log curve. The original
-		 *   mapped degree through `log2` and capped it, which on a flat library
-		 *   leaves every dot within a pixel of every other.
-		 * - The globe is relaxed by its own forces instead of only being seeded
-		 *   (`SphereLayout`): the original's `cloudOffset` piles a community's
-		 *   dots into the centre of its cap.
+		 *   file (`radiusOf` / `massOf`). The dot's contact radius grows with
+		 *   both, and a collision pass made of position projections - not soft
+		 *   forces - keeps any two dots from ending up on top of each other.
+		 * - The collision pass is split by mass: a heavy hub barely moves out of
+		 *   the way, a leaf takes most of the correction. That is what "a hub
+		 *   holds its ground while the leaves arrange around it" means in code.
+		 * - Communities get the surface their dots need. The globe gives each
+		 *   tag root a spherical cap whose area is its dots' contact area over a
+		 *   reachable packing; the network gives each tag root a disc of that
+		 *   same area and packs the discs into the content box. Nodes are seeded
+		 *   on an area-weighted golden spiral inside their cap/disc, biggest
+		 *   first, so the busy files start at the centre of their community.
+		 * - Springs only tie nodes of the same community. On the globe a link
+		 *   across two caps is a bridge, not a spring (measured: pulling bridges
+		 *   drags the whole ball into one knot). The network keeps bridges as
+		 *   very weak springs with their seeded length, so they do not merge the
+		 *   communities either.
 		 *
 		 * The data model also differs, so the adapter is here: ziyan's cluster is
 		 * the first tag root that is not the synthetic `测试` marker or the `类型`
@@ -705,13 +805,6 @@ window.__ModuleLoader__.load({
 			return (hash >>> 0) / 4294967296;
 		}
 
-		function cloudOffset(index, count, id) {
-			var angle = index * GOLDEN + (variationOf(id) - 0.5) * 0.65;
-			var contour = 1 + 0.12 * Math.sin(angle * 3 + 0.7) + 0.07 * Math.cos(angle * 5);
-			var radius = Math.pow((index + 0.5) / count, 0.66) * contour;
-			return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
-		}
-
 		/**
 		 * Group nodes by cluster, biggest cluster first, busiest node first.
 		 *
@@ -740,6 +833,16 @@ window.__ModuleLoader__.load({
 		/**
 		 * Seat every node on one sphere, each cluster inside its own cap.
 		 *
+		 * The cap radius comes from the surface the dots actually need: the sum
+		 * of their contact areas divided by `CAP_PACKING`, a packing the
+		 * collision pass can reach. A community of many busy files therefore
+		 * gets a bigger patch instead of being squeezed into a fixed one.
+		 *
+		 * Inside a cap the dots sit on an area-weighted golden spiral (members
+		 * are sorted by degree, so the biggest dot is at the centre), which is
+		 * the shape the springs then settle into rather than the dense centre
+		 * the original seeding produced.
+		 *
 		 * @param {object[]} nodes - The nodes.
 		 * @returns {object[]} The nodes with `x/y/z`.
 		 */
@@ -767,6 +870,13 @@ window.__ModuleLoader__.load({
 			}
 			var assigned = new Map();
 			groups.forEach(function (members, index) {
+				if (groups.length === 1) {
+					members.forEach(function (node, local) {
+						var point = fibonacciPoint(local, members.length);
+						assigned.set(node.id, { id: node.id, x: point.x, y: point.y, z: point.z });
+					});
+					return;
+				}
 				var center = seeds[index];
 				var tangent = normalize({ x: -center.z, y: 0, z: center.x });
 				var bitangent = {
@@ -774,19 +884,21 @@ window.__ModuleLoader__.load({
 					y: center.z * tangent.x - center.x * tangent.z,
 					z: -center.y * tangent.x
 				};
-				var spread = Math.min(0.95, 0.22 + 0.76 * Math.sqrt(members.length / nodes.length));
+				var areas = members.map(function (node) { return Math.pow(globeClearance(node), 2); });
+				var total = areas.reduce(function (sum, value) { return sum + value; }, 0);
+				var capArea = Math.min(4.5, Math.PI * total / CAP_PACKING);
+				var spread = Math.acos(Math.max(-0.95, Math.min(0.95, 1 - capArea / (2 * Math.PI))));
+				var cumulative = 0;
 				members.forEach(function (node, local) {
-					var offset = cloudOffset(local, members.length, node.id);
-					var radius = Math.hypot(offset.x, offset.y);
-					var angle = spread * radius;
-					var factor = radius > 0 ? Math.sin(angle) / radius : 0;
-					var point = groups.length === 1 ? fibonacciPoint(local, members.length) : {
-						x: center.x * Math.cos(angle) + (tangent.x * offset.x + bitangent.x * offset.y) * factor,
-						y: center.y * Math.cos(angle) + (tangent.y * offset.x + bitangent.y * offset.y) * factor,
-						z: center.z * Math.cos(angle) + (tangent.z * offset.x + bitangent.z * offset.y) * factor
+					cumulative += areas[local];
+					var radial = spread * 0.97 * Math.sqrt(Math.max(0, cumulative - areas[local] / 2) / total);
+					var angle = local * GOLDEN + (variationOf(node.id) - 0.5) * 0.5;
+					var point = {
+						x: center.x * Math.cos(radial) + (tangent.x * Math.cos(angle) + bitangent.x * Math.sin(angle)) * Math.sin(radial),
+						y: center.y * Math.cos(radial) + (tangent.y * Math.cos(angle) + bitangent.y * Math.sin(angle)) * Math.sin(radial),
+						z: center.z * Math.cos(radial) + (tangent.z * Math.cos(angle) + bitangent.z * Math.sin(angle)) * Math.sin(radial)
 					};
-					var position = groups.length === 1 ? point : { x: dot(point, right), y: dot(point, up), z: dot(point, front) };
-					assigned.set(node.id, { id: node.id, x: position.x, y: position.y, z: position.z, cluster: node.cluster });
+					assigned.set(node.id, { id: node.id, x: dot(point, right), y: dot(point, up), z: dot(point, front) });
 				});
 			});
 			return nodes.map(function (node) { return assigned.get(node.id); });
@@ -826,25 +938,100 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * How much of the canvas the globe's diameter takes.
+		 *
+		 * The ported 0.35 left a 392 px ball in a 560 px canvas, i.e. a third of
+		 * the height empty while the dots were packed too tightly to be told
+		 * apart. 0.45 draws the ball at 504 px - still inside the padding - and
+		 * the extra surface is what the collision pass needs to keep every pair
+		 * apart.
+		 */
+		var GLOBE_SCREEN_RATIO = 0.45;
+
+		/**
+		 * The reference viewport the globe's collision distances are measured on.
+		 *
+		 * The panel's canvas is `height: min(62vh, 560px)`, so a normal screen
+		 * draws the globe with `min(width, height) * 0.45 = 252` px per unit of
+		 * sphere radius. A dot's contact distance in chord units is therefore
+		 * its pixel size over this number. One reference keeps the layout
+		 * deterministic - it cannot depend on the window - and matches what the
+		 * reader sees at the default size.
+		 */
+		var GLOBE_REFERENCE_PX = 560 * GLOBE_SCREEN_RATIO;
+
+		/** Empty pixels the globe's collision pass keeps between two dots. */
+		var GLOBE_DOT_GAP = 1.5;
+
+		/**
+		 * The share of a cap the globe's collision pass can actually fill.
+		 *
+		 * Caps are sized from this number: a denser one would leave dots
+		 * permanently fighting the constraint, a looser one spreads every
+		 * community until the caps touch.
+		 */
+		var CAP_PACKING = 0.38;
+
+		/** Empty pixels the network's collision pass keeps between two dots. */
+		var NETWORK_DOT_GAP = 2;
+
+		/** The share of a community disc the network's collision pass can fill. */
+		var NETWORK_PACKING = 0.72;
+
+		/**
+		 * Empty pixels the network keeps between two community discs.
+		 *
+		 * A disc boundary is already the edge of its dots, so this is the visible
+		 * valley between two clusters; a few dot radii is what makes them read as
+		 * separate groups rather than one lumpy mass.
+		 */
+		var NETWORK_CLUSTER_GAP = 40;
+
+		/** The viewport the network packs its community discs into when none is given. */
+		var NETWORK_VIEW = { width: 1000, height: 560 };
+
+		/**
+		 * A dot's contact radius in globe chord units.
+		 *
+		 * @param {object} node - A canvas node with `radius`.
+		 * @returns {number} The chord distance the dot needs from a centre.
+		 */
+		function globeClearance(node) {
+			return (node.radius + GLOBE_DOT_GAP / 2) / GLOBE_REFERENCE_PX;
+		}
+
+		/**
+		 * A dot's contact radius in network pixels.
+		 *
+		 * @param {object} node - A canvas node with `radius`.
+		 * @returns {number} The planar distance the dot needs from a centre.
+		 */
+		function networkClearance(node) {
+			return node.radius + NETWORK_DOT_GAP / 2;
+		}
+
+		/**
 		 * The globe's forces.
 		 *
-		 * The cap seeding above answers "which patch of the sphere does this
-		 * cluster sit on"; it says nothing about where the dots sit inside it,
-		 * which is why the old globe read as a printed star chart — `cloudOffset`
-		 * is densest at the centre of every cap, so the middle of each community
-		 * was a pile of overlapping dots.
+		 * The cap seeding above decides which patch of the sphere a cluster sits
+		 * on; inside the patch the springs, the anchor and the collision pass
+		 * decide where the dots land:
 		 *
-		 * This relaxes the seeded positions with the ingredients the 关系图 uses
-		 * — springs, near-range repulsion, an anchor back to the community — and
-		 * two rules that the seed makes necessary:
-		 *
-		 * - Springs only work on links whose two ends were seeded near each other
-		 *   (chord under 0.45). A link across two caps is a *bridge*, and pulling
-		 *   it to spring length is exactly what dragged the whole globe into one
-		 *   knot when this ran with every link: measured median drift from the
-		 *   seed was 1.6 rad, i.e. half the ball.
+		 * - Springs only work on links whose two ends are in the same community.
+		 *   A link across two caps is a *bridge*; pulling those to spring length
+		 *   is what dragged the whole globe into one knot when every link was a
+		 *   spring (measured median drift 1.6 rad, i.e. half the ball).
+		 * - The rest length is a multiple of the two contact radii rather than a
+		 *   fraction of the seeded chord: a link now means "touch", not "stay
+		 *   where you happened to be seeded". That is what pulls the leaves in
+		 *   around a hub.
+		 * - Collision is a position projection, twice per tick, so overlaps are
+		 *   removed by construction instead of pushing against them with a
+		 *   force. The heavier dot moves less (mass² share), which leaves the
+		 *   hubs where they are and lets the leaves take the correction.
 		 * - Every step is projected back onto the unit sphere, keeping only the
-		 *   tangential velocity. Without it the springs flatten the ball into a disc.
+		 *   tangential velocity. Without it the springs flatten the ball into a
+		 *   disc.
 		 *
 		 * Deterministic like the rest of the engine: `alpha` is the only clock.
 		 */
@@ -869,24 +1056,18 @@ window.__ModuleLoader__.load({
 						vz: 0,
 						cluster: node.cluster,
 						weight: node.weight,
-						mass: node.mass
+						mass: node.mass,
+						clearance: globeClearance(node)
 					};
 				});
 				this.byId = new Map(this.particles.map(function (particle) { return [particle.id, particle]; }));
-				// A link is a spring when both ends live in the same community: a
-				// bridge between two caps must not pull them together. The rest
-				// length is a fixed fraction of where the seeding put the pair, so
-				// the tightening means the same thing on a 40-file library and on a
-				// 2000-file one — an absolute cutoff would drop every link on the
-				// small one and only the bridges on the big one.
 				this.links = [];
 				edges.forEach(function (edge) {
 					var left = this.byId.get(edge.s);
 					var right = this.byId.get(edge.t);
 					if (left === undefined || right === undefined) return;
 					if (left.cluster !== right.cluster) return;
-					var chord = Math.hypot(right.sx - left.sx, right.sy - left.sy, right.sz - left.sz);
-					this.links.push([left, right, edge.w, chord * 0.6]);
+					this.links.push([left, right, Math.min(edge.w, 2)]);
 				}, this);
 			}
 
@@ -901,7 +1082,10 @@ window.__ModuleLoader__.load({
 					var dz = right.z - left.z;
 					var distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 					if (distance < 1e-6) return;
-					var pull = (distance - link[3]) * 0.05 * Math.min(link[2], 2) * alpha;
+					// "Linked" means "touching": the rest length is the two contact
+					// radii with a little air, not a fraction of the seeded chord.
+					var rest = (left.clearance + right.clearance) * 1.35;
+					var pull = (distance - rest) * 0.14 * link[2] * alpha;
 					left.vx += (dx / distance) * pull / left.mass;
 					left.vy += (dy / distance) * pull / left.mass;
 					left.vz += (dz / distance) * pull / left.mass;
@@ -909,9 +1093,40 @@ window.__ModuleLoader__.load({
 					right.vy -= (dy / distance) * pull / right.mass;
 					right.vz -= (dz / distance) * pull / right.mass;
 				});
-				// Repulsion runs on a 0.12-unit lattice: 27 candidate cells per dot,
-				// so the sweep walks the 13 *forward* cells only and lets every pair
-				// meet exactly once (in its own cell, from the lower index).
+				this.particles.forEach(function (particle) {
+					// The anchor keeps a community's shape; scaling it by weight
+					// anchors the hubs harder, so the leaves give way first.
+					var strength = 0.16 * alpha * (0.25 + 2.5 * particle.weight);
+					particle.vx += (particle.sx - particle.x) * strength;
+					particle.vy += (particle.sy - particle.y) * strength;
+					particle.vz += (particle.sz - particle.z) * strength;
+					particle.x += particle.vx * 0.4;
+					particle.y += particle.vy * 0.4;
+					particle.z += particle.vz * 0.4;
+				});
+				// Two rounds: the first removes the overlaps the forces above just
+				// created, the second settles pairs the first one re-touched.
+				this.pushApart();
+				this.pushApart();
+				this.particles.forEach(function (particle) {
+					// Back onto the surface, then keep only the tangential part of
+					// the velocity: the radial part was just spent as position.
+					var length = Math.sqrt(particle.x * particle.x + particle.y * particle.y + particle.z * particle.z) || 1;
+					particle.x /= length;
+					particle.y /= length;
+					particle.z /= length;
+					var radial = particle.vx * particle.x + particle.vy * particle.y + particle.vz * particle.z;
+					particle.vx = (particle.vx - radial * particle.x) * 0.82;
+					particle.vy = (particle.vy - radial * particle.y) * 0.82;
+					particle.vz = (particle.vz - radial * particle.z) * 0.82;
+				});
+				this.alpha *= 0.94;
+			}
+
+			pushApart() {
+				// A dot is at most 0.087 chord wide (a hub pair), so a 0.12 lattice
+				// puts every contact pair in the same or an adjacent cell. The
+				// sweep walks the 13 *forward* cells only: each pair meets once.
 				var cells = new Array(32768);
 				var occupied = [];
 				this.particles.forEach(function (particle) {
@@ -928,39 +1143,17 @@ window.__ModuleLoader__.load({
 					for (var index = 0; index < list.length; index += 1) {
 						var particle = list[index];
 						for (var after = index + 1; after < list.length; after += 1) {
-							pushApart(particle, list[after], alpha);
+							pushApartGlobe(particle, list[after]);
 						}
 						for (var near = 0; near < CELL_NEIGHBOURS.length; near += 1) {
 							var peers = cells[key + CELL_NEIGHBOURS[near]];
 							if (peers === undefined) continue;
 							for (var peer = 0; peer < peers.length; peer += 1) {
-								pushApart(particle, peers[peer], alpha);
+								pushApartGlobe(particle, peers[peer]);
 							}
 						}
 					}
 				});
-				this.particles.forEach(function (particle) {
-					// The anchor is what keeps the communities where the seeding put
-					// them; the mass already decides who wins when forces disagree.
-					var strength = 0.09 * alpha;
-					particle.vx += (particle.sx - particle.x) * strength;
-					particle.vy += (particle.sy - particle.y) * strength;
-					particle.vz += (particle.sz - particle.z) * strength;
-					particle.x += particle.vx * 0.4;
-					particle.y += particle.vy * 0.4;
-					particle.z += particle.vz * 0.4;
-					// Back onto the surface, then keep only the tangential part of
-					// the velocity: the radial part was just spent as position.
-					var length = Math.sqrt(particle.x * particle.x + particle.y * particle.y + particle.z * particle.z) || 1;
-					particle.x /= length;
-					particle.y /= length;
-					particle.z /= length;
-					var radial = particle.vx * particle.x + particle.vy * particle.y + particle.vz * particle.z;
-					particle.vx = (particle.vx - radial * particle.x) * 0.82;
-					particle.vy = (particle.vy - radial * particle.y) * 0.82;
-					particle.vz = (particle.vz - radial * particle.z) * 0.82;
-				});
-				this.alpha *= 0.94;
 			}
 		}
 
@@ -984,120 +1177,289 @@ window.__ModuleLoader__.load({
 		var CELL_NEIGHBOURS = [1024 + 32 + 1, 1024 + 32, 1024 + 32 - 1, 1024 + 1, 1024, 1024 - 1, 1024 - 32 + 1, 1024 - 32, 1024 - 32 - 1, 32 + 1, 32, 32 - 1, 1];
 
 		/**
-		 * Push one pair of globe dots apart when they share a cell.
+		 * Remove the overlap between two globe dots by moving both positions.
 		 *
-		 * Symmetric, and each end moves by force over its own mass: the hub is
-		 * shoved just as hard as the leaf, but it barely budges, so the leaves
-		 * arrange themselves around it instead of dragging it along.
+		 * A position projection, not a force: the constraint holds at the end of
+		 * every tick. The split is by mass squared, so a hub of mass 1.5 takes
+		 * only ~16% of the correction against a leaf of mass 0.6 — the leaves
+		 * arrange themselves around it.
 		 *
 		 * @param {object} left - One particle.
 		 * @param {object} right - The other particle.
-		 * @param {number} alpha - The cooling factor.
 		 * @returns {void}
 		 */
-		function pushApart(left, right, alpha) {
+		function pushApartGlobe(left, right) {
 			var dx = left.x - right.x;
 			var dy = left.y - right.y;
 			var dz = left.z - right.z;
 			var square = dx * dx + dy * dy + dz * dz;
-			if (square > 0.0144 || square < 1e-12) return;
+			var contact = left.clearance + right.clearance;
+			if (square >= contact * contact || square < 1e-18) return;
 			var distance = Math.sqrt(square);
-			// Soft at contact: a pair that touched exactly would launch itself.
-			var push = alpha * 0.005 * left.mass * right.mass * (0.12 - distance) / (distance + 0.02);
-			left.vx += (dx / distance) * push / left.mass;
-			left.vy += (dy / distance) * push / left.mass;
-			left.vz += (dz / distance) * push / left.mass;
-			right.vx -= (dx / distance) * push / right.mass;
-			right.vy -= (dy / distance) * push / right.mass;
-			right.vz -= (dz / distance) * push / right.mass;
+			var overlap = (contact - distance) / distance;
+			var leftMass = left.mass * left.mass;
+			var rightMass = right.mass * right.mass;
+			var share = rightMass / (leftMass + rightMass);
+			left.x += dx * overlap * share;
+			left.y += dy * overlap * share;
+			left.z += dz * overlap * share;
+			right.x -= dx * overlap * (1 - share);
+			right.y -= dy * overlap * (1 - share);
+			right.z -= dz * overlap * (1 - share);
 		}
 
 		/**
-		 * The network layout: cluster anchors, cell repulsion, link springs.
+		 * The 2D lattice offsets of the network's collision sweep: E, NE, N, NW.
+		 *
+		 * A cell is `x·1024 + y` (with an offset so the key stays positive), so
+		 * one step along x is 1024 and one along y is 1.
 		 */
-		class NetworkLayout {
-			constructor(nodes, edges) {
-				var clusters = Array.from(new Set(nodes.map(function (node) { return node.cluster; })));
-				var extent = Math.max(180, Math.sqrt(nodes.length) * 16);
-				var anchors = new Map();
-				clusters.forEach(function (cluster, index) {
-					anchors.set(cluster, {
-						x: Math.cos(index * GOLDEN) * extent * 0.5,
-						y: Math.sin(index * GOLDEN) * extent * 0.5
+		var PLANE_NEIGHBOURS = [1024 + 1, 1024, 1024 - 1, 1];
+
+		/**
+		 * Lay out the community discs and the node seeds inside them.
+		 *
+		 * The network's collision rule is a hard constraint, so before any force
+		 * runs the layout has to know how much room each community takes: the
+		 * disc a cluster needs is its dots' contact areas divided by a packing
+		 * the collision pass can reach. The discs are then placed into the
+		 * content box with a few rounds of deterministic relaxation - overlap
+		 * push-out plus clamping - so communities sit side by side with a gap
+		 * instead of being flung far apart or collapsing into each other.
+		 *
+		 * Inside a disc the dots sit on an area-weighted golden spiral, members
+		 * sorted by degree (busiest at the centre), which is the shape the
+		 * springs then tighten.
+		 *
+		 * @param {object[]} nodes - The nodes.
+		 * @param {{width: number, height: number}} [view] - The canvas the layout is packed for.
+		 * @returns {{box: object, seeds: Map<string, object>}} The box and each node's seed.
+		 */
+		function networkSeed(nodes, view) {
+			var canvas = view === undefined ? NETWORK_VIEW : view;
+			var width = Number(canvas.width) > 0 ? Number(canvas.width) : NETWORK_VIEW.width;
+			var height = Number(canvas.height) > 0 ? Number(canvas.height) : NETWORK_VIEW.height;
+			var box = {
+				x: Math.max(220, width - 100),
+				y: Math.max(160, height - 60)
+			};
+			var groups = communitiesOf(nodes);
+			var discs = groups.map(function (members) {
+				var squares = 0;
+				members.forEach(function (node) {
+					var clearance = networkClearance(node);
+					squares += clearance * clearance;
+				});
+				return {
+					cluster: members[0].cluster,
+					members: members,
+					radius: Math.max(10, Math.sqrt(squares / NETWORK_PACKING))
+				};
+			});
+			var centers = discs.map(function (_, index) {
+				// One cluster fills the middle of the box; several sit on a golden
+				// spiral and the relaxation below spaces the discs out.
+				var radial = discs.length === 1 ? 0 : Math.sqrt((index + 0.5) / discs.length) * 0.8;
+				var angle = index * GOLDEN;
+				return { x: Math.cos(angle) * radial * box.x * 0.5, y: Math.sin(angle) * radial * box.y * 0.5 };
+			});
+			for (var step = 0; step < 300; step += 1) {
+				for (var left = 0; left < discs.length; left += 1) {
+					var point = centers[left];
+					var limitX = Math.max(0, box.x / 2 - discs[left].radius);
+					var limitY = Math.max(0, box.y / 2 - discs[left].radius);
+					point.x = Math.max(-limitX, Math.min(limitX, point.x));
+					point.y = Math.max(-limitY, Math.min(limitY, point.y));
+					for (var right = left + 1; right < discs.length; right += 1) {
+						var other = centers[right];
+						var dx = other.x - point.x;
+						var dy = other.y - point.y;
+						var distance = Math.sqrt(dx * dx + dy * dy);
+						var minimum = discs[left].radius + discs[right].radius + NETWORK_CLUSTER_GAP;
+						if (distance >= minimum) continue;
+						if (distance < 1e-6) {
+							// Coincident seeds: a deterministic direction, never a random one.
+							dx = left === right ? 0 : 1;
+							dy = 0;
+							distance = 1;
+						}
+						var push = (minimum - distance) / distance * 0.5;
+						point.x -= dx * push;
+						point.y -= dy * push;
+						other.x += dx * push;
+						other.y += dy * push;
+					}
+				}
+			}
+			var seeds = new Map();
+			discs.forEach(function (disc, index) {
+				var center = centers[index];
+				var areas = disc.members.map(function (node) { return Math.pow(networkClearance(node), 2); });
+				var total = areas.reduce(function (sum, value) { return sum + value; }, 0);
+				var cumulative = 0;
+				disc.members.forEach(function (node, local) {
+					cumulative += areas[local];
+					var radial = disc.radius * 0.97 * Math.sqrt(Math.max(0, cumulative - areas[local] / 2) / total);
+					var angle = local * GOLDEN + (variationOf(node.id) - 0.5) * 0.5;
+					seeds.set(node.id, {
+						x: center.x + Math.cos(angle) * radial,
+						y: center.y + Math.sin(angle) * radial
 					});
 				});
-				this.anchors = anchors;
+			});
+			return { box: box, seeds: seeds };
+		}
+
+		/**
+		 * Remove the overlap between two network dots by moving both positions.
+		 *
+		 * Same position projection as the globe's, split by mass squared so the
+		 * heavier end of a pair takes the smaller share of the correction. A
+		 * node under the pointer is not moved by the constraint.
+		 *
+		 * @param {object} left - One particle.
+		 * @param {object} right - The other particle.
+		 * @param {string} [fixed] - The dragged node's id.
+		 * @returns {void}
+		 */
+		function pushApartPlane(left, right, fixed) {
+			var dx = left.x - right.x;
+			var dy = left.y - right.y;
+			var square = dx * dx + dy * dy;
+			var contact = left.clearance + right.clearance;
+			if (square >= contact * contact || square < 1e-18) return;
+			if (fixed !== undefined && (left.id === fixed || right.id === fixed)) return;
+			var distance = Math.sqrt(square);
+			var overlap = (contact - distance) / distance;
+			var leftMass = left.mass * left.mass;
+			var rightMass = right.mass * right.mass;
+			var share = rightMass / (leftMass + rightMass);
+			left.x += dx * overlap * share;
+			left.y += dy * overlap * share;
+			right.x -= dx * overlap * (1 - share);
+			right.y -= dy * overlap * (1 - share);
+		}
+
+		/**
+		 * The network layout: community discs, link springs, collision.
+		 *
+		 * The discs come from `networkSeed`. Inside a disc the same two rules as
+		 * the globe apply: a same-community link is a spring whose rest length
+		 * is the two contact radii (so "linked" means "touching"), and the
+		 * collision pass keeps every pair of dots apart - split by mass so the
+		 * leaves arrange around the hubs. A cross-community link stays a very
+		 * weak spring with its seeded length: enough to keep the pair pointing
+		 * at each other, never enough to merge the two communities.
+		 *
+		 * `view` is the canvas the layout is packed for, so the seeded box is the
+		 * same shape as the reader's canvas and the first paint needs no
+		 * shrink-to-fit (a shrink would also shrink the collision gaps).
+		 */
+		class NetworkLayout {
+			constructor(nodes, edges, view) {
+				var seed = networkSeed(nodes, view);
+				var maxRadius = nodes.reduce(function (best, node) { return Math.max(best, node.radius); }, 0);
+				this.box = seed.box;
 				this.alpha = 1;
-				this.particles = nodes.map(function (node, index) {
+				this.particles = nodes.map(function (node) {
+					var point = seed.seeds.get(node.id);
 					return {
 						id: node.id,
 						cluster: node.cluster,
-						x: Math.cos(index * GOLDEN) * Math.sqrt(index + 1) * 15,
-						y: Math.sin(index * GOLDEN) * Math.sqrt(index + 1) * 15,
+						x: point.x,
+						y: point.y,
 						z: 0,
+						// The seeded position is the anchor: the springs may tighten
+						// a community, but may not move it across the canvas.
+						sx: point.x,
+						sy: point.y,
 						vx: 0,
 						vy: 0,
 						weight: node.weight,
-						mass: node.mass
+						mass: node.mass,
+						clearance: networkClearance(node)
 					};
 				});
 				this.byId = new Map(this.particles.map(function (particle) { return [particle.id, particle]; }));
-				this.links = edges.map(function (edge) {
-					return [this.byId.get(edge.s), this.byId.get(edge.t), edge.w];
-				}, this).filter(function (link) { return link[0] !== undefined && link[1] !== undefined; });
+				this.links = [];
+				edges.forEach(function (edge) {
+					var left = this.byId.get(edge.s);
+					var right = this.byId.get(edge.t);
+					if (left === undefined || right === undefined) return;
+					var bridge = Math.hypot(right.sx - left.sx, right.sy - left.sy) * 0.9;
+					this.links.push([left, right, Math.min(edge.w, 2), left.cluster === right.cluster, bridge]);
+				}, this);
+				this.cellSize = 2 * (maxRadius + NETWORK_DOT_GAP);
+				this.fixed = undefined;
 			}
 
 			tick(fixed) {
 				if (this.alpha < 5e-3) return;
-				var cells = new Map();
-				var cellSize = Math.max(70, Math.sqrt(this.particles.length) * 12);
-				this.particles.forEach(function (particle) {
-					var key = Math.floor(particle.x / cellSize) + ',' + Math.floor(particle.y / cellSize);
-					var cell = cells.get(key) || { x: 0, y: 0, count: 0 };
-					cell.x += particle.x;
-					cell.y += particle.y;
-					cell.count += 1;
-					cells.set(key, cell);
-				});
 				var alpha = this.alpha;
-				this.particles.forEach(function (particle) {
-					cells.forEach(function (cell) {
-						var dx = particle.x - cell.x / cell.count;
-						var dy = particle.y - cell.y / cell.count;
-						var distance = dx * dx + dy * dy + 100;
-						var force = Math.min(2, cell.count * 30 / distance) * alpha;
-						particle.vx += dx * force / particle.mass;
-						particle.vy += dy * force / particle.mass;
-					});
-					var anchor = this.anchors.get(particle.cluster);
-					// A hub is anchored more loosely, so the busiest files can sit
-					// between the communities they connect rather than inside one.
-					var tie = 4e-3 * (1 - 0.5 * particle.weight);
-					particle.vx += ((anchor.x - particle.x) * tie - particle.x * 1e-3) * alpha;
-					particle.vy += ((anchor.y - particle.y) * tie - particle.y * 1e-3) * alpha;
-				}, this);
 				this.links.forEach(function (link) {
 					var left = link[0];
 					var right = link[1];
 					var dx = right.x - left.x;
 					var dy = right.y - left.y;
-					var distance = Math.hypot(dx, dy) || 1;
-					var force = (distance - 65) / distance * 0.012 * Math.min(link[2], 2) * alpha;
+					var distance = Math.hypot(dx, dy);
+					if (distance < 1e-6) return;
+					var touching = left.clearance + right.clearance;
+					var rest = link[3] ? touching * 1.25 : Math.max(touching * 1.25, link[4]);
+					var stiffness = link[3] ? 0.08 : 0.006;
+					var force = (distance - rest) / distance * stiffness * link[2] * alpha;
 					left.vx += dx * force / left.mass;
 					left.vy += dy * force / left.mass;
 					right.vx -= dx * force / right.mass;
 					right.vy -= dy * force / right.mass;
 				});
 				this.particles.forEach(function (particle) {
+					// The anchor is what keeps a community where the seeding put it.
+					// Scaling it by weight anchors the hubs harder: they are the
+					// ones that must not swim while the leaves settle around them.
+					var strength = 0.24 * alpha * (0.2 + 3 * particle.weight);
+					particle.vx += (particle.sx - particle.x) * strength;
+					particle.vy += (particle.sy - particle.y) * strength;
 					if (particle.id === fixed) {
 						particle.vx = 0;
 						particle.vy = 0;
 						return;
 					}
-					particle.x += Math.max(-15, Math.min(15, particle.vx *= 0.55));
-					particle.y += Math.max(-15, Math.min(15, particle.vy *= 0.55));
+					particle.x += Math.max(-8, Math.min(8, particle.vx *= 0.55));
+					particle.y += Math.max(-8, Math.min(8, particle.vy *= 0.55));
 				});
+				this.fixed = fixed;
+				this.pushApart();
+				this.pushApart();
+				this.fixed = undefined;
 				this.alpha *= 0.94;
+			}
+
+			pushApart() {
+				var size = this.cellSize;
+				var fixed = this.fixed;
+				var cells = new Map();
+				this.particles.forEach(function (particle) {
+					var key = (Math.floor(particle.x / size) + 512) * 1024 + Math.floor(particle.y / size) + 512;
+					particle.cell = key;
+					var list = cells.get(key);
+					if (list === undefined) cells.set(key, [particle]);
+					else list.push(particle);
+				});
+				cells.forEach(function (list, key) {
+					for (var index = 0; index < list.length; index += 1) {
+						var particle = list[index];
+						for (var after = index + 1; after < list.length; after += 1) {
+							pushApartPlane(particle, list[after], fixed);
+						}
+						for (var near = 0; near < PLANE_NEIGHBOURS.length; near += 1) {
+							var peers = cells.get(key + PLANE_NEIGHBOURS[near]);
+							if (peers === undefined) continue;
+							for (var peer = 0; peer < peers.length; peer += 1) {
+								pushApartPlane(particle, peers[peer], fixed);
+							}
+						}
+					}
+				});
 			}
 		}
 
@@ -1334,8 +1696,12 @@ window.__ModuleLoader__.load({
 
 			get network() {
 				if (this.networkState === undefined) {
-					this.networkState = new NetworkLayout(this.data.nodes, this.data.edges);
-					var rounds = this.data.nodes.length <= 1500 ? 80 : 4;
+					// The layout packs its community discs into the content box of
+					// the real canvas, so the collision gaps survive the fit below:
+					// `networkExtent` is the half-span and `networkScale` then lands
+					// at ~1, i.e. one layout pixel is one canvas pixel at zoom 1.
+					this.networkState = new NetworkLayout(this.data.nodes, this.data.edges, { width: this.width, height: this.height });
+					var rounds = this.data.nodes.length <= 1500 ? 64 : 4;
 					for (var index = 0; index < rounds; index += 1) this.networkState.tick();
 					var minX = Infinity;
 					var maxX = -Infinity;
@@ -1349,7 +1715,7 @@ window.__ModuleLoader__.load({
 					});
 					if (Number.isFinite(minX)) {
 						this.networkCenter = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-						this.networkExtent = { x: Math.max(100, (maxX - minX) * 0.6), y: Math.max(100, (maxY - minY) * 0.6) };
+						this.networkExtent = { x: Math.max(100, (maxX - minX) / 2), y: Math.max(100, (maxY - minY) / 2) };
 					}
 				}
 				return this.networkState;
@@ -1418,7 +1784,7 @@ window.__ModuleLoader__.load({
 				var z0 = point.z * Math.cos(this.yaw) - point.x * Math.sin(this.yaw);
 				var y = point.y * Math.cos(this.pitch) - z0 * Math.sin(this.pitch);
 				var z = point.y * Math.sin(this.pitch) + z0 * Math.cos(this.pitch);
-				var radius = Math.min(this.width, this.height) * 0.35 * this.zoom;
+				var radius = Math.min(this.width, this.height) * GLOBE_SCREEN_RATIO * this.zoom;
 				var scale = 2.8 / (2.8 - z);
 				return { x: this.width / 2 + x * radius * scale, y: this.height / 2 + y * radius * scale, depth: z, scale: scale };
 			}
@@ -1683,7 +2049,7 @@ window.__ModuleLoader__.load({
 
 				var moving = this.layout === 'sphere'
 					? (!this.reduced && (this.target !== undefined || Math.abs(this.velocity.x) + Math.abs(this.velocity.y) > 1e-4 || this.selected === '' || this.sphere.alpha >= 5e-3))
-					: (this.network.alpha >= 5e-3 || this.data.nodes.length <= 300);
+					: this.network.alpha >= 5e-3;
 				if (moving) this.wake();
 			}
 
@@ -2572,16 +2938,18 @@ window.__ModuleLoader__.load({
 		/**
 		 * 注入页：模型每轮看到的文本，分成「提示词」和「偏好」两栏。
 		 *
-		 * 提示词栏是插件自己拼出来的两段——静态纪律进系统段、文件索引进运行时
-		 * 上下文，两天分开显示是因为它们的稳定性不同；预算条放在这一栏顶部。
-		 * 偏好栏是写进 `~/.dsh/AGENTS.md` 的那一段，由 DSH 的 AGENTS.md 加载器
-		 * 在每次会话开始时注入，所以它跟插件版本无关，改完立刻对下一个会话生效。
+		 * 提示词栏只剩插件注册的那段静态纪律：运行时上下文注入已移除，agent
+		 * 需要库里的文件时自己用 file_query 搜，项目依赖与约定由项目 harness
+		 * 管理。偏好栏是写进 `~/.dsh/AGENTS.md` 的那一段，由 DSH 的 AGENTS.md
+		 * 加载器在每次会话开始时注入，所以它跟插件版本无关，改完立刻对下一个
+		 * 会话生效。
 		 */
 		function InjectionTab(props) {
 			var t = props.t;
 			var [section, setSection] = useState('prompts');
 			var options = [
 				['prompts', t('injection.tab.prompts')],
+				['tools', t('injection.tab.tools')],
 				['preferences', t('injection.tab.preferences')]
 			];
 			return h('div', null,
@@ -2598,55 +2966,29 @@ window.__ModuleLoader__.load({
 					})),
 				section === 'preferences'
 					? h(PreferencesPane, props)
-					: h(PromptsPane, props));
+					: section === 'tools'
+						? h(ToolsPane, props)
+						: h(PromptsPane, props));
 		}
 
 		/**
-		 * 提示词栏：预算条在最上面，下面依次是静态纪律和文件索引。
+		 * 提示词栏：只剩静态纪律这一段，外加一句「运行时不再注入索引」的说明。
 		 *
-		 * 预算只管文件索引（静态纪律是常量），所以条上同时写清两段的字节，
-		 * 免得把「索引没超预算」误读成「整个注入很轻」。
+		 * 运行时上下文注入移除后，agent 需要文件时自己用 file_query 按描述/
+		 * 标签/links 搜，项目依赖与约定由项目 harness 管理。所以这里没有预算
+		 * 条、没有快照信息，也没有重建按钮：已经没有要手动维护的对象了。
 		 */
 		function PromptsPane(props) {
 			var t = props.t;
 			var injection = props.injection;
-			var [busy, setBusy] = useState(false);
 			if (injection === null || injection === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
-			var budget = Number(injection.budget) || 0;
-			var bytes = Number(injection.bytes) || 0;
 			var staticBytes = Number(injection.staticBytes) || 0;
-			var percent = budget > 0 ? Math.min(100, Math.round((bytes / budget) * 100)) : 0;
-			function refresh() {
-				setBusy(true);
-				props.call('injection', { refresh: true }).then(function (value) {
-					props.onLoaded(value);
-					props.notify(t('injection.refreshed'));
-				}).catch(function (error) {
-					props.notify(messageOf(error), true);
-				}).then(function () { setBusy(false); });
-			}
 			return h('div', null,
-				h('div', { className: 'ysMeter' },
-					h('div', { className: 'ysMeterFill', style: { width: percent + '%' } }),
-					h('span', { className: 'ysMeterText' }, bytes + ' / ' + budget + ' B · ' + percent + '%')),
-				h('div', { className: 'ysHint', style: { marginBottom: 10 } },
-					t('injection.total')
-						.replace('{static}', String(staticBytes))
-						.replace('{index}', String(bytes))
-						.replace('{total}', String(staticBytes + bytes))),
+				h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('injection.runtime.removed')),
 				h('div', { className: 'ysSection', style: { marginTop: 0 } }, t('injection.static')),
 				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
 					t('injection.static.hint').replace('{bytes}', String(staticBytes))),
-				h('pre', { className: 'ysPre' }, injection.static),
-				h('div', { className: 'ysSection' }, t('injection.index')),
-				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
-					t('injection.meta')
-						.replace('{day}', injection.day === '' ? t('injection.never') : String(injection.day))
-						.replace('{entries}', String(injection.entries ?? 0))
-						.replace('{state}', injection.stale ? t('injection.stale') : t('injection.fresh'))),
-				h('pre', { className: 'ysPre' }, injection.index),
-				h('div', { className: 'ysActions' },
-					h('button', { className: 'ysButton', disabled: busy, onClick: refresh }, t('injection.refresh'))));
+				h('pre', { className: 'ysPre' }, injection.static));
 		}
 
 		/**
@@ -2723,92 +3065,487 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * 自衍页：整理会话与文件。
+		 * 工具栏：插件向 DSH 注册的工具目录。
 		 *
-		 * 会话区回答“哪些对话还没沉淀”，文件区回答“库里哪些地方需要收拾”。
-		 * 两个维护动作（重建索引、重新读取）是这里唯一会写库的操作，会话本身
-		 * 只读——把对话变成文件仍然由 agent 在会话里完成。
+		 * 目录来自宿主（`tools` 接口），面板只读——Agent 在会话里调用工具，
+		 * 这里回答「有哪些工具、各要什么参数」。参数默认折叠：`file_query`
+		 * 一个工具就有九个参数，全展开会把列表拉长，折叠后点一下才看细节。
+		 */
+		function ToolsPane(props) {
+			var t = props.t;
+			var catalog = props.tools;
+			var [open, setOpen] = useState('');
+			if (catalog === null || catalog === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
+			if (catalog.error) {
+				return h('div', null,
+					h('div', { className: 'ysError' },
+						h('span', { style: { flex: 1 } }, t('injection.tools.failed').replace('{error}', String(catalog.error)))),
+					h('div', { className: 'ysActions', style: { borderTop: 'none', paddingTop: 0 } },
+						h('button', { className: 'ysButton', onClick: props.onReload }, t('injection.tools.retry'))));
+			}
+			var tools = Array.isArray(catalog.tools) ? catalog.tools : [];
+			var total = Number(catalog.total);
+			if (!Number.isFinite(total)) total = tools.length;
+			if (tools.length === 0) {
+				return h('div', null,
+					h('div', { className: 'ysEmpty' }, t('injection.tools.empty')),
+					h('div', { className: 'ysActions', style: { borderTop: 'none', paddingTop: 0 } },
+						h('button', { className: 'ysButton', onClick: props.onReload }, t('injection.tools.retry'))));
+			}
+			var groups = [
+				['read', t('injection.tools.read'), 'ysBadgeRead'],
+				['write', t('injection.tools.write'), 'ysBadgeWrite'],
+				['destructive', t('injection.tools.destructive'), 'ysBadgeDestructive']
+			];
+			return h('div', null,
+				h('div', { className: 'ysHint', style: { marginBottom: 4 } },
+					t('injection.tools.hint').replace('{n}', String(total))),
+				groups.map(function (group) {
+					var items = tools.filter(function (tool) { return tool.category === group[0]; });
+					if (items.length === 0) return null;
+					return h('div', { key: group[0] },
+						h('div', { className: 'ysSection' }, group[1]),
+						h('div', { className: 'ysToolGrid' }, items.map(function (tool) {
+							return h(ToolCard, {
+								key: tool.name,
+								t: t,
+								tool: tool,
+								badge: group[2],
+								badgeLabel: group[1],
+								expanded: open === tool.name,
+								onToggle: function () { setOpen(open === tool.name ? '' : tool.name); }
+							});
+						})));
+				}),
+				h('div', { className: 'ysActions' },
+					h('button', { className: 'ysButton', onClick: props.onReload }, t('action.refresh'))));
+		}
+
+		/**
+		 * 一张工具卡：名字、分类、一句话说明；参数按需展开。
+		 */
+		function ToolCard(props) {
+			var t = props.t;
+			var tool = props.tool;
+			var schema = tool.parameters !== null && typeof tool.parameters === 'object' ? tool.parameters : {};
+			var properties = schema.properties !== null && typeof schema.properties === 'object' ? schema.properties : {};
+			var required = Array.isArray(schema.required) ? schema.required : [];
+			var names = Object.keys(properties);
+			var toggle = names.length === 0 ? t('injection.tools.noParams')
+				: t('injection.tools.params').replace('{n}', String(names.length));
+			return h('div', { className: 'ysTool' },
+				h('div', { className: 'ysToolHead' },
+					h('span', { className: 'ysToolName' }, tool.name),
+					h('span', { className: 'ysBadge ' + props.badge }, props.badgeLabel)),
+				h('div', { className: 'ysToolDesc' }, tool.description),
+				h('button', {
+					className: 'ysToolToggle',
+					'aria-expanded': props.expanded,
+					onClick: props.onToggle
+				}, toggle),
+				props.expanded
+					? h('ul', { className: 'ysToolParams' }, names.map(function (name) {
+						var property = properties[name] !== null && typeof properties[name] === 'object' ? properties[name] : {};
+						var type = typeof property.type === 'string' ? property.type : 'string';
+						if (type === 'array' && property.items !== null && typeof property.items === 'object' && typeof property.items.type === 'string') {
+							type = 'array<' + property.items.type + '>';
+						}
+						var isRequired = required.indexOf(name) >= 0;
+						return h('li', { className: 'ysToolParam', key: name },
+							h('span', { className: 'ysToolParamName' }, name),
+							h('span', { className: 'ysToolParamType' }, type + (isRequired ? ' · ' + t('injection.tools.required') : '')),
+							h('span', { className: 'ysToolParamDesc' }, typeof property.description === 'string' ? property.description : ''));
+					}))
+					: null);
+		}
+
+		/**
+		 * 自衍页：整理台。
+		 *
+		 * 和旧 evolver 的整理页同一个形态：一张模型卡、会话整理 / 文件整理两张
+		 * 作业卡，下面是最近作业。页面不做任何维护动作——注入快照由宿主跨日
+		 * 自动重建，整理由宿主里的 agent 作业在会话外跑；这里只负责选模型、
+		 * 开关自动整理、看结果。
 		 */
 		function OrganizeTab(props) {
 			var t = props.t;
 			var digest = props.digest;
+			var status = props.status;
+			var [jobs, setJobs] = useState(null);
+			var [pollNonce, setPollNonce] = useState(0);
 			var [busy, setBusy] = useState('');
-			var [message, setMessage] = useState('');
-			if (digest === null || digest === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
-			var organize = digest.organize || {};
-			var sessions = Array.isArray(digest.sessions) ? digest.sessions : [];
-			var issues = [
-				['orphans', t('organize.orphans'), t('organize.orphans.hint'), organize.orphans],
-				['dangling', t('organize.dangling'), t('organize.dangling.hint'), organize.dangling],
-				['stale', t('organize.stale').replace('{days}', String(organize.staleDays ?? 90)), t('organize.stale.hint'), organize.stale],
-				['singleTags', t('organize.singleTags'), t('organize.singleTags.hint'), organize.singleTags]
-			];
-			function rebuild() {
-				setBusy('rebuild');
-				props.call('rebuild').then(function (value) {
-					setMessage(t('organize.rebuilt')
-						.replace('{files}', String(value.files))
-						.replace('{links}', String(value.links))
-						.replace('{ms}', String(value.ms)));
-					props.onRefreshAll();
+			var [follows, setFollows] = useState(true);
+			var [provider, setProvider] = useState('');
+			var [modelName, setModelName] = useState('');
+			var [effort, setEffort] = useState('');
+			var [autoSessions, setAutoSessions] = useState(false);
+			var [idleMinutes, setIdleMinutes] = useState('30');
+			var [autoFiles, setAutoFiles] = useState(false);
+			var [hour, setHour] = useState('3');
+			var lastRunning = useRef('');
+			useEffect(function () {
+				if (status === null || status === undefined) return;
+				syncFromStatus();
+			}, [status]);
+			useEffect(function () {
+				var stopped = false;
+				var timer = 0;
+				function tick() {
+					props.call('organize-jobs', { limit: 5 }).then(function (value) {
+						if (stopped) return;
+						setJobs(value);
+						var running = String((value !== null && value !== undefined && value.running) || '');
+						// 一次作业从运行到结束只算一次「完成」：用它刷新状态卡和
+						// 会话/库计数，之后不再续定时器。
+						if (lastRunning.current !== '' && running === '') {
+							props.call('organize-status').then(props.onStatus).catch(function () {});
+							props.onCompleted();
+						}
+						lastRunning.current = running;
+						if (running !== '') timer = setTimeout(tick, ORGANIZE_POLL_MS);
+					}).catch(function (error) {
+						if (!stopped) props.notify(messageOf(error), true);
+					});
+				}
+				tick();
+				return function () { stopped = true; clearTimeout(timer); };
+			}, [props.call, pollNonce]);
+			if (digest === null || digest === undefined || status === null || status === undefined) {
+				return h('div', { className: 'ysEmpty' }, t('state.loading'));
+			}
+			var auto = status.auto !== null && status.auto !== undefined ? status.auto : {};
+			var autoSessionSettings = auto.sessions !== null && auto.sessions !== undefined ? auto.sessions : {};
+			var autoFileSettings = auto.files !== null && auto.files !== undefined ? auto.files : {};
+			var scheduler = status.scheduler !== null && status.scheduler !== undefined ? status.scheduler : {};
+			var providers = Array.isArray(status.providers) ? status.providers : [];
+			var current = status.current !== null && status.current !== undefined ? status.current : null;
+			var catalogFailed = status.catalogFailed === true;
+			var startBlocked = catalogFailed || current === null;
+			var blockedHint = catalogFailed
+				? t('organize.model.catalogFailed')
+				: (current === null ? t('organize.model.unavailable') : '');
+			var providerEntry = providers.filter(function (item) { return item.id === provider; })[0];
+			var models = providerEntry !== undefined && Array.isArray(providerEntry.models) ? providerEntry.models : [];
+			var modelEntry = models.filter(function (item) { return item.id === modelName; })[0];
+			var reasoning = modelEntry !== undefined && modelEntry.reasoning !== null && modelEntry.reasoning !== undefined
+				? modelEntry.reasoning
+				: null;
+			var efforts = reasoning !== null && Array.isArray(reasoning.efforts) ? reasoning.efforts : [];
+			var listing = jobs !== null && typeof jobs === 'object' ? jobs : { jobs: [], total: 0, running: '' };
+			var history = Array.isArray(listing.jobs) ? listing.jobs.slice() : [];
+			// Before the first jobs poll answers, the status snapshot already names
+			// the latest job; use it so the list does not flash empty. Once the
+			// list endpoint answers, its (possibly empty) result wins.
+			if (history.length === 0 && jobs === null && status.job !== null && status.job !== undefined) history = [status.job];
+			var runningId = String(listing.running || '');
+			var jobRunning = runningId !== '' || history.some(function (job) {
+				return job.status === 'queued' || job.status === 'running';
+			});
+			var startDisabled = busy !== '' || jobRunning || startBlocked;
+			var totalSessions = Number(digest.sessionTotal);
+			if (!Number.isFinite(totalSessions)) totalSessions = Array.isArray(digest.sessions) ? digest.sessions.length : 0;
+			var pendingCount = Number(scheduler.pendingSessions);
+			var pendingSessions = Number.isFinite(pendingCount) ? pendingCount : null;
+			var idleValue = clampNumber(idleMinutes, 5, 240, 30);
+			var hourValue = clampNumber(hour, 0, 23, 3);
+			var effectiveLabel = current === null ? '—' : String(current.provider) + ' / ' + String(current.model);
+			var lastSession = scheduler.lastSessionRun !== null && scheduler.lastSessionRun !== undefined ? scheduler.lastSessionRun : null;
+			var lastFiles = scheduler.lastFilesRun !== null && scheduler.lastFilesRun !== undefined ? scheduler.lastFilesRun : null;
+			var sessionsInfo = t('organize.sessions.total').replace('{n}', String(totalSessions))
+				+ (pendingSessions === null ? '' : ' · ' + t('organize.sessions.pending').replace('{n}', String(pendingSessions)))
+				+ ' · ' + lastRunText(lastSession);
+			function clampNumber(value, min, max, fallback) {
+				var number = Math.round(Number(value));
+				if (!Number.isFinite(number)) return fallback;
+				return Math.min(max, Math.max(min, number));
+			}
+			function refreshJobs() {
+				setPollNonce(function (value) { return value + 1; });
+			}
+			function syncFromStatus() {
+				var savedAuto = status.auto !== null && status.auto !== undefined ? status.auto : {};
+				var savedSessions = savedAuto.sessions !== null && savedAuto.sessions !== undefined ? savedAuto.sessions : {};
+				var savedFiles = savedAuto.files !== null && savedAuto.files !== undefined ? savedAuto.files : {};
+				setAutoSessions(savedSessions.enabled === true);
+				setIdleMinutes(String(Number(savedSessions.idleMinutes) || 30));
+				setAutoFiles(savedFiles.enabled === true);
+				setHour(String(Number.isFinite(Number(savedFiles.hour)) ? Number(savedFiles.hour) : 3));
+				setFollows(status.followsChat !== false);
+				var chosen = status.model !== null && status.model !== undefined ? status.model : status.current;
+				setProvider(chosen !== null && chosen !== undefined && typeof chosen.provider === 'string' ? chosen.provider : '');
+				setModelName(chosen !== null && chosen !== undefined && typeof chosen.model === 'string' ? chosen.model : '');
+				setEffort(chosen !== null && chosen !== undefined && typeof chosen.reasoningEffort === 'string' ? chosen.reasoningEffort : '');
+			}
+			function saveModel() {
+				if (busy !== '') return;
+				var selection = follows ? null : { provider: provider, model: modelName };
+				if (!follows && effort !== '') selection.reasoningEffort = effort;
+				setBusy('save-model');
+				props.call('organize-save', { model: selection }).then(function (value) {
+					props.onStatus(value);
+					props.notify(t('organize.model.saved'));
 				}).catch(function (error) {
 					props.notify(messageOf(error), true);
 				}).then(function () { setBusy(''); });
 			}
-			function reload() {
-				setBusy('reload');
-				props.call('digest').then(props.onLoaded).catch(function (error) {
+			function saveAuto(kind) {
+				if (busy !== '') return;
+				var payload = kind === 'sessions'
+					? { auto: { sessions: { enabled: autoSessions, idleMinutes: idleValue } } }
+					: { auto: { files: { enabled: autoFiles, hour: hourValue } } };
+				setBusy('save-' + kind);
+				props.call('organize-save', payload).then(function (value) {
+					props.onStatus(value);
+					props.notify(t('organize.saved'));
+				}).catch(function (error) {
 					props.notify(messageOf(error), true);
 				}).then(function () { setBusy(''); });
 			}
-			function sampleRow(key, item, index) {
-				if (key === 'singleTags') return h('li', { className: 'ysIssueItem', key: 'i' + index }, item.tag);
-				if (key === 'dangling') {
-					return h('li', { className: 'ysIssueItem', key: 'i' + index },
-						(item.fromName === '' ? item.from : item.fromName) + ' → ' + String(item.to).slice(0, 12));
-				}
-				return h('li', {
-					className: 'ysIssueItem',
-					key: 'i' + index,
-					role: 'button',
-					tabIndex: 0,
-					onClick: function () { props.onOpen(item.id); }
-				}, item.name + ' · ' + item.description);
+			function startJob(kind) {
+				if (busy !== '') return;
+				setBusy('start-' + kind);
+				props.call('organize-start', { kind: kind }).then(function () {
+					props.notify(t('organize.job.started'));
+					refreshJobs();
+				}).catch(function (error) {
+					props.notify(messageOf(error), true);
+				}).then(function () { setBusy(''); });
+			}
+			function cancelJob(job) {
+				if (busy !== '') return;
+				setBusy('cancel');
+				props.call('organize-cancel', { id: job.id }).then(function (value) {
+					if (value !== null && value !== undefined && value.cancelled === true) {
+						props.notify(t('organize.job.cancelRequested'));
+					}
+					refreshJobs();
+				}).catch(function (error) {
+					props.notify(messageOf(error), true);
+				}).then(function () { setBusy(''); });
+			}
+			function jobStatusLabel(job) {
+				var key = 'organize.job.' + String(job.status);
+				var label = t(key);
+				return label === key ? String(job.status) : label;
+			}
+			function kindLabel(kind) {
+				var key = 'organize.job.kind.' + String(kind);
+				var label = t(key);
+				return label === key ? String(kind) : label;
+			}
+			function lastRunText(run) {
+				if (run === null || run === undefined) return t('organize.never');
+				var at = relativeTime(run.finishedAt === '' ? run.startedAt : run.finishedAt);
+				return at === '' ? t('organize.never') : t('organize.lastRun').replace('{at}', at);
+			}
+			function countsText(job) {
+				var result = job.result !== null && job.result !== undefined ? job.result : {};
+				var counts = {
+					created: Number(result.created) || 0,
+					updated: Number(result.updated) || 0,
+					merged: Number(result.merged) || 0,
+					archived: Number(result.archived) || 0,
+					removed: Number(result.removed) || 0,
+					retagged: Number(result.retagged) || 0,
+					linked: Number(result.linked) || 0
+				};
+				var total = counts.created + counts.updated + counts.merged + counts.archived
+					+ counts.removed + counts.retagged + counts.linked;
+				if (total === 0) return t('organize.job.noChanges');
+				return t('organize.job.counts')
+					.replace('{created}', String(counts.created))
+					.replace('{updated}', String(counts.updated))
+					.replace('{merged}', String(counts.merged))
+					.replace('{archived}', String(counts.archived))
+					.replace('{removed}', String(counts.removed))
+					.replace('{retagged}', String(counts.retagged))
+					.replace('{linked}', String(counts.linked));
+			}
+			function jobRow(job) {
+				var active = job.status === 'queued' || job.status === 'running';
+				var log = Array.isArray(job.log) ? job.log : [];
+				return h('div', { className: 'ysJobRow', key: job.id },
+					h('div', { className: 'ysJobLine' },
+						h('span', {
+							className: 'ysBadge'
+								+ (job.status === 'running' ? ' ysJobRunning' : job.status === 'failed' ? ' ysJobFailed' : '')
+						}, jobStatusLabel(job)),
+						h('span', { className: 'ysJobKind' }, kindLabel(job.kind)),
+						h('span', { className: 'ysJobMeta' }, relativeTime(job.startedAt)),
+						h('span', { className: 'ysJobMeta', style: { flex: 1 } }, countsText(job)),
+						active
+							? h('button', {
+								className: 'ysButton',
+								disabled: busy !== '',
+								onClick: function () { cancelJob(job); }
+							}, t('organize.job.cancel'))
+							: null),
+					job.error !== null && job.error !== undefined && job.error !== ''
+						? h('div', { className: 'ysHint ysJobFailed' }, t('organize.job.error').replace('{error}', String(job.error)))
+						: null,
+					log.length === 0
+						? null
+						: h('details', { className: 'ysJobLog' },
+							h('summary', null, t('organize.job.log')),
+							h('pre', { className: 'ysPre', style: { maxHeight: 180, marginBottom: 0 } }, log.join('\n'))));
+			}
+			function modelCard() {
+				var providerOptions = [h('option', { key: '__none', value: '' }, '—')].concat(providers.map(function (item) {
+					return h('option', { key: item.id, value: item.id }, item.name || item.id);
+				}));
+				var modelOptions = [h('option', { key: '__none', value: '' }, '—')].concat(models.map(function (item) {
+					return h('option', { key: item.id, value: item.id }, item.name || item.id);
+				}));
+				var effortOptions = [h('option', { key: '__none', value: '' }, t('organize.model.defaultEffort'))].concat(efforts.map(function (item) {
+					return h('option', { key: item.id, value: item.id }, item.name || item.id);
+				}));
+				return h('div', { className: 'ysCard' },
+					h('div', { className: 'ysCardHead' },
+						h('span', { className: 'ysCardTitle' }, t('organize.model')),
+						h('span', { className: 'ysCardCount' }, effectiveLabel)),
+					h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('organize.model.hint')),
+					blockedHint === '' ? null : h('div', { className: 'ysHint ysJobFailed', style: { marginBottom: 8 } }, blockedHint),
+					h('div', { className: 'ysToolbar' },
+						h('label', { className: 'ysCheck' },
+							h('input', {
+								type: 'checkbox',
+								checked: follows,
+								onChange: function (event) {
+									var checked = event.target.checked;
+									setFollows(checked);
+									if (checked) syncFromStatus();
+								}
+							}),
+							t('organize.model.follow')),
+						h('select', {
+							className: 'ysSelect',
+							'aria-label': t('organize.model.provider'),
+							value: provider,
+							disabled: follows || busy !== '',
+							onChange: function (event) {
+								var nextId = event.target.value;
+								var entry = providers.filter(function (item) { return item.id === nextId; })[0];
+								var nextModels = entry !== undefined && Array.isArray(entry.models) ? entry.models : [];
+								setProvider(nextId);
+								setModelName(nextModels.length > 0 ? nextModels[0].id : '');
+								setEffort('');
+							}
+						}, providerOptions),
+						h('select', {
+							className: 'ysSelect',
+							'aria-label': t('organize.model.model'),
+							value: modelName,
+							disabled: follows || busy !== '',
+							onChange: function (event) { setModelName(event.target.value); setEffort(''); }
+						}, modelOptions),
+						h('select', {
+							className: 'ysSelect',
+							'aria-label': t('organize.model.effort'),
+							value: effort,
+							disabled: follows || busy !== '',
+							onChange: function (event) { setEffort(event.target.value); }
+						}, effortOptions),
+						h('span', { style: { flex: 1 } }),
+						h('button', {
+							className: 'ysButton ysButtonPrimary',
+							disabled: busy !== '' || (!follows && (provider === '' || modelName === '')),
+							onClick: saveModel
+						}, t('organize.model.save'))));
+			}
+			function sessionsCard() {
+				return h('div', { className: 'ysCard' },
+					h('div', { className: 'ysCardHead' },
+						h('span', { className: 'ysCardTitle' }, t('organize.sessions.title')),
+						h('span', { className: 'ysBadge' + (autoSessions ? ' ysJobRunning' : '') },
+							autoSessions ? t('organize.enabled') : t('organize.disabled'))),
+					h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('organize.sessions.hint')),
+					h('div', { className: 'ysToolbar' },
+						h('label', { className: 'ysCheck' },
+							h('input', {
+								type: 'checkbox',
+								checked: autoSessions,
+								onChange: function (event) { setAutoSessions(event.target.checked); }
+							}),
+							t('organize.sessions.enable')),
+						h('span', { className: 'ysHint' }, t('organize.sessions.idle')),
+						h('input', {
+							className: 'ysInput ysInputNarrow',
+							type: 'number',
+							min: 5,
+							max: 240,
+							value: idleMinutes,
+							onChange: function (event) { setIdleMinutes(event.target.value); }
+						}),
+						h('span', { className: 'ysHint' }, t('organize.sessions.idleUnit')),
+						h('span', { style: { flex: 1 } }),
+						h('button', {
+							className: 'ysButton',
+							disabled: busy !== '',
+							onClick: function () { saveAuto('sessions'); }
+						}, t('action.save')),
+						h('button', {
+							className: 'ysButton ysButtonPrimary',
+							disabled: startDisabled,
+							onClick: function () { startJob('sessions'); }
+						}, t('organize.sessions.run'))),
+					h('div', { className: 'ysHint' }, sessionsInfo),
+					lastSession !== null && lastSession.status === 'done' ? h('div', { className: 'ysHint' },
+						t('organize.lastResult').replace('{result}', countsText(lastSession))) : null,
+					lastSession !== null && lastSession.error !== null && lastSession.error !== undefined
+						? h('div', { className: 'ysHint ysJobFailed' }, t('organize.lastError').replace('{error}', String(lastSession.error)))
+						: null);
+			}
+			function filesCard() {
+				return h('div', { className: 'ysCard' },
+					h('div', { className: 'ysCardHead' },
+						h('span', { className: 'ysCardTitle' }, t('organize.files.title')),
+						h('span', { className: 'ysBadge' + (autoFiles ? ' ysJobRunning' : '') },
+							autoFiles ? t('organize.enabled') : t('organize.disabled'))),
+					h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('organize.files.hint')),
+					h('div', { className: 'ysToolbar' },
+						h('label', { className: 'ysCheck' },
+							h('input', {
+								type: 'checkbox',
+								checked: autoFiles,
+								onChange: function (event) { setAutoFiles(event.target.checked); }
+							}),
+							t('organize.files.enable')),
+						h('span', { className: 'ysHint' }, t('organize.files.hour')),
+						h('input', {
+							className: 'ysInput ysInputNarrow',
+							type: 'number',
+							min: 0,
+							max: 23,
+							value: hour,
+							onChange: function (event) { setHour(event.target.value); }
+						}),
+						h('span', { className: 'ysHint' }, t('organize.files.hourUnit')),
+						h('span', { style: { flex: 1 } }),
+						h('button', {
+							className: 'ysButton',
+							disabled: busy !== '',
+							onClick: function () { saveAuto('files'); }
+						}, t('action.save')),
+						h('button', {
+							className: 'ysButton ysButtonPrimary',
+							disabled: startDisabled,
+							onClick: function () { startJob('files'); }
+						}, t('organize.files.run'))),
+					h('div', { className: 'ysHint' }, lastRunText(lastFiles)),
+					lastFiles !== null && lastFiles.status === 'done' ? h('div', { className: 'ysHint' },
+						t('organize.lastResult').replace('{result}', countsText(lastFiles))) : null,
+					lastFiles !== null && lastFiles.error !== null && lastFiles.error !== undefined
+						? h('div', { className: 'ysHint ysJobFailed' }, t('organize.lastError').replace('{error}', String(lastFiles.error)))
+						: null);
 			}
 			return h('div', null,
-				h('div', { className: 'ysSection' }, t('organize.sessions')),
-				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
-					t('organize.sessions.hint') + ' · '
-					+ t('organize.sessions.total')
-						.replace('{n}', String(digest.sessionTotal ?? sessions.length))
-						.replace('{m}', String(digest.unreadable ?? 0))),
-				sessions.length === 0
-					? h('div', { className: 'ysEmpty' }, t('organize.noSessions'))
-					: h('div', null, sessions.map(function (session) {
-						return h('div', { className: 'ysSessionRow', key: session.id },
-							h('span', { className: 'ysSessionTitle' }, session.title === '' ? session.id : session.title),
-							h('span', { className: 'ysSessionMeta' }, t('organize.session.turns').replace('{n}', String(session.prompts))),
-							h('span', { className: 'ysSessionMeta' }, relativeTime(session.updatedAt)));
-					})),
-				h('div', { className: 'ysSection' }, t('organize.issues')),
-				h('div', { className: 'ysIssueGrid' }, issues.map(function (issue) {
-					var card = issue[3] || {};
-					var samples = Array.isArray(card.sample) ? card.sample : [];
-					return h('div', { className: 'ysIssue', key: issue[0] },
-						h('div', { className: 'ysIssueTitle' }, issue[1]),
-						h('div', { className: 'ysIssueCount' }, String(card.total ?? 0)),
-						h('div', { className: 'ysIssueHint' }, issue[2]),
-						samples.length === 0
-							? h('div', { className: 'ysIssueHint' }, t('organize.empty'))
-							: h('ul', { className: 'ysIssueList' }, samples.map(function (item, index) {
-								return sampleRow(issue[0], item, index);
-							})));
-				})),
-				h('div', { className: 'ysSection' }, t('organize.actions')),
-				h('div', { className: 'ysActions' },
-					h('button', { className: 'ysButton', disabled: busy !== '', onClick: rebuild }, t('organize.rebuild')),
-					h('button', { className: 'ysButton', disabled: busy !== '', onClick: reload }, t('organize.reload')),
-					message === '' ? null : h('span', { className: 'ysHint', style: { alignSelf: 'center' } }, message)));
+				h('div', { className: 'ysHint', style: { marginBottom: 14 } }, t('organize.hint')),
+				h('div', { className: 'ysOrganizeCards' }, modelCard(), sessionsCard(), filesCard()),
+				h('div', { className: 'ysSection' }, t('organize.jobs')),
+				jobRunning ? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('organize.busy')) : null,
+				history.length === 0
+					? h('div', { className: 'ysEmpty' }, t('organize.job.none'))
+					: h('div', null, history.slice(0, 5).map(jobRow)));
 		}
 
 
@@ -2947,8 +3684,7 @@ window.__ModuleLoader__.load({
 				setDraft({
 					descriptionMaxChars: settings.descriptionMaxChars,
 					maxFileMb: Math.round((settings.maxFileBytes || 0) / 1024 / 1024),
-					readTextKb: Math.round((settings.readTextBytes || 0) / 1024),
-					injectionBudget: settings.injectionBudget
+					readTextKb: Math.round((settings.readTextBytes || 0) / 1024)
 				});
 			}, [settings]);
 			if (settings === null || settings === undefined || draft === null) return h('div', { className: 'ysEmpty' }, t('state.loading'));
@@ -2963,9 +3699,6 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'ysField' },
 					h('label', { className: 'ysLabel' }, t('settings.readTextKb')),
 					h('input', { className: 'ysInput', type: 'number', min: 4, max: 4096, value: draft.readTextKb, onChange: function (event) { setDraft(Object.assign({}, draft, { readTextKb: Number(event.target.value) })); } })),
-				h('div', { className: 'ysField' },
-					h('label', { className: 'ysLabel' }, t('settings.injectionBudget')),
-					h('input', { className: 'ysInput', type: 'number', min: 1024, max: 16384, value: draft.injectionBudget, onChange: function (event) { setDraft(Object.assign({}, draft, { injectionBudget: Number(event.target.value) })); } })),
 				h('div', { className: 'ysActions' },
 					h('button', {
 						className: 'ysButton ysButtonPrimary',
@@ -2973,8 +3706,7 @@ window.__ModuleLoader__.load({
 							props.onSave({
 								descriptionMaxChars: draft.descriptionMaxChars,
 								maxFileBytes: draft.maxFileMb * 1024 * 1024,
-								readTextBytes: draft.readTextKb * 1024,
-								injectionBudget: draft.injectionBudget
+								readTextBytes: draft.readTextKb * 1024
 							});
 						}
 					}, t('action.save'))));
@@ -3070,6 +3802,8 @@ window.__ModuleLoader__.load({
 			var [injection, setInjection] = useState(null);
 			var [preferences, setPreferences] = useState(null);
 			var [digest, setDigest] = useState(null);
+			var [organizeStatus, setOrganizeStatus] = useState(null);
+			var [toolCatalog, setToolCatalog] = useState(null);
 			var [settings, setSettings] = useState(null);
 			var [logs, setLogs] = useState(null);
 			var [dataStatus, setDataStatus] = useState(null);
@@ -3172,6 +3906,21 @@ window.__ModuleLoader__.load({
 				return call('data-status').then(setDataStatus).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
 			}, [call, notify]);
 
+			var loadOrganizeStatus = useCallback(function () {
+				return call('organize-status').then(setOrganizeStatus).catch(function (error) {
+					setLoadError(messageOf(error));
+					notify(messageOf(error), true);
+				});
+			}, [call, notify]);
+
+			// 工具目录是静态的（宿主在插件加载时注册），失败只影响工具栏，
+			// 所以在 Pane 里内联失败态 + 重试，不弹全局 toast。
+			var loadTools = useCallback(function () {
+				return call('tools').then(setToolCatalog).catch(function (error) {
+					setToolCatalog({ error: messageOf(error), tools: [], total: 0 });
+				});
+			}, [call]);
+
 			useEffect(function () {
 				loadOverview();
 				loadDataStatus();
@@ -3209,14 +3958,17 @@ window.__ModuleLoader__.load({
 				// The preferences file lives outside the library and another
 				// session may have edited it; read it whenever the tab opens.
 				call('preferences').then(setPreferences).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
+				// The tool catalog is served by the host, not the library.
+				loadTools();
 				return undefined;
-			}, [tab, call, notify]);
+			}, [tab, call, notify, loadTools]);
 
 			useEffect(function () {
 				if (tab !== 'organize') return undefined;
 				call('digest').then(setDigest).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
+				loadOrganizeStatus();
 				return undefined;
-			}, [tab, call, notify]);
+			}, [tab, call, notify, loadOrganizeStatus]);
 
 			function saveDetail() {
 				if (detail === null || draft === null) return;
@@ -3431,10 +4183,11 @@ window.__ModuleLoader__.load({
 											t: t,
 											injection: injection,
 											preferences: preferences,
+											tools: toolCatalog,
 											call: call,
 											notify: notify,
-											onLoaded: setInjection,
 											onPreferences: setPreferences,
+											onReloadTools: loadTools,
 											onCopy: function (path) {
 												if (typeof navigator !== 'undefined' && navigator.clipboard) {
 													navigator.clipboard.writeText(String(path || '')).then(function () { notify(t('action.copied')); }).catch(function () { notify('复制失败', true); });
@@ -3445,11 +4198,14 @@ window.__ModuleLoader__.load({
 											? h(OrganizeTab, {
 												t: t,
 												digest: digest,
+												status: organizeStatus,
 												call: call,
 												notify: notify,
-												onOpen: openFile,
-												onLoaded: setDigest,
-												onRefreshAll: refreshAll
+												onStatus: setOrganizeStatus,
+												onCompleted: function () {
+													// 作业结束后库可能已经变了，重读一次概览与摘要。
+													call('digest').then(setDigest).catch(function () {});
+												}
 											})
 											: h(LogsTab, { t: t, logs: logs, onRefresh: function () { call('logs', { limit: 200 }).then(setLogs).catch(function (error) { notify(messageOf(error), true); }); } })),
 				dialog ? h(Dialog, { t: t, dialog: dialog, setDialog: setDialog, busy: busy, onSubmit: submitDialog, onClose: function () { setDialog(null); } }) : null,				toast ? h('div', { className: 'ysToast' + (toast.error ? ' ysToastError' : ''), role: 'status', 'aria-live': 'polite' }, toast.message) : null);
@@ -3516,7 +4272,14 @@ window.__ModuleLoader__.load({
 				massOf: massOf,
 				sphereLayout: sphereLayout,
 				SphereLayout: SphereLayout,
-				NetworkLayout: NetworkLayout
+				NetworkLayout: NetworkLayout,
+				// The reference canvas the globe's collision distances are defined
+				// on, plus the empty pixels each layout keeps between two dots;
+				// tests need them to turn radii into contact distances.
+				GLOBE_REFERENCE_PX: GLOBE_REFERENCE_PX,
+				GLOBE_DOT_GAP: GLOBE_DOT_GAP,
+				NETWORK_DOT_GAP: NETWORK_DOT_GAP,
+				NETWORK_VIEW: NETWORK_VIEW
 			}
 		};
 	}

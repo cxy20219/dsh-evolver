@@ -19,8 +19,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 
+import { dayKey } from './day.js'
 import { IndexDatabase } from './db.js'
-import { dayKey } from './injection.js'
 import { fileId, isFileId, shortIds } from './ids.js'
 import {
 	DEFAULT_DESCRIPTION_CHARS,

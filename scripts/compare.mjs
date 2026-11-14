@@ -9,7 +9,7 @@
  *   - tag filtering
  *   - graph retrieval
  *   - write/read/startup/rebuild timing
- *   - injection size and storage footprint
+ *   - static prompt size and storage footprint
  *
  * Everything is measured on copies; the live data folder is never written.
  *
@@ -21,7 +21,6 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { indexText, refreshIndex } from '../src/injection.js'
 import { clipDescription } from '../src/meta.js'
 import { staticSection } from '../src/prompt.js'
 import { FileStore } from '../src/store.js'
@@ -174,12 +173,10 @@ function renderReport(report) {
 		['迁移后链接', report.library.newLinks],
 		['迁移后标签', report.library.newTags],
 	])
-	lines.push('## 1. 注入体积')
+	lines.push('## 1. 静态注入体积')
 	lines.push('')
 	table(['部分', '老插件', '自衍中枢'], [
-		['静态纪律 + 主动性协议', `${report.injection.oldStatic} B`, `${report.injection.newStatic} B`],
-		['运行时候选（12 个 + 摘要）', `${report.injection.oldIndex} B`, `${report.injection.newIndex} B`],
-		['合计', `${report.injection.oldTotal} B`, `${report.injection.newTotal} B`],
+		['静态段（纪律 + 主动性协议）', `${report.injection.oldStatic} B`, `${report.injection.newStatic} B`],
 	])
 	lines.push('## 2. 存储占用')
 	lines.push('')
@@ -220,7 +217,7 @@ function renderReport(report) {
 	lines.push('')
 	for (const line of [
 		'老库默认 `query` 同时索引正文与描述；自衍中枢只索引 name/description/tags。第 3 节的“老描述基线”用 description+tags 的 token 重叠做对照，避免把“少了正文索引”误读成“描述检索变差”。',
-		'老库存储统计只复制了 `knowledge/`；自衍中枢包含 `files/` 与 `system/`（DB、快照、设置、日志）。文件数差异主要来自每实体一个目录 + meta.json + SQLite。',
+		'老库存储统计只复制了 `knowledge/`；自衍中枢包含 `files/` 与 `system/`（DB、设置、日志）。文件数差异主要来自每实体一个目录 + meta.json + SQLite。',
 		'写入计时是 API 路径（不含 fsync）；启动计时是热缓存下的单次调用；Node 26 环境，桌面端 Node 24 的绝对数值会更高，两侧同环境对比仍成立。',
 		'迁移把老附件变成了独立文件实体，并补了卡片 ↔ 附件的 links；所以自衍中枢的图比老图多节点/边，这是模型差异，不是排序 bug。',
 		'样本是 135 张卡 / 10 个附件的真实库；延迟绝对值很小，受机器负载影响；大库趋势需另测。',
@@ -314,10 +311,7 @@ async function main() {
 	const migrationMs = now() - migrationStart
 	const stats = newStore.stats()
 
-	await refreshIndex(newStore)
-	const oldIndex = oldModules.prompt.cardIndexText(oldStore)
 	const oldStatic = `${oldModules.prompt.cardSection()}\n\n${oldModules.proactive.PROACTIVE_PROTOCOL}`
-	const newIndex = await indexText(newStore, 4096)
 	const newStatic = staticSection()
 
 	// A description-only baseline over the old cards. The old query ranks
@@ -464,16 +458,16 @@ async function main() {
 
 	const oldTree = await treeStats(oldData)
 	const newTree = await treeStats(newData)
-	const oldTotal = Buffer.byteLength(oldStatic, 'utf8') + Buffer.byteLength(oldIndex, 'utf8')
-	const newTotal = Buffer.byteLength(newStatic, 'utf8') + Buffer.byteLength(newIndex, 'utf8')
+	const oldStaticBytes = Buffer.byteLength(oldStatic, 'utf8')
+	const newStaticBytes = Buffer.byteLength(newStatic, 'utf8')
 	const overlap = queries.reduce((sum, row) => sum + row.overlap, 0)
 	const descriptionHits = queries.reduce((sum, row) => sum + row.oldDescriptionCount, 0)
 	const defaultHits = queries.reduce((sum, row) => sum + row.oldCount, 0)
 	const conclusions = [
 		`描述检索：新库 top5 与老库“描述基线 top5”重合 ${overlap}/${descriptionHits}；差额来自排序策略（基线是 token 重叠，自衍中枢是 BM25+新近度+度数）和附件文件进入 top5。老库默认（正文+描述）top5 共 ${defaultHits} 条，比描述基线多 ${defaultHits - descriptionHits} 条，那是正文索引的额外召回。新库返回体平均 ${round(queries.reduce((sum, row) => sum + row.newBytes, 0) / queries.length)} B，老库 ${round(queries.reduce((sum, row) => sum + row.oldBytes, 0) / queries.length)} B（老查询结果带正文）。`,
 		`正文词检索：${bodyOnly.length === 0 ? '没有采到可用样本' : bodyOnly.map((row) => `${row.term} ${row.oldHits}→${row.newHits}`).join('；')}。${bodyOnly.filter((row) => row.newHits === 0).length}/${bodyOnly.length} 个新库 0 命中，说明“描述没写就搜不到”；其余是附件描述/迁移描述带来的新命中。`,
-		`注入：老 ${oldTotal} B，新 ${newTotal} B，差 ${newTotal - oldTotal} B。`,
-		`存储：老 ${oldTree.files} 个文件 / ${oldTree.bytes} B；新 ${newTree.files} 个文件 / ${newTree.bytes} B（${round((newTree.bytes / Math.max(1, oldTree.bytes)) * 100)}%）。新增主要是每实体的 meta.json、DB 与快照。`,
+		`静态注入：老 ${oldStaticBytes} B，新 ${newStaticBytes} B，差 ${newStaticBytes - oldStaticBytes} B；自衍中枢不再注入运行时索引，只有一段静态段。`,
+		`存储：老 ${oldTree.files} 个文件 / ${oldTree.bytes} B；新 ${newTree.files} 个文件 / ${newTree.bytes} B（${round((newTree.bytes / Math.max(1, oldTree.bytes)) * 100)}%）。新增主要是每实体的 meta.json 与 DB。`,
 		`写入：老 ${round(oldWriteMs)} ms / 100，新 ${round(newWriteMs)} ms / 100；新库每次写字节+边车+DB 三处，老库是一次追加日志。`,
 		`启动：老库首次加载 ${round(oldInitMs)} ms；新库重开 ${round(newWarmMs)} ms、全量重建 ${round(newRebuildMs)} ms（空库首次打开 ${round(newColdMs)} ms，不可比）。`,
 		`图：老返回 ${graph.oldNodes} 节点 / ${graph.oldEdges} 边；新返回 ${graph.newNodes} 节点 / ${graph.newEdges} 边，新库把附件也当成节点。`,
@@ -494,12 +488,8 @@ async function main() {
 		},
 		migrationMs,
 		injection: {
-			oldStatic: Buffer.byteLength(oldStatic, 'utf8'),
-			oldIndex: Buffer.byteLength(oldIndex, 'utf8'),
-			oldTotal,
-			newStatic: Buffer.byteLength(newStatic, 'utf8'),
-			newIndex: Buffer.byteLength(newIndex, 'utf8'),
-			newTotal,
+			oldStatic: oldStaticBytes,
+			newStatic: newStaticBytes,
 		},
 		storage: {
 			oldFiles: oldTree.files,
