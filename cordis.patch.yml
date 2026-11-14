@@ -1,7 +1,8 @@
 # dsh-ziyan — 自衍中枢：一切皆文件的知识库。
 #
-# Host half: the file tools, the two prompt blocks and the panel endpoints
-# registered by index.js. This patch is what a profile loads.
+# Host half: the file and project-harness tools, the static system prompt block
+# and the panel endpoints registered by index.js. This patch is what a profile
+# loads.
 #
 #   dsh plugin --profile <profile> add /path/to/dsh-ziyan
 #
@@ -11,5 +12,6 @@
       inject: [tools, systemPrompt, connection]
       config:
         # 数据目录：留空则用 ~/.dsh/ziyan。所有数据（files/、ziyan.db、
-        # index.json、settings.json、logs/、trash/）都在这个目录下。
+        # settings.json、organize-jobs.json、organize-ledger.json、logs/、trash/）
+        # 都在这个目录下。
         # dataDir: /Users/chengxinyu/.dsh/ziyan
