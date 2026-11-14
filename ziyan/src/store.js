@@ -642,7 +642,7 @@ export class FileStore {
 	/**
 	 * Counts for the overview and the injected summary.
 	 *
-	 * @returns {{files: number, archived: number, links: number, tags: number, orphans: number, mimes: Array<{mime: string, count: number}>}} The stats.
+	 * @returns {{files: number, archived: number, links: number, tags: number, tagAssignments: number, orphans: number, mimes: Array<{mime: string, count: number}>}} The stats.
 	 */
 	stats() {
 		const base = this.db.stats()

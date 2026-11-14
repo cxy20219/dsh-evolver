@@ -406,18 +406,25 @@ export class IndexDatabase {
 	/**
 	 * Counts for the overview and the injected summary.
 	 *
-	 * @returns {{files: number, archived: number, links: number, tags: number, mimes: Array<{mime: string, count: number}>}} The stats.
+	 * @returns {{files: number, archived: number, links: number, tags: number, tagAssignments: number, mimes: Array<{mime: string, count: number}>}} The stats.
 	 */
 	stats() {
 		const files = Number(this.statement('count-files', 'SELECT COUNT(*) AS c FROM files WHERE archived = 0').get().c)
 		const archived = Number(this.statement('count-archived', 'SELECT COUNT(*) AS c FROM files WHERE archived = 1').get().c)
 		const links = Number(this.statement('count-links', 'SELECT COUNT(*) AS c FROM links').get().c)
-		const tags = Number(this.statement('count-tags', 'SELECT COUNT(*) AS c FROM tags').get().c)
+		// `tags` means distinct tag paths on live files; the flat tag table has
+		// one row per assignment, which is a different number. Keep the latter
+		// as `tagAssignments` for callers that need usage volume.
+		const tags = Number(this.statement(
+			'count-tags',
+			'SELECT COUNT(DISTINCT tags.tag) AS c FROM tags JOIN files ON files.id = tags.file_id WHERE files.archived = 0',
+		).get().c)
+		const tagAssignments = Number(this.statement('count-tag-assignments', 'SELECT COUNT(*) AS c FROM tags').get().c)
 		const mimes = this.statement(
 			'count-mimes',
 			'SELECT mime, COUNT(*) AS c FROM files WHERE archived = 0 GROUP BY mime ORDER BY c DESC, mime ASC',
 		).all().map((row) => ({ mime: String(row.mime), count: Number(row.c) }))
-		return { files, archived, links, tags, mimes }
+		return { files, archived, links, tags, tagAssignments, mimes }
 	}
 
 	/**

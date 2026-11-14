@@ -29,7 +29,7 @@ test('删掉数据库后重开：从边车重建文件、链接与检索', async
 	let store = new FileStore({ dataDir: dir })
 	await store.open()
 	const a = await store.create({ name: 'design.md', description: '甲虫设计说明，讲文件与链接', content: '自衍中枢 文件 链接', tags: ['工作流'] })
-	const b = await store.create({ tags: ['测试'], name: 'audit.md', description: '蝴蝶审计说明', content: '审计 守卫' })
+	const b = await store.create({ tags: ['工作流'], name: 'audit.md', description: '蝴蝶审计说明', content: '审计 守卫' })
 	await store.link(a.id, b.id)
 	store.close()
 
@@ -42,7 +42,8 @@ test('删掉数据库后重开：从边车重建文件、链接与检索', async
 	const stats = store.stats()
 	assert.equal(stats.files, 2)
 	assert.equal(stats.links, 1)
-	assert.equal(stats.tags, 2)
+	assert.equal(stats.tags, 1, '标签数按不同标签路径算')
+	assert.equal(stats.tagAssignments, 2, '标签指派数保留为另一个字段')
 	assert.equal((await store.list({ query: '甲虫' })).total, 1)
 	const read = await store.read(a.id)
 	assert.equal(read.links[0], b.id)
