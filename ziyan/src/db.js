@@ -428,10 +428,12 @@ export class IndexDatabase {
 	}
 
 	/**
-	 * The most-used tags, for the overview and `file_index`.
+	 * The most-used tags on live files, for the overview and `file_index`.
 	 *
 	 * Full paths only; the store's filter expands a parent to its descendants,
-	 * but the count table stays a flat list of what was written.
+	 * but the count table stays a flat list of what was written. Archived files
+	 * are excluded so the overview's tag count and tag tree describe the live
+	 * library.
 	 *
 	 * @param {number} [limit] - Maximum tags.
 	 * @returns {Array<{tag: string, count: number}>} The counts.
@@ -440,8 +442,17 @@ export class IndexDatabase {
 		const capped = Math.max(1, Math.min(1000, Math.round(Number(limit) || 200)))
 		return this.statement(
 			'tag-counts',
-			'SELECT tag, COUNT(*) AS c FROM tags GROUP BY tag ORDER BY c DESC, tag ASC LIMIT ?',
+			'SELECT tags.tag AS tag, COUNT(*) AS c FROM tags JOIN files ON files.id = tags.file_id WHERE files.archived = 0 GROUP BY tags.tag ORDER BY c DESC, tags.tag ASC LIMIT ?',
 		).all(capped).map((row) => ({ tag: String(row.tag), count: Number(row.c) }))
+	}
+
+	/**
+	 * Creation timestamps for the activity heatmap.
+	 *
+	 * @returns {string[]} The stored ISO timestamps.
+	 */
+	createdDates() {
+		return this.statement('created-dates', 'SELECT created FROM files').all().map((row) => String(row.created))
 	}
 
 	/**

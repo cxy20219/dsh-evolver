@@ -85,6 +85,8 @@ test('面板接口：16 个端点，一次完整读写/上传/预览/图/设置/
 
 		const empty = await post(routes, 'overview')
 		assert.equal(empty.stats.files, 0)
+		assert.equal(empty.stats.days, 0)
+		assert.deepEqual(empty.activity, [])
 		assert.match(empty.injection, /库是空的/)
 
 		const data = await post(routes, 'data-status')

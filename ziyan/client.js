@@ -73,14 +73,23 @@ window.__ModuleLoader__.load({
 			'file.missing': '文件本体缺失',
 			'file.unsafe': '符号链接已拒绝',
 			'overview.files': '文件',
-			'overview.links': '链接',
 			'overview.tags': '标签',
-			'overview.orphans': '孤儿',
-			'overview.archived': '归档',
-			'overview.types': '类型分布',
-			'overview.topTags': '常用标签',
-			'overview.recent': '最近更新',
-			'overview.injection': '注入预览',
+			'overview.days': '天数',
+			'overview.filesHint': '活跃文件',
+			'overview.tagsHint': '不同标签路径',
+			'overview.daysHint': '自首个文件',
+			'overview.heatmap': '记录热力',
+			'overview.heatmap.hint': '记录 {notes} 个文件 · {days} 天有记录。',
+			'overview.heatmap.empty': '还没有文件活动。',
+			'overview.heatmap.unit': '个',
+			'overview.heatmap.less': '少',
+			'overview.heatmap.more': '多',
+			'overview.heatmap.weekdays': '日,一,二,三,四,五,六',
+			'overview.heatmap.monthSuffix': '月',
+			'overview.tagTree': '标签树',
+			'overview.tagTree.empty': '还没有标签。',
+			'overview.relationGraph': '关系图谱',
+			'overview.relationGraph.empty': '还没有文件链接。',
 			'graph.empty': '没有可画的链接。',
 			'graph.hint': '节点 = 文件，边 = 链接；点击节点打开文件。',
 			'settings.dataDir': '数据目录',
@@ -168,14 +177,23 @@ window.__ModuleLoader__.load({
 			'file.missing': 'Payload missing',
 			'file.unsafe': 'Symlink refused',
 			'overview.files': 'Files',
-			'overview.links': 'Links',
 			'overview.tags': 'Tags',
-			'overview.orphans': 'Orphans',
-			'overview.archived': 'Archived',
-			'overview.types': 'Types',
-			'overview.topTags': 'Top tags',
-			'overview.recent': 'Recent',
-			'overview.injection': 'Injected index',
+			'overview.days': 'Days',
+			'overview.filesHint': 'Live files',
+			'overview.tagsHint': 'Distinct tag paths',
+			'overview.daysHint': 'Since first file',
+			'overview.heatmap': 'Activity',
+			'overview.heatmap.hint': '{notes} files · {days} active days.',
+			'overview.heatmap.empty': 'No file activity yet.',
+			'overview.heatmap.unit': 'files',
+			'overview.heatmap.less': 'Less',
+			'overview.heatmap.more': 'More',
+			'overview.heatmap.weekdays': 'S,M,T,W,T,F,S',
+			'overview.heatmap.monthSuffix': '',
+			'overview.tagTree': 'Tag tree',
+			'overview.tagTree.empty': 'No tags yet.',
+			'overview.relationGraph': 'Relationship graph',
+			'overview.relationGraph.empty': 'No file links yet.',
 			'graph.empty': 'No links to draw.',
 			'graph.hint': 'Node = file, edge = link. Click a node to open it.',
 			'settings.dataDir': 'Data directory',
@@ -241,6 +259,9 @@ window.__ModuleLoader__.load({
 			'.ysCard{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:14px 16px}',
 			'.ysStatValue{font-size:22px;font-weight:600;line-height:28px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}',
 			'.ysStatLabel{font-size:11.5px;color:var(--dsw-alias-label-tertiary);margin-top:2px}',
+			'.ysStatHint{font-size:10.5px;color:var(--dsw-alias-label-tertiary);margin-top:1px}',
+			'.ysGridThree{grid-template-columns:repeat(3,minmax(0,1fr))}',
+			'@media(max-width:600px){.ysGridThree{grid-template-columns:1fr}}',
 			'.ysSection{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--dsw-alias-label-tertiary);margin:22px 0 10px;display:flex;align-items:center;gap:10px}',
 			'.ysSection::after{content:"";flex:1;height:1px;background:var(--dsw-alias-border-l2)}',
 			'.ysToolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}',
@@ -281,6 +302,35 @@ window.__ModuleLoader__.load({
 			'.ysActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;padding-bottom:4px;border-top:1px solid var(--dsw-alias-border-l2);position:sticky;top:0;z-index:2;background:var(--dsw-alias-bg-layer-1)}',
 			'.ysNeighbor{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;color:var(--dsw-alias-label-secondary);cursor:pointer;text-align:left;border:none;background:transparent;font-family:inherit}',
 			'.ysNeighbor:hover{color:var(--dsw-alias-label-primary);text-decoration:underline}',
+			'.ysOverviewSplit{display:grid;grid-template-columns:minmax(230px,.85fr) minmax(0,1.15fr);gap:16px;align-items:start;margin-top:18px}',
+			'.ysOverviewPane{min-width:0}',
+			'@media(max-width:900px){.ysOverviewSplit{grid-template-columns:1fr}}',
+			'.ysHeatmapWrap{--ys-heat-gap:2px;overflow-x:auto;padding:2px 0}',
+			'.ysHeatmapBody{display:grid;grid-template-columns:12px minmax(0,1fr);gap:6px;align-items:stretch}',
+			'.ysHeatmapDays{display:grid;grid-template-rows:repeat(7,1fr);font-size:9px;color:var(--dsw-alias-label-tertiary);text-align:right}',
+			'.ysHeatmapDays span{display:flex;align-items:center;justify-content:flex-end}',
+			'.ysHeatmapMonths{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(7px,1fr);gap:var(--ys-heat-gap);margin-left:18px;margin-bottom:4px;font-size:10px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}',
+			'.ysHeatmap{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(7px,1fr);gap:var(--ys-heat-gap)}',
+			'.ysHeatmapWeek{display:grid;grid-template-rows:repeat(7,auto);gap:var(--ys-heat-gap)}',
+			'.ysHeatCell{width:100%;aspect-ratio:1;border-radius:3px;background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l1);box-sizing:border-box}',
+			'.ysHeatBlank{background:none;border-color:transparent}',
+			'.ysHeat1{background:rgba(72,187,120,.28)}',
+			'.ysHeat2{background:rgba(72,187,120,.55)}',
+			'.ysHeat3{background:rgba(47,174,114,.85)}',
+			'.ysHeat4{background:rgba(24,120,74,.95)}',
+			'.ysHeat0{background:var(--dsw-alias-bg-layer-3)}',
+			'.ysHeatLegend{display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:var(--dsw-alias-label-tertiary)}',
+			'.ysHeatLegend .ysHeatCell{width:10px;height:10px;flex:none}',
+			'.ysTagTree{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:8px 10px;max-height:420px;overflow:auto}',
+			'.ysTagNode{display:flex;align-items:center;gap:3px;min-height:24px}',
+			'.ysTagToggle{width:18px;height:20px;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;line-height:20px;padding:0;cursor:pointer;flex:none;text-align:center}',
+			'.ysTagToggleSpacer{width:18px;flex:none}',
+			'.ysTagTreeButton{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:1;min-width:0;border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:2px 0;cursor:pointer;text-align:left}',
+			'.ysTagTreeButton:hover{color:var(--dsw-alias-label-primary)}',
+			'.ysTagTreeName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+			'.ysTagTreeCount{font-size:10.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;flex:none}',
+			'.ysGraphCompact .ysGraphWrap{border-radius:var(--dsw-radius-lg)}',
+			'.ysGraphCompact .ysGraph{height:340px}',
 			'.ysGraphWrap{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
 			'.ysGraph{display:block;width:100%;height:min(62vh,560px)}',
 			'.ysGraphEdge{stroke:var(--dsw-alias-border-l3);stroke-width:1}',
@@ -300,8 +350,6 @@ window.__ModuleLoader__.load({
 			'.ysModalBody{padding:16px 18px}',
 			'.ysModalFoot{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--dsw-alias-border-l2)}',
 			'.ysClose{border:none;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:18px;line-height:1;cursor:pointer}',
-			'.ysBar{height:5px;border-radius:3px;background:var(--dsw-alias-bg-layer-2);overflow:hidden;margin-top:6px}',
-			'.ysBarFill{height:100%;background:var(--dsw-alias-state-business-primary)}'
 		].join('\n');
 
 		//#endregion
@@ -502,65 +550,205 @@ window.__ModuleLoader__.load({
 			);
 		}
 
+		function buildTagTree(rows) {
+			var roots = [];
+			var nodes = new Map();
+			(Array.isArray(rows) ? rows : []).forEach(function (row) {
+				var parts = String(row.tag ?? '').split('/').filter(function (part) { return part !== ''; });
+				var count = Number(row.count) || 0;
+				var children = roots;
+				var prefix = '';
+				parts.forEach(function (name) {
+					var path = prefix === '' ? name : prefix + '/' + name;
+					var node = nodes.get(path);
+					if (node === undefined) {
+						node = { name: name, path: path, count: 0, children: [] };
+						nodes.set(path, node);
+						children.push(node);
+					}
+					// Every ancestor gets the same assignment, so the root count is
+					// the number of live files under that branch.
+					node.count += count;
+					children = node.children;
+					prefix = path;
+				});
+			});
+			function sort(list) {
+				list.sort(function (left, right) {
+					return right.count - left.count || left.path.localeCompare(right.path);
+				});
+				list.forEach(function (node) { sort(node.children); });
+			}
+			sort(roots);
+			return roots;
+		}
+
+		function Heatmap(props) {
+			var t = props.t;
+			var activity = Array.isArray(props.activity) ? props.activity : [];
+			if (activity.length === 0) return h('div', { className: 'ysHint' }, t('overview.heatmap.empty'));
+			var counts = {};
+			activity.forEach(function (item) { counts[item.date] = item.count; });
+			function parse(key) { return new Date(key + 'T00:00:00'); }
+			function keyOf(date) {
+				return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+			}
+			var first = parse(activity[0].date);
+			var last = parse(activity[activity.length - 1].date);
+			if (!Number.isFinite(first.getTime()) || !Number.isFinite(last.getTime())) return h('div', { className: 'ysHint' }, t('overview.heatmap.empty'));
+			var start = new Date(first);
+			start.setDate(start.getDate() - start.getDay());
+			var weeks = [];
+			var cursor = new Date(start);
+			while (cursor <= last) {
+				var week = [];
+				for (var day = 0; day < 7; day += 1) {
+					var date = new Date(cursor);
+					date.setDate(date.getDate() + day);
+					var key = keyOf(date);
+					week.push({ key: key, count: counts[key], inside: date >= first && date <= last });
+				}
+				weeks.push(week);
+				cursor.setDate(cursor.getDate() + 7);
+			}
+			var monthLabels = weeks.map(function (week, index) {
+				var date = parse(week[0].key);
+				var previous = index === 0 ? null : parse(weeks[index - 1][0].key);
+				if (index === 0 || (previous !== null && previous.getMonth() !== date.getMonth())) {
+					return (date.getMonth() + 1) + t('overview.heatmap.monthSuffix');
+				}
+				return '';
+			});
+			var peak = 0;
+			activity.forEach(function (item) {
+				var value = Number(item.count);
+				if (Number.isFinite(value) && value > peak) peak = value;
+			});
+			function level(count) {
+				var value = Number(count);
+				if (!Number.isFinite(value) || value <= 0) return 0;
+				if (peak <= 3) return Math.min(4, value);
+				return Math.min(4, Math.max(1, Math.ceil((value / peak) * 4)));
+			}
+			var weekdays = t('overview.heatmap.weekdays').split(',');
+			return h('div', { className: 'ysHeatmapWrap' },
+				h('div', { className: 'ysHeatmapMonths' }, monthLabels.map(function (label, index) {
+					return h('span', { key: index }, label);
+				})),
+				h('div', { className: 'ysHeatmapBody' },
+					h('div', { className: 'ysHeatmapDays' }, weekdays.map(function (label, index) {
+						return h('span', { key: index }, label);
+					})),
+					h('div', { className: 'ysHeatmap' }, weeks.map(function (week) {
+						return h('div', { key: week[0].key, className: 'ysHeatmapWeek' }, week.map(function (cell) {
+							return h('div', {
+								key: cell.key,
+								className: cell.inside ? 'ysHeatCell ysHeat' + level(cell.count) : 'ysHeatCell ysHeatBlank',
+								title: cell.inside ? cell.key + ' · ' + (cell.count ?? 0) + ' ' + t('overview.heatmap.unit') : '',
+								'aria-label': cell.inside ? cell.key + ' · ' + (cell.count ?? 0) : '',
+							});
+						}));
+					}))),
+				h('div', { className: 'ysHeatLegend' },
+					h('span', null, t('overview.heatmap.less')),
+					h('span', { className: 'ysHeatCell ysHeat0' }),
+					h('span', { className: 'ysHeatCell ysHeat1' }),
+					h('span', { className: 'ysHeatCell ysHeat2' }),
+					h('span', { className: 'ysHeatCell ysHeat3' }),
+					h('span', { className: 'ysHeatCell ysHeat4' }),
+					h('span', null, t('overview.heatmap.more'))));
+		}
+
+		function TagTree(props) {
+			var t = props.t;
+			var nodes = Array.isArray(props.nodes) ? props.nodes : [];
+			var [collapsed, setCollapsed] = useState({});
+			function toggle(path) {
+				setCollapsed(function (current) {
+					var next = { ...current };
+					next[path] = current[path] !== true;
+					return next;
+				});
+			}
+			function rows(list, depth) {
+				var result = [];
+				(list ?? []).forEach(function (node) {
+					var children = Array.isArray(node.children) ? node.children : [];
+					var hasChildren = children.length > 0;
+					var isCollapsed = collapsed[node.path] === true;
+					var content = [
+						hasChildren
+							? h('button', {
+								key: 'toggle',
+								type: 'button',
+								className: 'ysTagToggle',
+								'aria-label': (isCollapsed ? '展开标签 ' : '收起标签 ') + node.path,
+								'aria-expanded': isCollapsed ? 'false' : 'true',
+								onClick: function (event) {
+									if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+									toggle(node.path);
+								}
+							}, isCollapsed ? '▸' : '▾')
+							: h('span', { key: 'toggle', className: 'ysTagToggleSpacer' }),
+						props.onTag === undefined
+							? h('div', { key: 'label', className: 'ysTagTreeButton', title: node.path },
+								h('span', { className: 'ysTagTreeName' }, '#' + node.name),
+								h('span', { className: 'ysTagTreeCount' }, String(node.count)))
+							: h('button', {
+								key: 'label',
+								type: 'button',
+								className: 'ysTagTreeButton',
+								title: node.path,
+								onClick: function () { props.onTag(node.path); }
+							},
+								h('span', { className: 'ysTagTreeName' }, '#' + node.name),
+								h('span', { className: 'ysTagTreeCount' }, String(node.count)))
+					];
+					result.push(h('div', {
+						key: node.path,
+						className: 'ysTagNode',
+						style: { paddingLeft: (depth * 14) + 'px' }
+					}, content));
+					if (hasChildren && !isCollapsed) result = result.concat(rows(children, depth + 1));
+				});
+				return result;
+			}
+			return h('div', { className: 'ysTagTree' },
+				nodes.length === 0 ? h('div', { className: 'ysEmpty' }, t('overview.tagTree.empty')) : rows(nodes, 0));
+		}
+
 		function OverviewTab(props) {
 			var t = props.t;
 			var overview = props.overview;
 			if (overview === null || overview === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
 			var stats = overview.stats || {};
-			var tags = Array.isArray(overview.tags) ? overview.tags : [];
-			var types = Array.isArray(stats.mimes) ? stats.mimes : [];
-			var maxType = types.reduce(function (max, row) { return Math.max(max, row.count); }, 1);
+			var year = overview.year || {};
+			var tree = buildTagTree(overview.tags);
+			var hint = t('overview.heatmap.hint')
+				.replace('{notes}', String(stats.files ?? year.notes ?? 0))
+				.replace('{days}', String(year.activeDays ?? 0));
 			return h('div', null,
-				h('div', { className: 'ysGrid' },
+				h('div', { className: 'ysSection' }, t('overview.heatmap')),
+				h('div', { className: 'ysHint', style: { marginBottom: 8 } }, hint),
+				h(Heatmap, { t: t, activity: overview.activity }),
+				h('div', { className: 'ysGrid ysGridThree' },
 					[
-						[t('overview.files'), stats.files],
-						[t('overview.links'), stats.links],
-						[t('overview.tags'), stats.tags],
-						[t('overview.orphans'), stats.orphans],
-						[t('overview.archived'), stats.archived]
+						[t('overview.files'), stats.files, t('overview.filesHint')],
+						[t('overview.tags'), stats.tags, t('overview.tagsHint')],
+						[t('overview.days'), stats.days, t('overview.daysHint')]
 					].map(function (item) {
 						return h('div', { className: 'ysCard', key: item[0] },
 							h('div', { className: 'ysStatValue' }, String(item[1] ?? 0)),
-							h('div', { className: 'ysStatLabel' }, item[0]));
-					})
-				),
-				h('div', { className: 'ysSection' }, t('overview.types')),
-				types.length === 0 ? h('div', { className: 'ysEmpty' }, '—') : types.map(function (row) {
-					return h('div', { key: row.mime, style: { marginBottom: 8 } },
-						h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: 12 } },
-							h('span', null, typeLabel(row.mime)),
-							h('span', { style: { color: 'var(--dsw-alias-label-tertiary)' } }, String(row.count))),
-						h('div', { className: 'ysBar' },
-							h('div', { className: 'ysBarFill', style: { width: Math.max(3, (row.count / maxType) * 100) + '%' } })));
-				}),
-				h('div', { className: 'ysSection' }, t('overview.topTags')),
-				tags.length === 0 ? h('div', { className: 'ysEmpty' }, '—') : h('div', { className: 'ysTags' },
-					tags.map(function (row) {
-						return h('button', {
-							key: row.tag,
-							className: 'ysTag',
-							style: { cursor: 'pointer', border: 'none' },
-							onClick: function () { props.onTag(row.tag); }
-						}, row.tag + ' ' + row.count);
+							h('div', { className: 'ysStatLabel' }, item[0]),
+							h('div', { className: 'ysStatHint' }, item[2]));
 					})),
-				h('div', { className: 'ysSection' }, t('overview.recent')),
-				h('div', { className: 'ysList' },
-					(overview.recent || []).length === 0
-						? h('div', { className: 'ysEmpty' }, t('files.empty'))
-						: (overview.recent || []).map(function (file) {
-							return h('div', { className: 'ysItem', key: file.id, onClick: function () { props.onOpen(file.id); } },
-								h('div', { className: 'ysItemMain' },
-									h('div', { className: 'ysItemTitle' }, file.name),
-									h('div', { className: 'ysItemDesc' }, file.description),
-									h('div', { className: 'ysItemMeta' }, typeLabel(file.mime) + ' · ' + formatBytes(file.bytes) + ' · ' + relativeTime(file.updated))),
-								h('div', { style: { display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 180 } },
-									(file.tags || []).slice(0, 2).map(function (tag) {
-										return h('span', { className: 'ysTag', key: tag }, tag);
-									})));
-						})),
-				h('div', { className: 'ysSection' }, t('overview.injection')),
-				h('div', { className: 'ysHint', style: { marginBottom: 6 } }, '每日快照：当天写入不会立即改变注入，跨日后刷新。'),
-				h('pre', { className: 'ysPre' }, overview.injection || ''));
+				h('div', { className: 'ysOverviewSplit' },
+					h('div', { className: 'ysOverviewPane' },
+						h('div', { className: 'ysSection' }, t('overview.tagTree')),
+						h(TagTree, { t: t, nodes: tree, onTag: props.onTag })),
+					h('div', { className: 'ysOverviewPane' },
+						h('div', { className: 'ysSection' }, t('overview.relationGraph')),
+						h(GraphTab, { t: t, graph: overview.graph, onOpen: props.onOpen, compact: true }))));
 		}
 
 		function FileRow(props) {
@@ -724,19 +912,20 @@ window.__ModuleLoader__.load({
 		function GraphTab(props) {
 			var t = props.t;
 			var graph = props.graph;
+			var compact = props.compact === true;
 			var layout = useMemo(function () { return layoutGraph(graph); }, [graph]);
 			if (graph === null || graph === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
 			var nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
 			var edges = Array.isArray(graph.edges) ? graph.edges : [];
-			if (nodes.length === 0) return h('div', { className: 'ysEmpty' }, t('graph.empty'));
+			if (nodes.length === 0) return h('div', { className: 'ysEmpty' }, t(compact ? 'overview.relationGraph.empty' : 'graph.empty'));
 			var top = nodes.slice().sort(function (a, b) {
 				var da = a.degree ? a.degree.in + a.degree.out : 0;
 				var db = b.degree ? b.degree.in + b.degree.out : 0;
 				return db - da;
 			}).slice(0, 20);
 			var topIds = new Set(top.map(function (node) { return node.id; }));
-			return h('div', null,
-				h('div', { className: 'ysGraphHint' }, t('graph.hint')),
+			return h('div', { className: compact ? 'ysGraphCompact' : null },
+				compact ? null : h('div', { className: 'ysGraphHint' }, t('graph.hint')),
 				h('div', { className: 'ysGraphWrap' },
 					h('svg', { className: 'ysGraph', viewBox: '0 0 ' + layout.width + ' ' + layout.height },
 						edges.map(function (edge, index) {
@@ -773,13 +962,14 @@ window.__ModuleLoader__.load({
 									? h('text', { x: point.x + 9, y: point.y + 3, className: 'ysGraphLabel' }, node.name)
 									: null);
 						}))),
-				h('div', { className: 'ysLegend' },
+				compact ? null : h('div', { className: 'ysLegend' },
 					[['text/markdown', 'md'], ['image/png', 'img'], ['application/pdf', 'pdf'], ['application/x-sh', 'script']].map(function (entry) {
 						return h('span', { key: entry[0] }, h('span', { className: 'ysDot', style: { background: typeColor(entry[0]) } }), entry[1]);
 					})),
-				h('div', { className: 'ysHint', style: { marginTop: 8 } },
+				compact ? null : h('div', { className: 'ysHint', style: { marginTop: 8 } },
 					'节点 ' + nodes.length + ' · 边 ' + edges.length + (graph.totals && graph.totals.hidden > 0 ? ' · 还有 ' + graph.totals.hidden + ' 个文件未展开' : ''),
-					edges.length === 0 ? ' · 还没有链接；在文件的出链里填目标 id 即可。' : ''));
+					edges.length === 0 ? ' · 还没有链接；在文件的出链里填目标 id 即可。' : ''),
+				compact && edges.length === 0 ? h('div', { className: 'ysHint', style: { marginTop: 8 } }, t('overview.relationGraph.empty')) : null);
 		}
 
 

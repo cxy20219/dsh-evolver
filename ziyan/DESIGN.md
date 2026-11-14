@@ -164,7 +164,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 顶层页签：**概览 / 文件 / 图谱 / 设置 / 日志**（不再有“卡片/资源”两分）。
 
-概览的标签卡片统计**不同标签路径数**（活跃文件去重），`tagAssignments` 保留标签指派总数；单标签引用次数仍由「常用标签」展示。
+概览对齐旧演化器：记录热力图在前，文件/标签/天数三项统计居中，标签树与文件关系图谱并排。标签卡片统计**不同标签路径数**（活跃文件去重），`tagAssignments` 保留标签指派总数；热力图按文件创建日（含归档）统计，天数为首个文件至今。
 
 设置页分「常规 / 数据」两个子标签（复用主标签样式；两个子页都保持挂载，只切换 display，避免丢表单/文件选择）。「数据」子页：当前目录、下次启动目录、复制/attach 模式、导出 `.tar.gz`、导入为新库并切换。目录切换只写 `~/.dsh/ziyan.home.json` 指针，重启生效；导入/导出只操作 `files/` 与设置，DB/索引/日志/回收站不进归档。
 
@@ -360,7 +360,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - 面板设置页「数据」区：当前/下次启动目录、复制/attach、导出下载、选择 `.tar.gz` 导入；导入目标可留空自动新建。
 - 接口从 12 个增至 16 个：`data-status`、`data-dir-save`、`data-export`、`data-import`。
 - 安全：复制先写 staging 再 rename；导入先解压到新目录并校验 `files/<id>/meta.json`、id/name/字节数，再写指针；指针写失败不覆盖旧指针。
-- 验证：`test/home.test.mjs`、`test/data-jobs.test.mjs`、`test/archive.test.mjs`，61 条全绿；隔离 profile 实测复制、指针重启生效、导出下载、上传导入、指针切换。
+- 验证：`test/home.test.mjs`、`test/data-jobs.test.mjs`、`test/archive.test.mjs`，62 条全绿；隔离 profile 实测复制、指针重启生效、导出下载、上传导入、指针切换。
 
 边界：
 

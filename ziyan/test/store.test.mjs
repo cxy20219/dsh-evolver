@@ -211,3 +211,16 @@ test('描述上限跟着设置走：默认 160 拒绝，200 放行', async () =>
 		assert.equal([...file.description].length, 180)
 	}, { descriptionMaxChars: 200 })
 })
+
+test('活动统计：新建文件计入当天，天数从首个文件算起', async () => {
+	await withStore(async (store) => {
+		await store.create({ name: 'today.md', description: '今天写入的活动统计文件', content: 'x', tags: ['测试/活动'] })
+		const now = new Date()
+		const activity = store.activity({ now: now })
+		assert.equal(activity.days, 1)
+		assert.equal(activity.activeDays, 1)
+		assert.equal(activity.notes, 1)
+		assert.equal(activity.activity.length, 365)
+		assert.equal(activity.activity.at(-1).count, 1)
+	})
+})

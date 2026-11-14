@@ -20,6 +20,7 @@ import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } f
 import { basename, dirname, join, resolve } from 'node:path'
 
 import { IndexDatabase } from './db.js'
+import { dayKey } from './injection.js'
 import { fileId, isFileId, shortIds } from './ids.js'
 import {
 	DEFAULT_DESCRIPTION_CHARS,
@@ -637,6 +638,47 @@ export class FileStore {
 	 */
 	tagCounts(limit = 200) {
 		return this.db.tagCounts(limit)
+	}
+
+
+	/**
+	 * Calendar activity for the overview heatmap.
+	 *
+	 * Files, including archived ones, stay on the day they were created: the
+	 * heatmap is a record of writing history, not of the current live count.
+	 * The day key is local, matching the daily injection snapshot.
+	 *
+	 * @param {{days?: number, now?: Date}} [options] - Window length and clock.
+	 * @returns {{activity: Array<{date: string, count: number}>, days: number, activeDays: number, notes: number}} The activity.
+	 */
+	activity({ days = 365, now = new Date() } = {}) {
+		const dates = this.db.createdDates()
+		if (dates.length === 0) return { activity: [], days: 0, activeDays: 0, notes: 0 }
+		const counts = new Map()
+		let first = null
+		for (const iso of dates) {
+			const date = new Date(iso)
+			if (!Number.isFinite(date.getTime())) continue
+			const key = dayKey(date)
+			counts.set(key, (counts.get(key) ?? 0) + 1)
+			const midnight = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+			if (first === null || midnight < first) first = midnight
+		}
+		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+		const activity = []
+		for (let offset = Math.max(1, days) - 1; offset >= 0; offset -= 1) {
+			const date = new Date(today)
+			date.setDate(date.getDate() - offset)
+			const key = dayKey(date)
+			activity.push({ date: key, count: counts.get(key) ?? 0 })
+		}
+		const notes = activity.reduce((sum, item) => sum + item.count, 0)
+		return {
+			activity,
+			days: first === null ? 0 : Math.max(1, Math.floor((today - first) / 86_400_000) + 1),
+			activeDays: activity.filter((item) => item.count > 0).length,
+			notes,
+		}
 	}
 
 	/**

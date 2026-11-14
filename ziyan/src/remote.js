@@ -124,10 +124,21 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 		switch (endpoint) {
 			case 'overview': {
 				const recent = await store.list({ limit: 8 })
+				const listed = await store.list({ limit: 500 })
+				const graph = store.graph(listed.files.map((file) => file.id), { hops: 1, limit: 500 })
+				const activity = store.activity()
+				const stats = store.stats()
 				return {
 					version,
-					stats: store.stats(),
-					tags: store.tagCounts(20),
+					stats: { ...stats, days: activity.days },
+					tags: store.tagCounts(1000),
+					activity: activity.activity,
+					year: {
+						notes: activity.notes,
+						activeDays: activity.activeDays,
+						days: activity.activity.length,
+					},
+					graph,
 					recent: recent.files,
 					injection: await indexText(store, settings.get().injectionBudget),
 					settings: settings.publicView(),
