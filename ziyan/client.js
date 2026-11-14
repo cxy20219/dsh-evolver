@@ -86,10 +86,10 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.more': '多',
 			'overview.heatmap.weekdays': '日,一,二,三,四,五,六',
 			'overview.heatmap.monthSuffix': '月',
-			'overview.tagTree': '标签树',
-			'overview.tagTree.empty': '还没有标签。',
-			'overview.relationGraph': '关系图谱',
-			'overview.relationGraph.empty': '还没有文件链接。',
+			'overview.tagGraph': '标签关系图',
+			'overview.tagGraph.empty': '还没有标签。',
+			'overview.linkGraph': '链接关系图',
+			'overview.linkGraph.empty': '还没有文件链接。',
 			'graph.empty': '没有可画的链接。',
 			'graph.hint': '节点 = 文件，边 = 链接；点击节点打开文件。',
 			'settings.dataDir': '数据目录',
@@ -190,10 +190,10 @@ window.__ModuleLoader__.load({
 			'overview.heatmap.more': 'More',
 			'overview.heatmap.weekdays': 'S,M,T,W,T,F,S',
 			'overview.heatmap.monthSuffix': '',
-			'overview.tagTree': 'Tag tree',
-			'overview.tagTree.empty': 'No tags yet.',
-			'overview.relationGraph': 'Relationship graph',
-			'overview.relationGraph.empty': 'No file links yet.',
+			'overview.tagGraph': 'Tag graph',
+			'overview.tagGraph.empty': 'No tags yet.',
+			'overview.linkGraph': 'Link graph',
+			'overview.linkGraph.empty': 'No file links yet.',
 			'graph.empty': 'No links to draw.',
 			'graph.hint': 'Node = file, edge = link. Click a node to open it.',
 			'settings.dataDir': 'Data directory',
@@ -321,14 +321,17 @@ window.__ModuleLoader__.load({
 			'.ysHeat0{background:var(--dsw-alias-bg-layer-3)}',
 			'.ysHeatLegend{display:flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:var(--dsw-alias-label-tertiary)}',
 			'.ysHeatLegend .ysHeatCell{width:10px;height:10px;flex:none}',
-			'.ysTagTree{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);padding:8px 10px;max-height:420px;overflow:auto}',
-			'.ysTagNode{display:flex;align-items:center;gap:3px;min-height:24px}',
-			'.ysTagToggle{width:18px;height:20px;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;line-height:20px;padding:0;cursor:pointer;flex:none;text-align:center}',
-			'.ysTagToggleSpacer{width:18px;flex:none}',
-			'.ysTagTreeButton{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:1;min-width:0;border:none;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:20px;padding:2px 0;cursor:pointer;text-align:left}',
-			'.ysTagTreeButton:hover{color:var(--dsw-alias-label-primary)}',
-			'.ysTagTreeName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-			'.ysTagTreeCount{font-size:10.5px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;flex:none}',
+			'.ysTagGraphWrap{position:relative;min-height:220px}',
+			'.ysTagGraph{width:100%;height:auto;max-width:520px;display:block;margin:0 auto;overflow:visible}',
+			'.ysTagEdge{fill:none;stroke-width:1;stroke-opacity:.45}',
+			'.ysTagDot{fill:var(--dsw-alias-bg-base);stroke-width:1.2}',
+			'.ysTagDotRoot{fill:var(--dsw-alias-bg-base);stroke-width:1.6}',
+			'.ysTagHub{fill:var(--dsw-alias-label-tertiary)}',
+			'.ysTagLabel{fill:var(--dsw-alias-label-secondary);font-size:11px;font-family:inherit;cursor:pointer;user-select:none}',
+			'.ysTagRoot{fill:var(--dsw-alias-label-primary);font-size:12px;font-weight:500}',
+			'.ysTagGraphNode{cursor:pointer}',
+			'.ysTagGraphNode:hover .ysTagLabel,.ysTagGraphNode:focus .ysTagLabel{fill:var(--dsw-alias-label-primary)}',
+			'.ysTagGraphNode:focus{outline:none}',
 			'.ysGraphCompact .ysGraphWrap{border-radius:var(--dsw-radius-lg)}',
 			'.ysGraphCompact .ysGraph{height:340px}',
 			'.ysGraphWrap{border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
@@ -659,62 +662,186 @@ window.__ModuleLoader__.load({
 					h('span', null, t('overview.heatmap.more'))));
 		}
 
-		function TagTree(props) {
+		var TAG_BRANCH_COLORS = {
+			'践行': '#4f8a6e',
+			'见闻': '#657ea6',
+			'即兴': '#a77b55',
+			'复盘': '#87679a',
+			'觉察': '#4f8794',
+			'试错': '#9b6b6b'
+		};
+
+		/**
+		 * Estimate the rendered width of a label in graph units.
+		 *
+		 * @param {string} text - The label text.
+		 * @returns {number} The width.
+		 */
+		function labelExtent(text) {
+			var total = 0;
+			for (var index = 0; index < text.length; index += 1) {
+				total += text.charCodeAt(index) > 0x2e80 ? 11 : 6.1;
+			}
+			return total;
+		}
+
+		/**
+		 * How much angular room a subtree needs.
+		 *
+		 * @param {object} node - The tag node.
+		 * @returns {number} The weight.
+		 */
+		function tagGraphWeight(node) {
+			var children = node.children ?? [];
+			if (children.length === 0) return 1;
+			return Math.max(1, children.reduce(function (sum, child) { return sum + tagGraphWeight(child); }, 0));
+		}
+
+		/**
+		 * Lay the whole tag forest out as one radial picture.
+		 *
+		 * @param {object[]} roots - Root tag nodes.
+		 * @returns {object|null} The layout, or null when there is nothing to draw.
+		 */
+		function tagGraphLayout(roots) {
+			var list = Array.isArray(roots) ? roots : [];
+			if (list.length === 0) return null;
+			var width = 520;
+			var height = 460;
+			var cx = width / 2;
+			var cy = height / 2;
+			var inner = 74;
+			var ring = 54;
+			var stagger = 16;
+			var margin = 0.1;
+			var nodes = [];
+			var edges = [];
+			function place(node, key, from, to, depth, parent, offset) {
+				var middle = (from + to) / 2;
+				var radius = inner + depth * ring + (offset ?? 0);
+				var x = cx + Math.cos(middle) * radius;
+				var y = cy + Math.sin(middle) * radius;
+				var root = parent === null ? key : parent.root;
+				nodes.push({ path: key, name: node.name, count: node.count, depth: depth, x: x, y: y, angle: middle, root: root, children: node.children ?? [] });
+				edges.push({ from: parent === null ? { x: cx, y: cy } : { x: parent.x, y: parent.y }, to: { x: x, y: y }, root: root });
+				var children = node.children ?? [];
+				if (children.length === 0) return;
+				var weights = children.map(tagGraphWeight);
+				var total = weights.reduce(function (sum, weight) { return sum + weight; }, 0);
+				var pad = (to - from) * margin;
+				var cursor = from + pad;
+				var usable = (to - from) - pad * 2;
+				children.forEach(function (child, index) {
+					var span = (weights[index] / total) * usable;
+					place(child, key + '/' + child.name, cursor, cursor + span, depth + 1, { x: x, y: y, root: root }, (index % 2) * stagger);
+					cursor += span;
+				});
+			}
+			var weights = list.map(tagGraphWeight);
+			var total = weights.reduce(function (sum, weight) { return sum + weight; }, 0);
+			var cursor = -Math.PI / 2;
+			list.forEach(function (node, index) {
+				var span = (weights[index] / total) * Math.PI * 2;
+				place(node, node.path, cursor, cursor + span, 0, null, 0);
+				cursor += span;
+			});
+			var minX = Infinity;
+			var minY = Infinity;
+			var maxX = -Infinity;
+			var maxY = -Infinity;
+			nodes.forEach(function (node) {
+				var reach = 9 + labelExtent(node.name);
+				var farX = node.x + Math.cos(node.angle) * reach;
+				var farY = node.y + Math.sin(node.angle) * reach;
+				var pad = 12;
+				minX = Math.min(minX, node.x - 6, farX - pad);
+				maxX = Math.max(maxX, node.x + 6, farX + pad);
+				minY = Math.min(minY, node.y - pad, farY - pad);
+				maxY = Math.max(maxY, node.y + pad, farY + pad);
+			});
+			var spanX = Math.max(1, maxX - minX);
+			var spanY = Math.max(1, maxY - minY);
+			var fit = Math.min(width / spanX, height / spanY, 1.6);
+			var ox = (width - spanX * fit) / 2 - minX * fit;
+			var oy = (height - spanY * fit) / 2 - minY * fit;
+			return { width: width, height: height, cx: cx, cy: cy, nodes: nodes, edges: edges, fit: fit, ox: ox, oy: oy };
+		}
+
+		/**
+		 * The radial tag graph, matching the old evolver overview.
+		 *
+		 * @param {object} props - Component props.
+		 * @returns {object} The element tree.
+		 */
+		function TagGraph(props) {
 			var t = props.t;
-			var nodes = Array.isArray(props.nodes) ? props.nodes : [];
-			var [collapsed, setCollapsed] = useState({});
-			function toggle(path) {
-				setCollapsed(function (current) {
-					var next = { ...current };
-					next[path] = current[path] !== true;
-					return next;
+			var layout = useMemo(function () { return tagGraphLayout(props.nodes); }, [props.nodes]);
+			if (layout === null) return h('div', { className: 'ysHint' }, t('overview.tagGraph.empty'));
+			function colorOf(node) { return TAG_BRANCH_COLORS[node.root.split('/')[0]] ?? '#8a8f98'; }
+			var edgeEls = layout.edges.map(function (edge, index) {
+				var mx = (edge.from.x + edge.to.x) / 2;
+				var my = (edge.from.y + edge.to.y) / 2;
+				var dx = edge.to.x - edge.from.x;
+				var dy = edge.to.y - edge.from.y;
+				var len = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+				var bend = Math.min(16, len * 0.08);
+				var qx = mx - (dy / len) * bend;
+				var qy = my + (dx / len) * bend;
+				return h('path', {
+					key: 'e-' + index,
+					d: 'M ' + edge.from.x.toFixed(1) + ' ' + edge.from.y.toFixed(1)
+						+ ' Q ' + qx.toFixed(1) + ' ' + qy.toFixed(1)
+						+ ' ' + edge.to.x.toFixed(1) + ' ' + edge.to.y.toFixed(1),
+					className: 'ysTagEdge',
+					stroke: TAG_BRANCH_COLORS[edge.root.split('/')[0]] ?? '#a8adb5'
 				});
-			}
-			function rows(list, depth) {
-				var result = [];
-				(list ?? []).forEach(function (node) {
-					var children = Array.isArray(node.children) ? node.children : [];
-					var hasChildren = children.length > 0;
-					var isCollapsed = collapsed[node.path] === true;
-					var content = [
-						hasChildren
-							? h('button', {
-								key: 'toggle',
-								type: 'button',
-								className: 'ysTagToggle',
-								'aria-label': (isCollapsed ? '展开标签 ' : '收起标签 ') + node.path,
-								'aria-expanded': isCollapsed ? 'false' : 'true',
-								onClick: function (event) {
-									if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-									toggle(node.path);
-								}
-							}, isCollapsed ? '▸' : '▾')
-							: h('span', { key: 'toggle', className: 'ysTagToggleSpacer' }),
-						props.onTag === undefined
-							? h('div', { key: 'label', className: 'ysTagTreeButton', title: node.path },
-								h('span', { className: 'ysTagTreeName' }, '#' + node.name),
-								h('span', { className: 'ysTagTreeCount' }, String(node.count)))
-							: h('button', {
-								key: 'label',
-								type: 'button',
-								className: 'ysTagTreeButton',
-								title: node.path,
-								onClick: function () { props.onTag(node.path); }
-							},
-								h('span', { className: 'ysTagTreeName' }, '#' + node.name),
-								h('span', { className: 'ysTagTreeCount' }, String(node.count)))
-					];
-					result.push(h('div', {
-						key: node.path,
-						className: 'ysTagNode',
-						style: { paddingLeft: (depth * 14) + 'px' }
-					}, content));
-					if (hasChildren && !isCollapsed) result = result.concat(rows(children, depth + 1));
-				});
-				return result;
-			}
-			return h('div', { className: 'ysTagTree' },
-				nodes.length === 0 ? h('div', { className: 'ysEmpty' }, t('overview.tagTree.empty')) : rows(nodes, 0));
+			});
+			var nodeEls = layout.nodes.map(function (node) {
+				var degrees = (node.angle * 180) / Math.PI;
+				var flipped = Math.cos(node.angle) < 0;
+				var labelX = flipped ? node.x - 9 : node.x + 9;
+				var isRoot = node.depth === 0;
+				return h('g', {
+					key: node.path,
+					className: 'ysTagGraphNode',
+					role: 'button',
+					tabIndex: 0,
+					'aria-label': node.path + ' · ' + node.count,
+					onClick: function () { if (props.onTag !== undefined) props.onTag(node.path); },
+					onKeyDown: function (event) {
+						if (event && (event.key === 'Enter' || event.key === ' ') && props.onTag !== undefined) {
+							event.preventDefault();
+							props.onTag(node.path);
+						}
+					}
+				},
+					h('circle', {
+						cx: node.x,
+						cy: node.y,
+						r: isRoot ? 4.4 : 3.2,
+						className: isRoot ? 'ysTagDot ysTagDotRoot' : 'ysTagDot',
+						stroke: colorOf(node)
+					}),
+					h('text', {
+						x: labelX,
+						y: node.y + 3.2,
+						textAnchor: flipped ? 'end' : 'start',
+						transform: 'rotate(' + (flipped ? degrees + 180 : degrees).toFixed(1) + ' ' + node.x.toFixed(1) + ' ' + node.y.toFixed(1) + ')',
+						className: isRoot ? 'ysTagLabel ysTagRoot' : 'ysTagLabel'
+					}, node.name),
+					h('title', null, node.path + ' · ' + node.count));
+			});
+			return h('div', { className: 'ysTagGraphWrap' },
+				h('svg', {
+					className: 'ysTagGraph',
+					viewBox: '0 0 ' + layout.width + ' ' + layout.height,
+					role: 'img',
+					'aria-label': t('overview.tagGraph')
+				},
+					h('g', { transform: 'translate(' + layout.ox.toFixed(1) + ' ' + layout.oy.toFixed(1) + ') scale(' + layout.fit.toFixed(3) + ')' },
+						h('g', null, edgeEls),
+						h('circle', { cx: layout.cx, cy: layout.cy, r: 4, className: 'ysTagHub' }),
+						h('g', null, nodeEls))));
 		}
 
 		function OverviewTab(props) {
@@ -744,10 +871,10 @@ window.__ModuleLoader__.load({
 					})),
 				h('div', { className: 'ysOverviewSplit' },
 					h('div', { className: 'ysOverviewPane' },
-						h('div', { className: 'ysSection' }, t('overview.tagTree')),
-						h(TagTree, { t: t, nodes: tree, onTag: props.onTag })),
+						h('div', { className: 'ysSection' }, t('overview.tagGraph')),
+						h(TagGraph, { t: t, nodes: tree, onTag: props.onTag })),
 					h('div', { className: 'ysOverviewPane' },
-						h('div', { className: 'ysSection' }, t('overview.relationGraph')),
+						h('div', { className: 'ysSection' }, t('overview.linkGraph')),
 						h(GraphTab, { t: t, graph: overview.graph, onOpen: props.onOpen, compact: true }))));
 		}
 
@@ -917,7 +1044,7 @@ window.__ModuleLoader__.load({
 			if (graph === null || graph === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
 			var nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
 			var edges = Array.isArray(graph.edges) ? graph.edges : [];
-			if (nodes.length === 0) return h('div', { className: 'ysEmpty' }, t(compact ? 'overview.relationGraph.empty' : 'graph.empty'));
+			if (nodes.length === 0) return h('div', { className: 'ysEmpty' }, t(compact ? 'overview.linkGraph.empty' : 'graph.empty'));
 			var top = nodes.slice().sort(function (a, b) {
 				var da = a.degree ? a.degree.in + a.degree.out : 0;
 				var db = b.degree ? b.degree.in + b.degree.out : 0;
@@ -954,11 +1081,13 @@ window.__ModuleLoader__.load({
 									cx: point.x,
 									cy: point.y,
 									r: 6 + Math.min(10, degree),
-									fill: typeColor(node.mime),
+									fill: compact
+									? (TAG_BRANCH_COLORS[(node.tags?.[0] ?? '').split('/')[0]] ?? '#8a8f98')
+									: typeColor(node.mime),
 									stroke: 'var(--dsw-alias-border-l2)',
 									strokeWidth: 1
 								}, h('title', null, node.name + ' · ' + node.description)),
-								topIds.has(node.id)
+								!compact && topIds.has(node.id)
 									? h('text', { x: point.x + 9, y: point.y + 3, className: 'ysGraphLabel' }, node.name)
 									: null);
 						}))),
@@ -969,7 +1098,7 @@ window.__ModuleLoader__.load({
 				compact ? null : h('div', { className: 'ysHint', style: { marginTop: 8 } },
 					'节点 ' + nodes.length + ' · 边 ' + edges.length + (graph.totals && graph.totals.hidden > 0 ? ' · 还有 ' + graph.totals.hidden + ' 个文件未展开' : ''),
 					edges.length === 0 ? ' · 还没有链接；在文件的出链里填目标 id 即可。' : ''),
-				compact && edges.length === 0 ? h('div', { className: 'ysHint', style: { marginTop: 8 } }, t('overview.relationGraph.empty')) : null);
+				compact && edges.length === 0 ? h('div', { className: 'ysHint', style: { marginTop: 8 } }, t('overview.linkGraph.empty')) : null);
 		}
 
 

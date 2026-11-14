@@ -575,6 +575,7 @@ export class FileStore {
 					name: meta.name,
 					description: meta.description,
 					mime: meta.mime,
+					tags: meta.tags ?? [],
 					degree: degree.get(id) ?? { in: 0, out: 0 },
 				})
 			return true
