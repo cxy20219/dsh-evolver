@@ -318,9 +318,9 @@ window.__ModuleLoader__.load({
 			'.ysOverviewPane{min-width:0}',
 			'@media(max-width:900px){.ysOverviewSplit{grid-template-columns:1fr}}',
 			'.ysTypeMatrix{position:relative;width:100%;height:260px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);overflow:hidden;background:var(--dsw-alias-bg-layer-2)}',
-			'.ysTypeTile{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:10px 12px;color:#fff;overflow:hidden;box-shadow:inset 0 0 0 2px var(--dsw-alias-bg-layer-1);cursor:default;text-shadow:0 1px 2px rgba(0,0,0,.22)}',
+			'.ysTypeTile{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:10px 12px;background:var(--dsw-alias-bg-layer-2);background:color-mix(in srgb,var(--ys-type-fill) 22%,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-primary);overflow:hidden;box-shadow:inset 0 0 0 2px var(--dsw-alias-bg-layer-1);cursor:default}',
 			'.ysTypeTileName{font-size:12px;font-weight:600;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-			'.ysTypeTileValue{font-size:10.5px;line-height:14px;opacity:.9;font-variant-numeric:tabular-nums;white-space:nowrap}',
+			'.ysTypeTileValue{font-size:10.5px;line-height:14px;opacity:.72;font-variant-numeric:tabular-nums;white-space:nowrap}',
 			'.ysTypeLegend{display:flex;flex-wrap:wrap;gap:9px 20px;align-content:center;min-width:0;margin-top:10px}',
 			'.ysTypeRow{display:flex;align-items:center;gap:6px;font-size:12px;min-width:122px;max-width:220px}',
 			'.ysTypeDot{width:8px;height:8px;border-radius:2px;flex:none}',
@@ -900,6 +900,7 @@ window.__ModuleLoader__.load({
 		 * @returns {string} A CSS color.
 		 */
 		function suffixColor(suffix) {
+			if (suffix === '') return '#8a8f98';
 			if (SUFFIX_COLORS[suffix] !== undefined) return SUFFIX_COLORS[suffix];
 			var hash = 0;
 			for (var index = 0; index < suffix.length; index += 1) hash = (hash * 31 + suffix.charCodeAt(index)) >>> 0;
@@ -989,7 +990,7 @@ window.__ModuleLoader__.load({
 							top: (tile.y / height) * 100 + '%',
 							width: (tile.w / width) * 100 + '%',
 							height: (tile.h / height) * 100 + '%',
-							background: suffixColor(tile.suffix)
+							'--ys-type-fill': suffixColor(tile.suffix)
 						},
 						title: label + ' · ' + tile.count + ' · ' + pct.toFixed(pct % 1 === 0 ? 0 : 1) + '%'
 					},
