@@ -88,11 +88,10 @@ window.__ModuleLoader__.load({
 			'settings.maxFileMb': '单文件上限（MB）',
 			'settings.readTextKb': '单次读取上限（KB）',
 			'settings.injectionBudget': '注入预算（字节）',
-			'settings.data': '数据',
+			'settings.tab.general': '常规',
+			'settings.tab.data': '数据',
 			'settings.data.current': '当前数据目录',
 			'settings.data.pending': '下次启动将使用',
-			'settings.data.dir': '新数据目录（绝对路径）',
-			'settings.data.mode': '模式',
 			'settings.data.copy': '复制当前库到新目录',
 			'settings.data.attach': '使用已有元始库',
 			'settings.data.copyHint': '只复制 files/ 与设置；DB、索引、日志、回收站会重建。目标目录必须不存在。',
@@ -108,7 +107,6 @@ window.__ModuleLoader__.load({
 			'settings.data.exported': '已生成导出包',
 			'settings.data.imported': '已导入，重启后生效。',
 			'settings.data.choose': '选择文件',
-			'settings.data.busy': '处理中…',
 			'upload.title': '上传文件',
 			'create.title': '新建文本文件',
 			'form.name': '文件名',
@@ -185,11 +183,10 @@ window.__ModuleLoader__.load({
 			'settings.maxFileMb': 'File cap (MB)',
 			'settings.readTextKb': 'Read cap (KB)',
 			'settings.injectionBudget': 'Injection budget (bytes)',
-			'settings.data': 'Data',
+			'settings.tab.general': 'General',
+			'settings.tab.data': 'Data',
 			'settings.data.current': 'Current data directory',
 			'settings.data.pending': 'Next start will use',
-			'settings.data.dir': 'New data directory (absolute)',
-			'settings.data.mode': 'Mode',
 			'settings.data.copy': 'Copy this library',
 			'settings.data.attach': 'Use an existing library',
 			'settings.data.copyHint': 'Copies files/ and settings only; DB, index, logs and trash are rebuilt. The target must not exist.',
@@ -205,7 +202,6 @@ window.__ModuleLoader__.load({
 			'settings.data.exported': 'Export created',
 			'settings.data.imported': 'Imported; restart to apply.',
 			'settings.data.choose': 'Choose file',
-			'settings.data.busy': 'Working…',
 			'upload.title': 'Upload file',
 			'create.title': 'New text file',
 			'form.name': 'File name',
@@ -236,6 +232,7 @@ window.__ModuleLoader__.load({
 			'.ysSubtitle{margin-top:3px;font-size:12px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 			'.ysHeadActions{display:flex;align-items:center;gap:8px;flex:none;padding-top:3px}',
 			'.ysTabs{display:flex;gap:4px;padding:16px 28px 0;flex:none;flex-wrap:wrap}',
+			'.ysSubtabs{padding:0 0 12px}',
 			'.ysTab{display:inline-flex;align-items:center;height:28px;padding:0 11px;border:1px solid transparent;border-radius:var(--dsw-radius-md);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12.5px;cursor:pointer}',
 			'.ysTab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}',
 			'.ysTabActive{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary);font-weight:500;border-color:var(--dsw-alias-border-l2)}',
@@ -867,8 +864,7 @@ window.__ModuleLoader__.load({
 				}).catch(function (error) { notify(messageOf(error), true); }).then(function () { setBusy(false); });
 			}
 
-			return h('div', { style: { marginTop: 24 } },
-				h('div', { className: 'ysSection' }, t('settings.data')),
+			return h('div', null,
 				h('div', { className: 'ysField' },
 					h('label', { className: 'ysLabel' }, t('settings.data.current')),
 					h('code', { style: { fontSize: 11, wordBreak: 'break-all' } }, status.current + ' · ' + status.files + ' 文件')),
@@ -916,6 +912,7 @@ window.__ModuleLoader__.load({
 			var t = props.t;
 			var settings = props.settings;
 			var [draft, setDraft] = useState(null);
+			var [subTab, setSubTab] = useState('general');
 			useEffect(function () {
 				if (settings === null || settings === undefined) return;
 				setDraft({
@@ -926,10 +923,7 @@ window.__ModuleLoader__.load({
 				});
 			}, [settings]);
 			if (settings === null || settings === undefined || draft === null) return h('div', { className: 'ysEmpty' }, t('state.loading'));
-			return h('div', { style: { maxWidth: 620 } },
-				h('div', { className: 'ysField' },
-					h('label', { className: 'ysLabel' }, t('settings.dataDir')),
-					h('code', { style: { fontSize: 11, wordBreak: 'break-all' } }, settings.dataDir)),
+			var general = h('div', null,
 				h('div', { className: 'ysField' },
 					h('label', { className: 'ysLabel' }, t('settings.descriptionMaxChars')),
 					h('input', { className: 'ysInput', type: 'number', min: 20, max: 200, value: draft.descriptionMaxChars, onChange: function (event) { setDraft(Object.assign({}, draft, { descriptionMaxChars: Number(event.target.value) })); } })),
@@ -954,8 +948,20 @@ window.__ModuleLoader__.load({
 								injectionBudget: draft.injectionBudget
 							});
 						}
-					}, t('action.save'))),
-				h(DataSection, props));
+					}, t('action.save'))));
+			return h('div', { style: { maxWidth: 620 } },
+				h('div', { className: 'ysTabs ysSubtabs' },
+					h('button', {
+						className: 'ysTab' + (subTab === 'general' ? ' ysTabActive' : ''),
+						onClick: function () { setSubTab('general'); }
+					}, t('settings.tab.general')),
+					h('button', {
+						className: 'ysTab' + (subTab === 'data' ? ' ysTabActive' : ''),
+						onClick: function () { setSubTab('data'); }
+					}, t('settings.tab.data'))),
+				h('div', { style: { display: subTab === 'general' ? 'block' : 'none' } }, general),
+				h('div', { style: { display: subTab === 'data' ? 'block' : 'none' } },
+					h(DataSection, props)));
 		}
 
 		function LogsTab(props) {

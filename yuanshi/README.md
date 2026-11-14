@@ -42,7 +42,7 @@ Agent 工具：`file_query`、`file_read`、`file_write`、`file_import`、`file
 
 ## 数据目录与备份
 
-默认数据目录 `~/.dsh/yuanshi`。设置页「数据」区可以：
+默认数据目录 `~/.dsh/yuanshi`。设置页分「常规 / 数据」两个子标签；「数据」子页可以：
 
 - **复制当前库到新目录**：只复制 `files/` 与 `system/settings.json`，DB、索引、日志、回收站由下次启动重建；目标目录必须不存在。
 - **使用已有元始库**：目标必须已经有 `files/`，不复制、不覆盖。
