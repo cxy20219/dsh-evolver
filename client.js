@@ -576,12 +576,23 @@ window.__ModuleLoader__.load({
 		//#region canvas graph
 
 		/*
-		 * The two canvas layouts are ported from 万象知识库 (dsh-wanxiang-knowledge):
-		 * the globe puts every file on one sphere, grouped into clusters that stay
-		 * together; the network is a force layout of the same nodes and links.
+		 * The two canvas layouts started as a port of 万象知识库
+		 * (dsh-wanxiang-knowledge): the globe puts every file on one sphere,
+		 * grouped into clusters that stay together; the network is a force layout
+		 * of the same nodes and links.
 		 *
-		 * The data model differs, so the adapter is here: ziyan's cluster is the
-		 * first tag root that is not the synthetic `测试` marker or the `类型`
+		 * Where this departs from the original, and why:
+		 *
+		 * - Size and mass come from the degree normalised against the busiest
+		 *   file (`radiusOf` / `massOf`), not from a log curve. The original
+		 *   mapped degree through `log2` and capped it, which on a flat library
+		 *   leaves every dot within a pixel of every other.
+		 * - The globe is relaxed by its own forces instead of only being seeded
+		 *   (`SphereLayout`): the original's `cloudOffset` piles a community's
+		 *   dots into the centre of its cap.
+		 *
+		 * The data model also differs, so the adapter is here: ziyan's cluster is
+		 * the first tag root that is not the synthetic `测试` marker or the `类型`
 		 * facet, and the node colour is the same MIME palette the list uses.
 		 */
 
@@ -610,8 +621,15 @@ window.__ModuleLoader__.load({
 			var nodes = Array.isArray(graph && graph.nodes) ? graph.nodes : [];
 			var edges = Array.isArray(graph && graph.edges) ? graph.edges : [];
 			var known = new Set(nodes.map(function (node) { return node.id; }));
+			var degrees = nodes.map(function (node) { return node.degree ? node.degree.in + node.degree.out : 0; });
+			var top = degrees.reduce(function (best, degree) { return Math.max(best, degree); }, 0);
 			return {
-				nodes: nodes.map(function (node) {
+				nodes: nodes.map(function (node, index) {
+					var degree = degrees[index];
+					// Normalised against the busiest dot, the way old evolver did
+					// it: the ranking is the same as `degree`, but the scale
+					// adapts to the library instead of to a fixed log curve.
+					var weight = top === 0 ? 0 : degree / top;
 					return {
 						id: node.id,
 						title: node.name,
@@ -619,7 +637,10 @@ window.__ModuleLoader__.load({
 						mime: node.mime,
 						color: typeColor(node.mime),
 						cluster: clusterOf(node),
-						degree: node.degree ? node.degree.in + node.degree.out : 0
+						degree: degree,
+						weight: weight,
+						mass: massOf(weight),
+						radius: radiusOf(weight)
 					};
 				}),
 				edges: edges
@@ -748,6 +769,226 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The dot radius for a normalised degree.
+		 *
+		 * The ported formula was `2.3 + log2(1 + degree) * 0.32` capped at 4.6,
+		 * which on the live library (2200 files, 3035 links, busiest dot 17)
+		 * squeezes everything into 2.3–4.6 px: 2089 of 2200 dots land between
+		 * 2.5 and 3.1 px, so the files that hold the library together look
+		 * exactly like the leaves. Mapping 0–1 over the same span instead
+		 * spreads those same dots over 2.2–7.8 px, which is what "the more
+		 * links, the bigger the dot" has to mean to be visible at all.
+		 *
+		 * @param {number} weight - Degree divided by the busiest degree, 0–1.
+		 * @returns {number} The base radius in pixels, before the globe's perspective.
+		 */
+		function radiusOf(weight) {
+			return 2.2 + 5.6 * Math.pow(weight, 0.75);
+		}
+
+		/**
+		 * The mass for a normalised degree: what a dot weighs when forces meet.
+		 *
+		 * A hub is heavy in both senses the request asks for — it pushes its
+		 * neighbours away (repulsion is the mass product) and the springs move
+		 * it less (acceleration is force over mass), so the leaves arrange
+		 * themselves around it instead of dragging it along.
+		 *
+		 * @param {number} weight - Degree divided by the busiest degree, 0–1.
+		 * @returns {number} A mass in 0.6–1.5.
+		 */
+		function massOf(weight) {
+			return 0.6 + 0.9 * weight;
+		}
+
+		/**
+		 * The globe's forces.
+		 *
+		 * The cap seeding above answers "which patch of the sphere does this
+		 * cluster sit on"; it says nothing about where the dots sit inside it,
+		 * which is why the old globe read as a printed star chart — `cloudOffset`
+		 * is densest at the centre of every cap, so the middle of each community
+		 * was a pile of overlapping dots.
+		 *
+		 * This relaxes the seeded positions with the ingredients the 关系图 uses
+		 * — springs, near-range repulsion, an anchor back to the community — and
+		 * two rules that the seed makes necessary:
+		 *
+		 * - Springs only work on links whose two ends were seeded near each other
+		 *   (chord under 0.45). A link across two caps is a *bridge*, and pulling
+		 *   it to spring length is exactly what dragged the whole globe into one
+		 *   knot when this ran with every link: measured median drift from the
+		 *   seed was 1.6 rad, i.e. half the ball.
+		 * - Every step is projected back onto the unit sphere, keeping only the
+		 *   tangential velocity. Without it the springs flatten the ball into a disc.
+		 *
+		 * Deterministic like the rest of the engine: `alpha` is the only clock.
+		 */
+		class SphereLayout {
+			constructor(nodes, edges) {
+				var byId = new Map(nodes.map(function (node) { return [node.id, node]; }));
+				this.alpha = 1;
+				this.particles = sphereLayout(nodes).map(function (point) {
+					var node = byId.get(point.id);
+					return {
+						id: point.id,
+						x: point.x,
+						y: point.y,
+						z: point.z,
+						// The seeded position is the anchor: the relaxation may move
+						// a dot, but it may not reshuffle the communities.
+						sx: point.x,
+						sy: point.y,
+						sz: point.z,
+						vx: 0,
+						vy: 0,
+						vz: 0,
+						cluster: node.cluster,
+						weight: node.weight,
+						mass: node.mass
+					};
+				});
+				this.byId = new Map(this.particles.map(function (particle) { return [particle.id, particle]; }));
+				// A link is a spring when both ends live in the same community: a
+				// bridge between two caps must not pull them together. The rest
+				// length is a fixed fraction of where the seeding put the pair, so
+				// the tightening means the same thing on a 40-file library and on a
+				// 2000-file one — an absolute cutoff would drop every link on the
+				// small one and only the bridges on the big one.
+				this.links = [];
+				edges.forEach(function (edge) {
+					var left = this.byId.get(edge.s);
+					var right = this.byId.get(edge.t);
+					if (left === undefined || right === undefined) return;
+					if (left.cluster !== right.cluster) return;
+					var chord = Math.hypot(right.sx - left.sx, right.sy - left.sy, right.sz - left.sz);
+					this.links.push([left, right, edge.w, chord * 0.6]);
+				}, this);
+			}
+
+			tick() {
+				if (this.alpha < 5e-3) return;
+				var alpha = this.alpha;
+				this.links.forEach(function (link) {
+					var left = link[0];
+					var right = link[1];
+					var dx = right.x - left.x;
+					var dy = right.y - left.y;
+					var dz = right.z - left.z;
+					var distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+					if (distance < 1e-6) return;
+					var pull = (distance - link[3]) * 0.05 * Math.min(link[2], 2) * alpha;
+					left.vx += (dx / distance) * pull / left.mass;
+					left.vy += (dy / distance) * pull / left.mass;
+					left.vz += (dz / distance) * pull / left.mass;
+					right.vx -= (dx / distance) * pull / right.mass;
+					right.vy -= (dy / distance) * pull / right.mass;
+					right.vz -= (dz / distance) * pull / right.mass;
+				});
+				// Repulsion runs on a 0.12-unit lattice: 27 candidate cells per dot,
+				// so the sweep walks the 13 *forward* cells only and lets every pair
+				// meet exactly once (in its own cell, from the lower index).
+				var cells = new Array(32768);
+				var occupied = [];
+				this.particles.forEach(function (particle) {
+					var key = cellKey(particle);
+					particle.cell = key;
+					var list = cells[key];
+					if (list === undefined) {
+						occupied.push(key);
+						cells[key] = [particle];
+					} else list.push(particle);
+				});
+				occupied.forEach(function (key) {
+					var list = cells[key];
+					for (var index = 0; index < list.length; index += 1) {
+						var particle = list[index];
+						for (var after = index + 1; after < list.length; after += 1) {
+							pushApart(particle, list[after], alpha);
+						}
+						for (var near = 0; near < CELL_NEIGHBOURS.length; near += 1) {
+							var peers = cells[key + CELL_NEIGHBOURS[near]];
+							if (peers === undefined) continue;
+							for (var peer = 0; peer < peers.length; peer += 1) {
+								pushApart(particle, peers[peer], alpha);
+							}
+						}
+					}
+				});
+				this.particles.forEach(function (particle) {
+					// The anchor is what keeps the communities where the seeding put
+					// them; the mass already decides who wins when forces disagree.
+					var strength = 0.09 * alpha;
+					particle.vx += (particle.sx - particle.x) * strength;
+					particle.vy += (particle.sy - particle.y) * strength;
+					particle.vz += (particle.sz - particle.z) * strength;
+					particle.x += particle.vx * 0.4;
+					particle.y += particle.vy * 0.4;
+					particle.z += particle.vz * 0.4;
+					// Back onto the surface, then keep only the tangential part of
+					// the velocity: the radial part was just spent as position.
+					var length = Math.sqrt(particle.x * particle.x + particle.y * particle.y + particle.z * particle.z) || 1;
+					particle.x /= length;
+					particle.y /= length;
+					particle.z /= length;
+					var radial = particle.vx * particle.x + particle.vy * particle.y + particle.vz * particle.z;
+					particle.vx = (particle.vx - radial * particle.x) * 0.82;
+					particle.vy = (particle.vy - radial * particle.y) * 0.82;
+					particle.vz = (particle.vz - radial * particle.z) * 0.82;
+				});
+				this.alpha *= 0.94;
+			}
+		}
+
+		/**
+		 * The lattice cell a globe particle falls in, as one integer.
+		 *
+		 * @param {{x: number, y: number, z: number}} point - A point on the unit sphere.
+		 * @returns {number} The cell key.
+		 */
+		function cellKey(point) {
+			var size = 0.12;
+			return ((Math.floor(point.x / size) + 16) * 32 + Math.floor(point.y / size) + 16) * 32 + Math.floor(point.z / size) + 16;
+		}
+
+		/**
+		 * The 13 forward cells of a 3×3×3 sweep, as key offsets.
+		 *
+		 * A cell is `((x)·32 + y)·32 + z`, so one step along x is 1024, one along
+		 * y is 32 and one along z is 1.
+		 */
+		var CELL_NEIGHBOURS = [1024 + 32 + 1, 1024 + 32, 1024 + 32 - 1, 1024 + 1, 1024, 1024 - 1, 1024 - 32 + 1, 1024 - 32, 1024 - 32 - 1, 32 + 1, 32, 32 - 1, 1];
+
+		/**
+		 * Push one pair of globe dots apart when they share a cell.
+		 *
+		 * Symmetric, and each end moves by force over its own mass: the hub is
+		 * shoved just as hard as the leaf, but it barely budges, so the leaves
+		 * arrange themselves around it instead of dragging it along.
+		 *
+		 * @param {object} left - One particle.
+		 * @param {object} right - The other particle.
+		 * @param {number} alpha - The cooling factor.
+		 * @returns {void}
+		 */
+		function pushApart(left, right, alpha) {
+			var dx = left.x - right.x;
+			var dy = left.y - right.y;
+			var dz = left.z - right.z;
+			var square = dx * dx + dy * dy + dz * dz;
+			if (square > 0.0144 || square < 1e-12) return;
+			var distance = Math.sqrt(square);
+			// Soft at contact: a pair that touched exactly would launch itself.
+			var push = alpha * 0.005 * left.mass * right.mass * (0.12 - distance) / (distance + 0.02);
+			left.vx += (dx / distance) * push / left.mass;
+			left.vy += (dy / distance) * push / left.mass;
+			left.vz += (dz / distance) * push / left.mass;
+			right.vx -= (dx / distance) * push / right.mass;
+			right.vy -= (dy / distance) * push / right.mass;
+			right.vz -= (dz / distance) * push / right.mass;
+		}
+
+		/**
 		 * The network layout: cluster anchors, cell repulsion, link springs.
 		 */
 		class NetworkLayout {
@@ -771,7 +1012,9 @@ window.__ModuleLoader__.load({
 						y: Math.sin(index * GOLDEN) * Math.sqrt(index + 1) * 15,
 						z: 0,
 						vx: 0,
-						vy: 0
+						vy: 0,
+						weight: node.weight,
+						mass: node.mass
 					};
 				});
 				this.byId = new Map(this.particles.map(function (particle) { return [particle.id, particle]; }));
@@ -799,12 +1042,15 @@ window.__ModuleLoader__.load({
 						var dy = particle.y - cell.y / cell.count;
 						var distance = dx * dx + dy * dy + 100;
 						var force = Math.min(2, cell.count * 30 / distance) * alpha;
-						particle.vx += dx * force;
-						particle.vy += dy * force;
+						particle.vx += dx * force / particle.mass;
+						particle.vy += dy * force / particle.mass;
 					});
 					var anchor = this.anchors.get(particle.cluster);
-					particle.vx += ((anchor.x - particle.x) * 4e-3 - particle.x * 1e-3) * alpha;
-					particle.vy += ((anchor.y - particle.y) * 4e-3 - particle.y * 1e-3) * alpha;
+					// A hub is anchored more loosely, so the busiest files can sit
+					// between the communities they connect rather than inside one.
+					var tie = 4e-3 * (1 - 0.5 * particle.weight);
+					particle.vx += ((anchor.x - particle.x) * tie - particle.x * 1e-3) * alpha;
+					particle.vy += ((anchor.y - particle.y) * tie - particle.y * 1e-3) * alpha;
 				}, this);
 				this.links.forEach(function (link) {
 					var left = link[0];
@@ -813,10 +1059,10 @@ window.__ModuleLoader__.load({
 					var dy = right.y - left.y;
 					var distance = Math.hypot(dx, dy) || 1;
 					var force = (distance - 65) / distance * 0.012 * Math.min(link[2], 2) * alpha;
-					left.vx += dx * force;
-					left.vy += dy * force;
-					right.vx -= dx * force;
-					right.vy -= dy * force;
+					left.vx += dx * force / left.mass;
+					left.vy += dy * force / left.mass;
+					right.vx -= dx * force / right.mass;
+					right.vy -= dy * force / right.mass;
 				});
 				this.particles.forEach(function (particle) {
 					if (particle.id === fixed) {
@@ -969,7 +1215,6 @@ window.__ModuleLoader__.load({
 				this.ctx = canvas.getContext('2d');
 				this.layout = config.layout === 'network' ? 'network' : 'sphere';
 				this.nodes = new Map(data.nodes.map(function (node) { return [node.id, node]; }));
-				this.sphere = sphereLayout(data.nodes);
 				this.neighbors = new Map();
 				this.incident = new Map();
 				data.edges.forEach(function (edge) {
@@ -1050,6 +1295,17 @@ window.__ModuleLoader__.load({
 					}.bind(this), options2);
 				}
 				this.measure();
+			}
+
+			get sphere() {
+				if (this.sphereState === undefined) {
+					this.sphereState = new SphereLayout(this.data.nodes, this.data.edges);
+					// A few rounds at mount so the first paint is a relaxed globe
+					// rather than the raw seed; the rest of the cooling happens in
+					// front of the reader (see `draw`).
+					for (var index = 0; index < 6; index += 1) this.sphereState.tick();
+				}
+				return this.sphereState;
 			}
 
 			get network() {
@@ -1215,19 +1471,25 @@ window.__ModuleLoader__.load({
 				if (this.layout === 'network') {
 					var iterations = this.reduced ? 100 : 2;
 					for (var tick = 0; tick < iterations; tick += 1) this.network.tick(this.drag === undefined ? undefined : this.drag.node);
-				} else if (!this.reduced) {
-					if (this.target !== undefined) {
-						this.yaw += (this.target.yaw - this.yaw) * 0.12;
-						this.pitch += (this.target.pitch - this.pitch) * 0.12;
-						if (Math.abs(this.target.yaw - this.yaw) + Math.abs(this.target.pitch - this.pitch) < 1e-3) this.target = undefined;
-					} else if (this.drag === undefined) {
-						// A slow ambient spin keeps the globe alive; a flick keeps going
-						// but settles quickly (the sum of the decayed velocity is only
-						// about a tenth of the last drag step).
-						this.yaw += this.velocity.x + (this.selected === '' ? 12e-4 : 0);
-						this.pitch += this.velocity.y;
-						this.velocity.x *= 0.88;
-						this.velocity.y *= 0.88;
+				} else {
+					// The globe cools down in front of the reader, the same way the
+					// network does. Reduced motion gets the settled picture at once.
+					var rounds = this.reduced ? 100 : 2;
+					for (var round = 0; round < rounds; round += 1) this.sphere.tick();
+					if (!this.reduced) {
+						if (this.target !== undefined) {
+							this.yaw += (this.target.yaw - this.yaw) * 0.12;
+							this.pitch += (this.target.pitch - this.pitch) * 0.12;
+							if (Math.abs(this.target.yaw - this.yaw) + Math.abs(this.target.pitch - this.pitch) < 1e-3) this.target = undefined;
+						} else if (this.drag === undefined) {
+							// A slow ambient spin keeps the globe alive; a flick keeps going
+							// but settles quickly (the sum of the decayed velocity is only
+							// about a tenth of the last drag step).
+							this.yaw += this.velocity.x + (this.selected === '' ? 12e-4 : 0);
+							this.pitch += this.velocity.y;
+							this.velocity.x *= 0.88;
+							this.velocity.y *= 0.88;
+						}
 					}
 				}
 				ctx.globalAlpha = 1;
@@ -1235,7 +1497,7 @@ window.__ModuleLoader__.load({
 				ctx.fillRect(0, 0, this.width, this.height);
 				if (this.layout === 'sphere') this.drawGlobe();
 
-				var particles = this.layout === 'sphere' ? this.sphere : this.network.particles;
+				var particles = this.layout === 'sphere' ? this.sphere.particles : this.network.particles;
 				var projected = [];
 				particles.forEach(function (particle) {
 					var rotated = this.layout === 'network' ? this.networkPoint(particle) : particle;
@@ -1246,15 +1508,12 @@ window.__ModuleLoader__.load({
 						scale: 1
 					};
 					var node = this.nodes.get(particle.id);
-					var base = this.layout === 'network'
-						? Math.min(5.5, 2.5 + Math.log2(1 + node.degree) * 0.45)
-						: Math.min(4.6, 2.3 + Math.log2(1 + node.degree) * 0.32);
 					projected.push({
 						id: particle.id,
 						x: point.x,
 						y: point.y,
 						depth: point.depth,
-						radius: base * (this.layout === 'sphere' ? point.scale : 1)
+						radius: node.radius * (this.layout === 'sphere' ? point.scale : 1)
 					});
 				}, this);
 				projected = projected.filter(function (point) {
@@ -1270,7 +1529,7 @@ window.__ModuleLoader__.load({
 				if (focus !== '') {
 					(this.incident.get(focus) || []).forEach(function (edge) { visible.add(edge); });
 				}
-				var sphereMap = new Map(this.sphere.map(function (point) { return [point.id, point]; }));
+				var sphereMap = new Map(this.sphere.particles.map(function (point) { return [point.id, point]; }));
 				visible.forEach(function (edge) {
 					var left = positions.get(edge.s);
 					var right = positions.get(edge.t);
@@ -1356,10 +1615,12 @@ window.__ModuleLoader__.load({
 					ctx.stroke();
 				}, this);
 
-				// Labels are re-placed every frame; while a network is still cooling
+				// Labels are re-placed every frame; while a layout is still cooling
 				// that reads as jitter, so a moving graph shows only what is under
-				// the cursor and the rest appear once the layout settles.
-				var settled = this.layout === 'sphere' || this.network.alpha < 5e-3;
+				// the cursor. The globe cools faster than the network — its dots move
+				// a couple of degrees, not a box's worth — so it gets its labels back
+				// as soon as the initial de-overlap is done.
+				var settled = this.layout === 'sphere' ? this.sphere.alpha < 0.3 : this.network.alpha < 5e-3;
 				var placer = new LabelPlacer(this.width, this.height, Math.max(4, Math.min(12, Math.floor(this.width * this.height / 40000))));
 				var focusId = focus;
 				var candidates = settled || focusId !== '' ? projected
@@ -1397,7 +1658,7 @@ window.__ModuleLoader__.load({
 				ctx.globalAlpha = 1;
 
 				var moving = this.layout === 'sphere'
-					? (!this.reduced && (this.target !== undefined || Math.abs(this.velocity.x) + Math.abs(this.velocity.y) > 1e-4 || this.selected === ''))
+					? (!this.reduced && (this.target !== undefined || Math.abs(this.velocity.x) + Math.abs(this.velocity.y) > 1e-4 || this.selected === '' || this.sphere.alpha >= 5e-3))
 					: (this.network.alpha >= 5e-3 || this.data.nodes.length <= 300);
 				if (moving) this.wake();
 			}
@@ -3095,6 +3356,22 @@ window.__ModuleLoader__.load({
 
 		//#endregion
 
-		return { inject: inject, apply: apply };
+		/*
+		 * The layout math is pure and the browser half has no import surface, so
+		 * `node --test` reaches it through this seam instead of a canvas. The
+		 * panel never reads it.
+		 */
+		return {
+			inject: inject,
+			apply: apply,
+			__graph: {
+				canvasGraphData: canvasGraphData,
+				radiusOf: radiusOf,
+				massOf: massOf,
+				sphereLayout: sphereLayout,
+				SphereLayout: SphereLayout,
+				NetworkLayout: NetworkLayout
+			}
+		};
 	}
 });
