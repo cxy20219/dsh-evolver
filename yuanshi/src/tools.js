@@ -1,5 +1,5 @@
 /**
- * The tools the agent gets from 元始.
+ * The tools the agent gets from 自衍中枢.
  *
  * One entity type, one id space, description-first retrieval. The tool
  * descriptions are the place for the write contract (tags, links, content),
@@ -141,7 +141,7 @@ export function createTools({ store }) {
 		},
 		{
 			name: 'file_write',
-			description: '新建或更新一个文本文件。新建需要 name、description、至少一个 tags、content；更新传 id + 要改的字段。tags 是自由层级路径（工作/项目/元始），至少一个；links 写关联文件 id，自链/死链不阻断但会进 warnings。写前先 file_query 查重；长文/二进制/Word 用 file_import。',
+			description: '新建或更新一个文本文件。新建需要 name、description、至少一个 tags、content；更新传 id + 要改的字段。tags 是自由层级路径（工作/项目/自衍中枢），至少一个；links 写关联文件 id，自链/死链不阻断但会进 warnings。写前先 file_query 查重；长文/二进制/Word 用 file_import。',
 			parameters: {
 				type: 'object',
 				properties: {

@@ -118,7 +118,7 @@ export class FileStore {
 			const scanned = await this.scan()
 			if (scanned.entries.length > 0) this.db.rebuild(scanned.entries)
 			if (scanned.problems.length > 0) {
-				this.logger?.warn?.(`元始：重建索引时跳过 ${scanned.problems.length} 个问题文件`)
+				this.logger?.warn?.(`自衍中枢：重建索引时跳过 ${scanned.problems.length} 个问题文件`)
 			}
 		}
 	}

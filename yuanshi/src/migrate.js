@@ -1,5 +1,5 @@
 /**
- * The P4 importer: one evolver card library → one 元始 file library.
+ * The P4 importer: one evolver card library → one 自衍中枢 file library.
  *
  * The source is the append-only `knowledge/cards/cards.jsonl`; the importer
  * reads the last record per id, skips tombstones, and keeps the old `card-`

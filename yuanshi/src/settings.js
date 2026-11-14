@@ -104,7 +104,7 @@ export class SettingsStore {
 		try {
 			this.values = normalizeSettings(JSON.parse(text))
 		} catch (error) {
-			this.logger?.warn?.(`元始：settings.json 无法解析，已使用默认设置（${error instanceof Error ? error.message : String(error)}）`)
+			this.logger?.warn?.(`自衍中枢：settings.json 无法解析，已使用默认设置（${error instanceof Error ? error.message : String(error)}）`)
 			this.values = normalizeSettings({})
 		}
 	}

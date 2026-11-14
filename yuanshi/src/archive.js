@@ -1,5 +1,5 @@
 /**
- * Portable snapshots of a 元始 data directory.
+ * Portable snapshots of a 自衍中枢 data directory.
  *
  * The archive is tar + gzip: tar keeps the relative layout and executable
  * bits, gzip is built into Node. Only canonical content is exported — the
@@ -316,7 +316,7 @@ export async function readArchiveFile(source, target) {
 		throw new Error(`不能读取压缩包：${error instanceof Error ? error.message : String(error)}`)
 	}
 	if (manifest === undefined || manifest.kind !== 'yuanshi-export' || manifest.schema !== 1) {
-		throw new Error('不是元始导出包（缺少合法清单）。')
+		throw new Error('不是自衍中枢导出包（缺少合法清单）。')
 	}
 	return { manifest, files, bytes }
 }

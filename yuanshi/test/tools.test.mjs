@@ -34,15 +34,15 @@ test('file_write 建文件，file_query 按描述/标签检索，file_read 给 p
 	try {
 		const created = await tools.get('file_write').execute({
 			name: 'design.md',
-			description: '元始设计：文件实体与链接',
-			content: '# 元始\n\n正文交给 agent 读。',
+			description: '自衍中枢设计：文件实体与链接',
+			content: '# 自衍中枢\n\n正文交给 agent 读。',
 			tags: ['工作/项目', '类型/文档'],
 		})
 		assert.match(created.id, /^file-/)
 		assert.equal(created.text, undefined, '写入结果不带正文')
 		assert.equal(created.tags.length, 2)
 
-		const byDescription = await tools.get('file_query').execute({ query: '元始设计' })
+		const byDescription = await tools.get('file_query').execute({ query: '自衍中枢设计' })
 		assert.equal(byDescription.total, 1)
 		assert.equal(byDescription.files[0].id, created.id)
 		assert.ok(byDescription.files[0].short.length >= 5)

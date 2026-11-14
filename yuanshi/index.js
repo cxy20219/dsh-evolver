@@ -89,7 +89,7 @@ export async function apply(ctx, config) {
 	if (pointer !== undefined) {
 		const pointerInfo = await stat(join(pointer.dataDir, 'files')).catch(() => undefined)
 		if (pointerInfo === undefined || !pointerInfo.isDirectory()) {
-			throw new Error(`dsh-yuanshi: 数据目录指针指向的不是元始库：${pointer.dataDir}（删掉 ${pointerPath} 可回到默认目录）`)
+			throw new Error(`dsh-yuanshi: 数据目录指针指向的不是自衍中枢库：${pointer.dataDir}（删掉 ${pointerPath} 可回到默认目录）`)
 		}
 		if (configured !== '' && resolve(configured) !== pointer.dataDir) {
 			ctx.logger?.warn?.(`dsh-yuanshi: 数据目录指针覆盖了组合配置 dataDir（${configured}）`)
@@ -117,7 +117,7 @@ export async function apply(ctx, config) {
 	try {
 		await refreshIndex(store)
 	} catch (error) {
-		logs.warn(`元始：构建注入快照失败：${error instanceof Error ? error.message : String(error)}`)
+		logs.warn(`自衍中枢：构建注入快照失败：${error instanceof Error ? error.message : String(error)}`)
 	}
 	let injected = await indexText(store, current.injectionBudget)
 	const version = await readVersion()
@@ -172,9 +172,9 @@ export async function apply(ctx, config) {
 				},
 			}))
 		}
-		logs.info(`元始：面板接口 ${ENDPOINTS.length} 个，前缀 ${API_PREFIX}`)
+		logs.info(`自衍中枢：面板接口 ${ENDPOINTS.length} 个，前缀 ${API_PREFIX}`)
 	} else {
-		logs.warn('元始：connection 服务不可用，面板接口未注册；工具与注入仍然可用。')
+		logs.warn('自衍中枢：connection 服务不可用，面板接口未注册；工具与注入仍然可用。')
 	}
 
 	// The injected text is a daily artifact. A host that stays open across
@@ -187,15 +187,15 @@ export async function apply(ctx, config) {
 		try {
 			await refreshIndex(store)
 			injected = await indexText(store, settings.get().injectionBudget)
-			logs.info('元始：跨日，已刷新注入快照')
+			logs.info('自衍中枢：跨日，已刷新注入快照')
 		} catch (error) {
-			logs.warn(`元始：刷新注入快照失败：${error instanceof Error ? error.message : String(error)}`)
+			logs.warn(`自衍中枢：刷新注入快照失败：${error instanceof Error ? error.message : String(error)}`)
 		}
 	}, SNAPSHOT_HEARTBEAT_MS)
 	timer.unref?.()
 
-	logs.info(`元始 ${version}：数据目录 ${root}（文件 files/，系统数据 system/）`)
-	if (pointer !== undefined) logs.info(`元始：数据目录由指针 ${pointerPath} 指定`)
+	logs.info(`自衍中枢 ${version}：数据目录 ${root}（文件 files/，系统数据 system/）`)
+	if (pointer !== undefined) logs.info(`自衍中枢：数据目录由指针 ${pointerPath} 指定`)
 
 	ctx.effect(() => () => {
 		clearInterval(timer)

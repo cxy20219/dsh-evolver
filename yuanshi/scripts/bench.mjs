@@ -22,7 +22,7 @@ const now = () => performance.now()
 const ms = (value) => `${value.toFixed(1)} ms`
 
 const texts = [
-	['design.md', 'text/markdown', '元始设计：文件是唯一实体，边车是事实，索引可重建。'],
+	['design.md', 'text/markdown', '自衍中枢设计：文件是唯一实体，边车是事实，索引可重建。'],
 	['notes.md', 'text/markdown', '插件接口约定：写入先落边车，再更新索引；读大文件用 path。'],
 	['proxy.md', 'text/markdown', '反向代理：改写 Host 与 Origin，WebSocket 自己接管 upgrade。'],
 	['audit.md', 'text/markdown', '审计台账：守卫测试与性能实测，删除先写 trash。'],

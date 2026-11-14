@@ -73,7 +73,7 @@ test('指针指向缺失库时 apply 明确报错', async () => {
 			get() { return undefined },
 			effect() { return () => {} },
 		}
-		await assert.rejects(() => apply(ctx, {}), /指针指向的不是元始库/)
+		await assert.rejects(() => apply(ctx, {}), /指针指向的不是自衍中枢库/)
 	} finally {
 		if (prev === undefined) delete process.env.DSH_HOME
 		else process.env.DSH_HOME = prev

@@ -21,7 +21,7 @@ const FILE_DISCIPLINE = [
 
 /** The proactivity protocol. */
 const PROACTIVE_PROTOCOL = [
-	'[主动性] 用元始提前一步，不等指令：',
+	'[主动性] 用自衍中枢提前一步，不等指令：',
 	'- 开工前先搜：任务名词原样丢给 file_query，先看描述和邻居，再决定读哪个。',
 	'- 每轮答复前：跨项目、库里没有的判断 → file_write（先查重，description + 标签 + links）；只在这个仓库成立的约定 → 写进项目自己的 harness/文档。',
 	'- 收尾给一条具体可执行的下一步（命令/文件/验证方式），不要只问“还需要什么”。',

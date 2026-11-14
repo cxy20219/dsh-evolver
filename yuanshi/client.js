@@ -1,5 +1,5 @@
 /*
- * 元始 — browser half.
+ * 自衍中枢 — browser half.
  *
  * One sidebar entry opens one panel:
  * 概览 / 文件 / 图谱 / 设置 / 日志.
@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
 		//#region locale
 
 		var zh = {
-			panel: '元始',
+			panel: '自衍中枢',
 			'tab.overview': '概览',
 			'tab.files': '文件',
 			'tab.graph': '图谱',
@@ -93,7 +93,7 @@ window.__ModuleLoader__.load({
 			'settings.data.current': '当前数据目录',
 			'settings.data.pending': '下次启动将使用',
 			'settings.data.copy': '复制当前库到新目录',
-			'settings.data.attach': '使用已有元始库',
+			'settings.data.attach': '使用已有自衍中枢库',
 			'settings.data.copyHint': '只复制 files/ 与设置；DB、索引、日志、回收站会重建。目标目录必须不存在。',
 			'settings.data.attachHint': '目标目录必须已经包含 files/，不会复制或覆盖。',
 			'settings.data.save': '保存目录',
@@ -123,7 +123,7 @@ window.__ModuleLoader__.load({
 		};
 
 		var en = {
-			panel: 'Yuanshi',
+			panel: 'Self-Evolving Hub',
 			'tab.overview': 'Overview',
 			'tab.files': 'Files',
 			'tab.graph': 'Graph',

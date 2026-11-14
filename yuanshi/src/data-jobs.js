@@ -34,7 +34,7 @@ function isInside(parent, child) {
  *
  * This checks structure, ids, names and payload presence; the next real start
  * still rebuilds SQLite from the sidecars. It is deliberately strict enough
- * to reject a directory that is not a 元始 library.
+ * to reject a directory that is not a 自衍中枢 library.
  *
  * @param {string} root - The data root.
  * @returns {Promise<{files: number, bytes: number}>} Entity counts.
@@ -42,7 +42,7 @@ function isInside(parent, child) {
 export async function validateLibrary(root) {
 	const filesDir = join(root, 'files')
 	const entries = await readdir(filesDir, { withFileTypes: true }).catch(() => undefined)
-	if (entries === undefined) throw new Error(`目标目录没有 files/，不像是元始库：${root}`)
+	if (entries === undefined) throw new Error(`目标目录没有 files/，不像是自衍中枢库：${root}`)
 	let files = 0
 	let bytes = 0
 	for (const entry of entries) {
@@ -161,7 +161,7 @@ export function createDataJobs({ root, pointerPath, settings, logger, version = 
 			counts = await validateLibrary(target)
 		} else {
 			const exists = await stat(target).then(() => true, () => false)
-			if (exists) throw new Error('复制模式要求目标目录不存在；要使用已有库请选择“使用已有元始库”。')
+			if (exists) throw new Error('复制模式要求目标目录不存在；要使用已有库请选择“使用已有自衍中枢库”。')
 			counts = await copyTo(target)
 		}
 		try {
@@ -169,7 +169,7 @@ export function createDataJobs({ root, pointerPath, settings, logger, version = 
 		} catch (error) {
 			throw new Error(`数据已复制到 ${target}，但指针写入失败：${error instanceof Error ? error.message : String(error)}`)
 		}
-		logger?.info?.(`元始：数据目录将在下次启动切到 ${target}`)
+		logger?.info?.(`自衍中枢：数据目录将在下次启动切到 ${target}`)
 		return { dir: target, mode, files: counts.files, bytes: counts.bytes, restartRequired: true }
 	}
 
@@ -235,7 +235,7 @@ export function createDataJobs({ root, pointerPath, settings, logger, version = 
 			await mkdir(join(target, 'files'), { recursive: true, mode: 0o700 })
 			const counts = await validateLibrary(target)
 			await writeDataDirPointer(pointerPath, target)
-			logger?.info?.(`元始：已导入到 ${target}（${counts.files} 文件），下次启动切换`)
+			logger?.info?.(`自衍中枢：已导入到 ${target}（${counts.files} 文件），下次启动切换`)
 			return {
 				dir: target,
 				files: counts.files,

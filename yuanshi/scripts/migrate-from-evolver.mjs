@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Migrate an evolver 1.0 card library into a 元始 data directory.
+ * Migrate an evolver 1.0 card library into a 自衍中枢 data directory.
  *
  * Dry-run is the default. `--apply` writes; the source is never modified.
  * Re-running is idempotent: records are matched by the old `card-` id kept in
@@ -62,7 +62,7 @@ async function main() {
 		console.log(`用法：node scripts/migrate-from-evolver.mjs [选项]
 
   --from <dir>   老 evolver 数据目录（默认 ~/.dsh/evolver）
-  --to <dir>     元始数据目录（默认 ~/.dsh/yuanshi）
+  --to <dir>     自衍中枢数据目录（默认 ~/.dsh/yuanshi）
   --apply        真正写入；默认只预演
   --json         只输出 JSON 摘要
   -h, --help     显示帮助

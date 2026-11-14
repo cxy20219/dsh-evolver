@@ -9,8 +9,8 @@ test('新建文本文件：边车、正文、MIME 都正确', async () => {
 	await withStore(async (store, dir) => {
 		const file = await store.create({
 			name: 'design.md',
-			description: '元始设计稿：一切皆文件的知识库',
-			content: '# 元始\n\n每个文件有唯一 id 和描述。',
+			description: '自衍中枢设计稿：一切皆文件的知识库',
+			content: '# 自衍中枢\n\n每个文件有唯一 id 和描述。',
 			tags: ['工作流', '#演化器'],
 			source: { quote: '一切皆文件', session: 'session-1' },
 		})
@@ -25,7 +25,7 @@ test('新建文本文件：边车、正文、MIME 都正确', async () => {
 
 		const sidecar = JSON.parse(await readFile(join(dir, 'files', file.id, 'meta.json'), 'utf8'))
 		assert.equal(sidecar.id, file.id)
-		assert.equal(sidecar.description, '元始设计稿：一切皆文件的知识库')
+		assert.equal(sidecar.description, '自衍中枢设计稿：一切皆文件的知识库')
 		assert.equal(sidecar.links.length, 0)
 		assert.equal(sidecar.schema, 1)
 
@@ -72,7 +72,7 @@ test('同名文件可以共存：id 才是身份', async () => {
 test('二进制文件：只读元数据与路径，不返回正文', async () => {
 	await withStore(async (store) => {
 		const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02])
-		const file = await store.create({ tags: ['测试'], name: 'shot.png', description: '元始面板的登录页截图', content: png })
+		const file = await store.create({ tags: ['测试'], name: 'shot.png', description: '自衍中枢面板的登录页截图', content: png })
 		assert.equal(file.mime, 'image/png')
 		assert.equal(file.text, undefined)
 		assert.equal(file.bytes, png.length)
@@ -186,9 +186,9 @@ test('标签是自由层级组合：任意深度、去空段、父标签过滤�
 			name: 'a.md',
 			description: '自由层级标签的测试文件',
 			content: 'x',
-			tags: ['工作/项目/元始', '类型/脚本', '#来源/会话', '工作//重复/'],
+			tags: ['工作/项目/自衍中枢', '类型/脚本', '#来源/会话', '工作//重复/'],
 		})
-		assert.deepEqual(file.tags, ['工作/项目/元始', '类型/脚本', '来源/会话', '工作/重复'])
+		assert.deepEqual(file.tags, ['工作/项目/自衍中枢', '类型/脚本', '来源/会话', '工作/重复'])
 		assert.equal((await store.list({ tag: '工作' })).total, 1)
 		assert.equal((await store.list({ tag: '工作/项目' })).total, 1)
 		assert.equal((await store.list({ tag: '类型' })).total, 1)

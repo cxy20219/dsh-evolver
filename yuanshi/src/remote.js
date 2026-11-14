@@ -1,5 +1,5 @@
 /**
- * The browser-facing API of 元始.
+ * The browser-facing API of 自衍中枢.
  *
  * One authenticated prefix (`/api/yuanshi`) owns every endpoint the panel
  * calls. The handler takes plain JSON and returns plain JSON; the route layer

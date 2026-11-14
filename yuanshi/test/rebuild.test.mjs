@@ -28,7 +28,7 @@ test('删掉数据库后重开：从边车重建文件、链接与检索', async
 	const dir = await tempDir()
 	let store = new FileStore({ dataDir: dir })
 	await store.open()
-	const a = await store.create({ name: 'design.md', description: '甲虫设计说明，讲文件与链接', content: '元始 文件 链接', tags: ['工作流'] })
+	const a = await store.create({ name: 'design.md', description: '甲虫设计说明，讲文件与链接', content: '自衍中枢 文件 链接', tags: ['工作流'] })
 	const b = await store.create({ tags: ['测试'], name: 'audit.md', description: '蝴蝶审计说明', content: '审计 守卫' })
 	await store.link(a.id, b.id)
 	store.close()

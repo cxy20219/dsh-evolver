@@ -1,11 +1,11 @@
 /**
- * A quantitative comparison: dsh-evolver 1.0.0 vs 元始 (dsh-yuanshi).
+ * A quantitative comparison: dsh-evolver 1.0.0 vs 自衍中枢 (dsh-yuanshi).
  *
  * It copies the live evolver library into a temporary folder, migrates it into
- * a temporary 元始 store, then runs the same scenarios against both:
+ * a temporary 自衍中枢 store, then runs the same scenarios against both:
  *
  *   - description queries (hit overlap, payload bytes, latency)
- *   - body-only queries (the old plugin indexes bodies; 元始 does not, by design)
+ *   - body-only queries (the old plugin indexes bodies; 自衍中枢 does not, by design)
  *   - tag filtering
  *   - graph retrieval
  *   - write/read/startup/rebuild timing
@@ -157,7 +157,7 @@ function renderReport(report) {
 		for (const row of rows) lines.push(`| ${row.join(' | ')} |`)
 		lines.push('')
 	}
-	lines.push('# 元始 vs dsh-evolver 1.0.0：分场景量化对比')
+	lines.push('# 自衍中枢 vs dsh-evolver 1.0.0：分场景量化对比')
 	lines.push('')
 	lines.push(`生成时间：${report.generatedAt}。老库复制自 \`${report.oldData}\`，只读；新库在临时目录迁移后测量。`)
 	lines.push('')
@@ -176,31 +176,31 @@ function renderReport(report) {
 	])
 	lines.push('## 1. 注入体积')
 	lines.push('')
-	table(['部分', '老插件', '元始'], [
+	table(['部分', '老插件', '自衍中枢'], [
 		['静态纪律 + 主动性协议', `${report.injection.oldStatic} B`, `${report.injection.newStatic} B`],
 		['运行时候选（12 个 + 摘要）', `${report.injection.oldIndex} B`, `${report.injection.newIndex} B`],
 		['合计', `${report.injection.oldTotal} B`, `${report.injection.newTotal} B`],
 	])
 	lines.push('## 2. 存储占用')
 	lines.push('')
-	table(['项', '老插件', '元始'], [
+	table(['项', '老插件', '自衍中枢'], [
 		['文件数', report.storage.oldFiles, report.storage.newFiles],
 		['字节', `${report.storage.oldBytes} B`, `${report.storage.newBytes} B`],
 		['相对老库', '—', `${round(report.storage.ratio * 100)}%`],
 	])
-	lines.push('## 3. 描述检索（老库描述基线 vs 元始；默认列显示正文额外命中）')
+	lines.push('## 3. 描述检索（老库描述基线 vs 自衍中枢；默认列显示正文额外命中）')
 	lines.push('')
 	table(['查询', '老描述基线 top5', '老默认命中', '新 top5', '描述基线/新重叠', '老 ms', '新 ms', '老返回 B', '新返回 B'], report.queries.map((row) => [
 		row.query, row.oldDescriptionCount, row.oldCount, row.newCount, `${row.overlap}/${row.oldDescriptionCount}`, round(row.oldMs), round(row.newMs), row.oldBytes, row.newBytes,
 	]))
-	lines.push('## 4. 正文词检索（老库索引正文；元始只靠描述，可能 0 也可能被附件描述命中）')
+	lines.push('## 4. 正文词检索（老库索引正文；自衍中枢只靠描述，可能 0 也可能被附件描述命中）')
 	lines.push('')
 	table(['只出现在正文的词', '老命中', '新命中', '说明'], report.bodyOnly.map((row) => [
 		row.term, row.oldHits, row.newHits, row.newHits === 0 ? '描述没写就搜不到（代价）' : '新库通过附件/迁移描述也命中（收益）',
 	]))
 	lines.push('## 5. 标签过滤与图')
 	lines.push('')
-	table(['场景', '老插件', '元始'], [
+	table(['场景', '老插件', '自衍中枢'], [
 		['标签 复盘 命中数', report.tag.oldCount, report.tag.newCount],
 		['图查询 审计：节点', report.graph.oldNodes, report.graph.newNodes],
 		['图查询 审计：边', report.graph.oldEdges, report.graph.newEdges],
@@ -208,7 +208,7 @@ function renderReport(report) {
 	])
 	lines.push('## 6. 写入与启动')
 	lines.push('')
-	table(['操作', '老插件', '元始'], [
+	table(['操作', '老插件', '自衍中枢'], [
 		['写 100 个文件/卡片', `${round(report.write.oldMs)} ms`, `${round(report.write.newMs)} ms`],
 		['单次写', `${round(report.write.oldPer)} ms`, `${round(report.write.newPer)} ms`],
 		['老库首次加载（135 卡）', `${round(report.startup.oldInitMs)} ms`, '—'],
@@ -219,10 +219,10 @@ function renderReport(report) {
 	lines.push('## 7. 口径与限制')
 	lines.push('')
 	for (const line of [
-		'老库默认 `query` 同时索引正文与描述；元始只索引 name/description/tags。第 3 节的“老描述基线”用 description+tags 的 token 重叠做对照，避免把“少了正文索引”误读成“描述检索变差”。',
-		'老库存储统计只复制了 `knowledge/`；元始包含 `files/` 与 `system/`（DB、快照、设置、日志）。文件数差异主要来自每实体一个目录 + meta.json + SQLite。',
+		'老库默认 `query` 同时索引正文与描述；自衍中枢只索引 name/description/tags。第 3 节的“老描述基线”用 description+tags 的 token 重叠做对照，避免把“少了正文索引”误读成“描述检索变差”。',
+		'老库存储统计只复制了 `knowledge/`；自衍中枢包含 `files/` 与 `system/`（DB、快照、设置、日志）。文件数差异主要来自每实体一个目录 + meta.json + SQLite。',
 		'写入计时是 API 路径（不含 fsync）；启动计时是热缓存下的单次调用；Node 26 环境，桌面端 Node 24 的绝对数值会更高，两侧同环境对比仍成立。',
-		'迁移把老附件变成了独立文件实体，并补了卡片 ↔ 附件的 links；所以元始的图比老图多节点/边，这是模型差异，不是排序 bug。',
+		'迁移把老附件变成了独立文件实体，并补了卡片 ↔ 附件的 links；所以自衍中枢的图比老图多节点/边，这是模型差异，不是排序 bug。',
 		'样本是 135 张卡 / 10 个附件的真实库；延迟绝对值很小，受机器负载影响；大库趋势需另测。',
 	]) lines.push(`- ${line}`)
 	lines.push('')
@@ -321,9 +321,9 @@ async function main() {
 	const newStatic = staticSection()
 
 	// A description-only baseline over the old cards. The old query ranks
-	// bodies too, so comparing it directly with 元始 would measure the missing
+	// bodies too, so comparing it directly with 自衍中枢 would measure the missing
 	// body index rather than the description catalogue. This baseline uses the
-	// same fields 元始 indexes (description + tags) and a token-overlap score.
+	// same fields 自衍中枢 indexes (description + tags) and a token-overlap score.
 	const oldDescriptionTokens = oldCards.map((card) => new Set(oldModules.db.tokenize(`${card.description ?? ''} ${(card.tags ?? []).join(' ')}`)))
 	const descriptionTop = (query, limit = 5) => {
 		const tokens = [...new Set(oldModules.db.tokenize(query))]
@@ -470,7 +470,7 @@ async function main() {
 	const descriptionHits = queries.reduce((sum, row) => sum + row.oldDescriptionCount, 0)
 	const defaultHits = queries.reduce((sum, row) => sum + row.oldCount, 0)
 	const conclusions = [
-		`描述检索：新库 top5 与老库“描述基线 top5”重合 ${overlap}/${descriptionHits}；差额来自排序策略（基线是 token 重叠，元始是 BM25+新近度+度数）和附件文件进入 top5。老库默认（正文+描述）top5 共 ${defaultHits} 条，比描述基线多 ${defaultHits - descriptionHits} 条，那是正文索引的额外召回。新库返回体平均 ${round(queries.reduce((sum, row) => sum + row.newBytes, 0) / queries.length)} B，老库 ${round(queries.reduce((sum, row) => sum + row.oldBytes, 0) / queries.length)} B（老查询结果带正文）。`,
+		`描述检索：新库 top5 与老库“描述基线 top5”重合 ${overlap}/${descriptionHits}；差额来自排序策略（基线是 token 重叠，自衍中枢是 BM25+新近度+度数）和附件文件进入 top5。老库默认（正文+描述）top5 共 ${defaultHits} 条，比描述基线多 ${defaultHits - descriptionHits} 条，那是正文索引的额外召回。新库返回体平均 ${round(queries.reduce((sum, row) => sum + row.newBytes, 0) / queries.length)} B，老库 ${round(queries.reduce((sum, row) => sum + row.oldBytes, 0) / queries.length)} B（老查询结果带正文）。`,
 		`正文词检索：${bodyOnly.length === 0 ? '没有采到可用样本' : bodyOnly.map((row) => `${row.term} ${row.oldHits}→${row.newHits}`).join('；')}。${bodyOnly.filter((row) => row.newHits === 0).length}/${bodyOnly.length} 个新库 0 命中，说明“描述没写就搜不到”；其余是附件描述/迁移描述带来的新命中。`,
 		`注入：老 ${oldTotal} B，新 ${newTotal} B，差 ${newTotal - oldTotal} B。`,
 		`存储：老 ${oldTree.files} 个文件 / ${oldTree.bytes} B；新 ${newTree.files} 个文件 / ${newTree.bytes} B（${round((newTree.bytes / Math.max(1, oldTree.bytes)) * 100)}%）。新增主要是每实体的 meta.json、DB 与快照。`,

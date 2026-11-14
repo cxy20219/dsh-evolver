@@ -119,7 +119,7 @@ export function assertDescription(value, maxChars = DEFAULT_DESCRIPTION_CHARS) {
 /**
  * Normalise one free-form tag.
  *
- * A tag is a path of one or more segments separated by `/`: `工作/项目/元始`,
+ * A tag is a path of one or more segments separated by `/`: `工作/项目/自衍中枢`,
  * `类型/脚本`, `来源/会话`. There is no fixed root and no fixed depth — the
  * hierarchy is the user's, not the plugin's. A leading `#` is accepted because
  * that is how people write tags; empty segments (`a//b`, `/a/`) collapse;

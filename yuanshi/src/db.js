@@ -152,7 +152,7 @@ export class IndexDatabase {
 		if (version === undefined) {
 			this.writeMeta('schema_version', String(INDEX_SCHEMA))
 		} else if (Number(version) !== INDEX_SCHEMA) {
-			throw new Error(`元始索引版本不匹配：${String(version)} ≠ ${INDEX_SCHEMA}；请重建索引。`)
+			throw new Error(`自衍中枢索引版本不匹配：${String(version)} ≠ ${INDEX_SCHEMA}；请重建索引。`)
 		}
 	}
 
