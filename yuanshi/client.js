@@ -88,6 +88,27 @@ window.__ModuleLoader__.load({
 			'settings.maxFileMb': '单文件上限（MB）',
 			'settings.readTextKb': '单次读取上限（KB）',
 			'settings.injectionBudget': '注入预算（字节）',
+			'settings.data': '数据',
+			'settings.data.current': '当前数据目录',
+			'settings.data.pending': '下次启动将使用',
+			'settings.data.dir': '新数据目录（绝对路径）',
+			'settings.data.mode': '模式',
+			'settings.data.copy': '复制当前库到新目录',
+			'settings.data.attach': '使用已有元始库',
+			'settings.data.copyHint': '只复制 files/ 与设置；DB、索引、日志、回收站会重建。目标目录必须不存在。',
+			'settings.data.attachHint': '目标目录必须已经包含 files/，不会复制或覆盖。',
+			'settings.data.save': '保存目录',
+			'settings.data.export': '导出 .tar.gz',
+			'settings.data.exportHint': '包含 files/ 与设置，不包含 DB、索引、日志、回收站。',
+			'settings.data.import': '导入 .tar.gz',
+			'settings.data.importHint': '解压到新目录并切换，旧库保留；重启后生效。',
+			'settings.data.importDir': '导入到目录（可选，留空自动新建）',
+			'settings.data.restart': '重启后生效；当前会话继续使用旧库。',
+			'settings.data.saved': '已写入数据目录指针，重启后生效。',
+			'settings.data.exported': '已生成导出包',
+			'settings.data.imported': '已导入，重启后生效。',
+			'settings.data.choose': '选择文件',
+			'settings.data.busy': '处理中…',
 			'upload.title': '上传文件',
 			'create.title': '新建文本文件',
 			'form.name': '文件名',
@@ -164,6 +185,27 @@ window.__ModuleLoader__.load({
 			'settings.maxFileMb': 'File cap (MB)',
 			'settings.readTextKb': 'Read cap (KB)',
 			'settings.injectionBudget': 'Injection budget (bytes)',
+			'settings.data': 'Data',
+			'settings.data.current': 'Current data directory',
+			'settings.data.pending': 'Next start will use',
+			'settings.data.dir': 'New data directory (absolute)',
+			'settings.data.mode': 'Mode',
+			'settings.data.copy': 'Copy this library',
+			'settings.data.attach': 'Use an existing library',
+			'settings.data.copyHint': 'Copies files/ and settings only; DB, index, logs and trash are rebuilt. The target must not exist.',
+			'settings.data.attachHint': 'The target must already contain files/. Nothing is copied or overwritten.',
+			'settings.data.save': 'Save directory',
+			'settings.data.export': 'Export .tar.gz',
+			'settings.data.exportHint': 'Includes files/ and settings, not the DB, index, logs or trash.',
+			'settings.data.import': 'Import .tar.gz',
+			'settings.data.importHint': 'Extracts to a new library and switches; the old library is kept. Restart to apply.',
+			'settings.data.importDir': 'Import to directory (optional)',
+			'settings.data.restart': 'Takes effect after a restart; this session keeps the old library.',
+			'settings.data.saved': 'Data-directory pointer saved; restart to apply.',
+			'settings.data.exported': 'Export created',
+			'settings.data.imported': 'Imported; restart to apply.',
+			'settings.data.choose': 'Choose file',
+			'settings.data.busy': 'Working…',
 			'upload.title': 'Upload file',
 			'create.title': 'New text file',
 			'form.name': 'File name',
@@ -269,7 +311,7 @@ window.__ModuleLoader__.load({
 
 		//#region helpers
 
-		function callHost(ctx, endpoint, payload) {
+		function callHost(ctx, endpoint, payload, timeoutMs) {
 			if (ctx.get('connection') === undefined) return Promise.reject(new Error('连接不可用'));
 			var options = {
 				method: 'POST',
@@ -278,7 +320,7 @@ window.__ModuleLoader__.load({
 				credentials: 'same-origin'
 			};
 			if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-				options.signal = AbortSignal.timeout(30000);
+				options.signal = AbortSignal.timeout(typeof timeoutMs === 'number' && timeoutMs > 0 ? timeoutMs : 30000);
 			}
 			return fetch(API_PREFIX + '/' + endpoint, options).then(function (response) {
 				return response.json().catch(function () {
@@ -743,6 +785,133 @@ window.__ModuleLoader__.load({
 					edges.length === 0 ? ' · 还没有链接；在文件的出链里填目标 id 即可。' : ''));
 		}
 
+
+		function downloadBase64(base64, name) {
+			if (typeof document === 'undefined' || typeof atob !== 'function') return;
+			const binary = atob(base64);
+			const bytes = new Uint8Array(binary.length);
+			for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+			const blob = new Blob([bytes], { type: 'application/gzip' });
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = url;
+			anchor.download = name;
+			anchor.style.display = 'none';
+			document.body.appendChild(anchor);
+			anchor.click();
+			anchor.remove();
+			setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+		}
+
+		function DataSection(props) {
+			var t = props.t;
+			var call = props.call;
+			var notify = props.notify;
+			var status = props.status;
+			var [dir, setDir] = useState('');
+			var [mode, setMode] = useState('copy');
+			var [importDir, setImportDir] = useState('');
+			var [importFile, setImportFile] = useState(null);
+			var [busy, setBusy] = useState(false);
+			var [message, setMessage] = useState('');
+			var importRef = useRef(null);
+			if (status === null || status === undefined) return h('div', { className: 'ysHint' }, t('state.loading'));
+
+			function saveDir() {
+				setBusy(true);
+				setMessage('');
+				call('data-dir-save', { dir: dir, mode: mode }, 120000).then(function (value) {
+					setMessage(t('settings.data.saved') + ' ' + value.dir);
+					props.onRefresh();
+				}).catch(function (error) { notify(messageOf(error), true); }).then(function () { setBusy(false); });
+			}
+
+			function exportNow() {
+				setBusy(true);
+				setMessage('');
+				call('data-export', {}, 120000).then(function (value) {
+					downloadBase64(value.base64, value.name);
+					setMessage(t('settings.data.exported') + '：' + value.name + ' · ' + formatBytes(value.archiveBytes));
+				}).catch(function (error) { notify(messageOf(error), true); }).then(function () { setBusy(false); });
+			}
+
+			function pickImport(event) {
+				var file = event.target.files && event.target.files[0];
+				event.target.value = '';
+				if (!file) return;
+				if (file.size > 32 * 1024 * 1024) {
+					notify('压缩包超过 32 MB 上限。', true);
+					return;
+				}
+				var reader = new FileReader();
+				reader.onload = function () {
+					setImportFile({ name: file.name, data: String(reader.result), size: file.size });
+					setMessage('');
+				};
+				reader.onerror = function () { notify('读取压缩包失败。', true); };
+				reader.readAsDataURL(file);
+			}
+
+			function importNow() {
+				if (importFile === null) {
+					notify('先选择一个 .tar.gz 压缩包。', true);
+					return;
+				}
+				setBusy(true);
+				setMessage('');
+				call('data-import', { data: importFile.data, dir: importDir }, 120000).then(function (value) {
+					setImportFile(null);
+					setImportDir('');
+					setMessage(t('settings.data.imported') + ' ' + value.dir);
+					props.onRefresh();
+				}).catch(function (error) { notify(messageOf(error), true); }).then(function () { setBusy(false); });
+			}
+
+			return h('div', { style: { marginTop: 24 } },
+				h('div', { className: 'ysSection' }, t('settings.data')),
+				h('div', { className: 'ysField' },
+					h('label', { className: 'ysLabel' }, t('settings.data.current')),
+					h('code', { style: { fontSize: 11, wordBreak: 'break-all' } }, status.current + ' · ' + status.files + ' 文件')),
+				status.pending
+					? h('div', { className: 'ysHint', style: { marginBottom: 10 } },
+						t('settings.data.pending') + '：' + status.pending + (status.pendingExists ? '' : '（目标不存在）'))
+					: null,
+				h('div', { className: 'ysToolbar' },
+					h('input', {
+						className: 'ysInput',
+						placeholder: '/absolute/path/to/yuanshi',
+						value: dir,
+						onChange: function (event) { setDir(event.target.value); }
+					}),
+					h('select', {
+						className: 'ysSelect',
+						value: mode,
+						onChange: function (event) { setMode(event.target.value); }
+					},
+						h('option', { value: 'copy' }, t('settings.data.copy')),
+						h('option', { value: 'attach' }, t('settings.data.attach'))),
+					h('button', { className: 'ysButton', disabled: busy, onClick: saveDir }, t('settings.data.save'))),
+				h('div', { className: 'ysHint', style: { marginBottom: 10 } },
+					mode === 'copy' ? t('settings.data.copyHint') : t('settings.data.attachHint')),
+				h('div', { className: 'ysToolbar' },
+					h('button', { className: 'ysButton', disabled: busy, onClick: function () { importRef.current?.click(); } }, t('settings.data.choose')),
+					h('input', { ref: importRef, type: 'file', accept: '.tar.gz,.tgz,.tar', style: { display: 'none' }, onChange: pickImport }),
+					h('input', {
+						className: 'ysInput',
+						placeholder: t('settings.data.importDir'),
+						value: importDir,
+						onChange: function (event) { setImportDir(event.target.value); }
+					}),
+					h('button', { className: 'ysButton ysButtonPrimary', disabled: busy || importFile === null, onClick: importNow },
+						importFile ? '导入 ' + importFile.name : t('settings.data.import'))),
+				h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('settings.data.importHint')),
+				h('div', { className: 'ysToolbar' },
+					h('button', { className: 'ysButton', disabled: busy, onClick: exportNow }, t('settings.data.export')),
+					h('span', { className: 'ysHint' }, t('settings.data.exportHint'))),
+				message ? h('div', { className: 'ysHint' }, message) : null,
+				h('div', { className: 'ysHint', style: { marginTop: 6 } }, t('settings.data.restart')));
+		}
+
 		function SettingsTab(props) {
 			var t = props.t;
 			var settings = props.settings;
@@ -785,7 +954,8 @@ window.__ModuleLoader__.load({
 								injectionBudget: draft.injectionBudget
 							});
 						}
-					}, t('action.save'))));
+					}, t('action.save'))),
+				h(DataSection, props));
 		}
 
 		function LogsTab(props) {
@@ -844,7 +1014,7 @@ window.__ModuleLoader__.load({
 		function Panel(props) {
 			var ctx = props.ctx;
 			var t = props.t;
-			var call = useCallback(function (endpoint, payload) { return callHost(ctx, endpoint, payload); }, [ctx]);
+			var call = useCallback(function (endpoint, payload, timeoutMs) { return callHost(ctx, endpoint, payload, timeoutMs); }, [ctx]);
 			var [tab, setTab] = useState('overview');
 			var [overview, setOverview] = useState(null);
 			var [files, setFiles] = useState(null);
@@ -859,6 +1029,7 @@ window.__ModuleLoader__.load({
 			var [graph, setGraph] = useState(null);
 			var [settings, setSettings] = useState(null);
 			var [logs, setLogs] = useState(null);
+			var [dataStatus, setDataStatus] = useState(null);
 			var [dialog, setDialog] = useState(null);
 			var [busy, setBusy] = useState(false);
 			var [toast, setToast] = useState(null);
@@ -953,11 +1124,16 @@ window.__ModuleLoader__.load({
 				loadDetail(id);
 			}, [loadDetail]);
 
+			var loadDataStatus = useCallback(function () {
+				return call('data-status').then(setDataStatus).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
+			}, [call, notify]);
+
 			useEffect(function () {
 				loadOverview();
+				loadDataStatus();
 				call('settings').then(setSettings).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
 				call('logs', { limit: 200 }).then(setLogs).catch(function (error) { setLoadError(messageOf(error)); });
-			}, [loadOverview, call, notify]);
+			}, [loadOverview, loadDataStatus, call, notify]);
 
 			useEffect(function () {
 				if (tab !== 'files') return undefined;
@@ -1156,6 +1332,10 @@ window.__ModuleLoader__.load({
 									? h(SettingsTab, {
 										t: t,
 										settings: settings,
+										call: call,
+										notify: notify,
+										status: dataStatus,
+										onRefresh: loadDataStatus,
 										onSave: function (patch) {
 											call('settings-save', patch).then(function (value) {
 												setSettings(value);

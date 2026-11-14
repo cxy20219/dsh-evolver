@@ -76,16 +76,20 @@ async function post(routes, endpoint, payload = {}) {
 	return value
 }
 
-test('面板接口：12 个端点，一次完整读写/上传/预览/图/设置/日志/删除', async () => {
+test('面板接口：16 个端点，一次完整读写/上传/预览/图/设置/日志/删除', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-remote-'))
 	const { ctx, routes, effects } = fakeContext()
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 12)
+		assert.equal(routes.size, 16)
 
 		const empty = await post(routes, 'overview')
 		assert.equal(empty.stats.files, 0)
 		assert.match(empty.injection, /库是空的/)
+
+		const data = await post(routes, 'data-status')
+		assert.equal(data.current, dir)
+		assert.equal(data.files, 0)
 
 		const created = await post(routes, 'file-write', {
 			name: 'api.md',
@@ -124,6 +128,10 @@ test('面板接口：12 个端点，一次完整读写/上传/预览/图/设置/
 
 		const saved = await post(routes, 'settings-save', { descriptionMaxChars: 200 })
 		assert.equal(saved.descriptionMaxChars, 200)
+
+		const exported = await post(routes, 'data-export')
+		assert.ok(exported.base64.length > 0)
+		assert.equal(exported.files, 2)
 
 		const logs = await post(routes, 'logs', { limit: 20 })
 		assert.ok(Array.isArray(logs.lines))

@@ -4,7 +4,7 @@
 
 ## 状态
 
-- **Host 半边已实现**：数据目录、文件存储、SQLite 索引、描述检索、图遍历、8 个工具、两段注入、设置、日志、12 个面板接口。
+- **Host 半边已实现**：数据目录、文件存储、SQLite 索引、描述检索、图遍历、8 个工具、两段注入、设置、日志、16 个面板接口。
 - **面板（浏览器半边）已实现**：侧边栏「元始」，概览 / 文件 / 图谱 / 设置 / 日志五个页签；可搜索、编辑、上传、新建、归档、删除、看图。
 - 数据目录默认 `~/.dsh/yuanshi`，一个根目录下分两棵子树：`files/` 只放文件本体，`system/` 放索引与系统数据。
 
@@ -30,7 +30,7 @@
 
 Agent 工具：`file_query`、`file_read`、`file_write`、`file_import`、`file_link`、`file_index`、`file_archive`、`file_remove`。
 
-面板通过 `/api/yuanshi/*` 的 12 个接口工作（`overview`、`file-list`、`file-read`、`file-write`、`file-upload`、`file-preview`、`file-archive`、`file-remove`、`graph`、`settings`、`settings-save`、`logs`），浏览器只发 id，不发路径；上传和预览都有大小上限。
+面板通过 `/api/yuanshi/*` 的 16 个接口工作：文件 7 个、概览/图谱/设置读写/日志 5 个，以及 `data-status`、`data-dir-save`、`data-export`、`data-import` 4 个数据接口。浏览器只发 id，不发文件路径；上传、预览和归档都有大小上限。
 
 ### 面板
 
@@ -39,6 +39,19 @@ Agent 工具：`file_query`、`file_read`、`file_write`、`file_import`、`file
 - **图谱**：显式链接图，点节点打开文件；节点按类型着色，附件与脚本也是节点。
 - **设置**：描述上限、单文件上限、读取上限、注入预算；保存后立即生效。
 - **日志**：`system/logs/plugin.log` 尾部。
+
+## 数据目录与备份
+
+默认数据目录 `~/.dsh/yuanshi`。设置页「数据」区可以：
+
+- **复制当前库到新目录**：只复制 `files/` 与 `system/settings.json`，DB、索引、日志、回收站由下次启动重建；目标目录必须不存在。
+- **使用已有元始库**：目标必须已经有 `files/`，不复制、不覆盖。
+- **导入 `.tar.gz`**：解压到新目录，校验后切换；旧库保留。
+- **导出 `.tar.gz`**：包含 `files/` 与设置，不包含 DB、索引、日志、回收站；浏览器直接下载。
+
+目录切换都写一个指针 `~/.dsh/yuanshi.home.json`，**重启后生效**；当前会话继续读旧库。指针是唯一放在数据目录外的文件，内容只有一个绝对路径；删掉它即可回到组合配置/默认目录。
+
+导出包限制：归档 ≤32 MB、解压 ≤256 MB、单文件 ≤64 MB；导入会拒绝绝对路径、`..`、反斜杠、符号链接和非普通 tar 条目。
 
 ## 从 evolver 1.0 迁移
 
@@ -76,7 +89,7 @@ node scripts/compare.mjs       # 复制老库、迁移、分场景对比
 ## 开发
 
 ```bash
-npm test                       # 52 条
+npm test                       # 60 条
 node scripts/bench.mjs 500     # 500 文件基准
 node scripts/compare.mjs       # 与 evolver 1.0.0 分场景对比
 node scripts/migrate-from-evolver.mjs  # 老库迁移，默认预演

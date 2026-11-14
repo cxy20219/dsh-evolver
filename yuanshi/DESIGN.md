@@ -162,6 +162,8 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 顶层页签：**概览 / 文件 / 图谱 / 设置 / 日志**（不再有“卡片/资源”两分）。
 
+设置页的「数据」区：当前目录、下次启动目录、复制/attach 模式、导出 `.tar.gz`、导入为新库并切换。目录切换只写 `~/.dsh/yuanshi.home.json` 指针，重启生效；导入/导出只操作 `files/` 与设置，DB/索引/日志/回收站不进归档。
+
 - 文件页：搜索、按类型/标签过滤、显示归档、上传（必须填描述）、新建文本文件；列表显示名字 + 描述 + 类型 + 大小 + 度数 + 更新时间，100 条一页，可“加载更多”。
 - 详情：按类型预览（md/文本/代码、图片、PDF；Word/Office 只显示路径，交给外部程序）；编辑描述/标签/出链/正文；看反链与已解析出链；显示 path / executable；保存/归档/删除在详情顶部，不用滚到底。
 - 图谱：节点=文件，边=链接；SVG 力导向、按类型着色、点节点打开文件。MVP 是结算布局，不做拖拽。
@@ -341,3 +343,24 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - 不在注入/FTS 中加入标签说明；
 - 老库的默认标签说明不迁入元始；
 - 以后若出现真实的标签歧义或重复，只考虑 **alias/merge** 这类治理动作，不重新引入 prose 描述层。
+
+## 21. 数据目录与导入导出（2026-11-14）
+
+用户决策：**导入作为新库并切换；目录操作重启生效。**
+
+已实现：
+
+- `src/home.js`：`~/.dsh/yuanshi.home.json` 指针，绝对路径、0600 原子写；启动时指针优先于组合配置 `dataDir`，指针指向缺失库时明确报错。
+- `src/data-jobs.js`：复制当前库到新目录（只复制 `files/` + settings，目标必须不存在）、attach 已有库、导出、导入为新库；当前 store 不热切换，所有切换返回 `restartRequired`。
+- `src/archive.js` + `src/tar.js`：无依赖 tar+gzip；导出带 `yuanshi-export.json` 清单；导入只允许清单、`system/settings.json` 和 `files/`，拒绝绝对路径、`..`、反斜杠、符号链接、非普通条目，限制 32 MB 归档 / 256 MB 解压 / 64 MB 单文件。
+- 面板设置页「数据」区：当前/下次启动目录、复制/attach、导出下载、选择 `.tar.gz` 导入；导入目标可留空自动新建。
+- 接口从 12 个增至 16 个：`data-status`、`data-dir-save`、`data-export`、`data-import`。
+- 安全：复制先写 staging 再 rename；导入先解压到新目录并校验 `files/<id>/meta.json`、id/name/字节数，再写指针；指针写失败不覆盖旧指针。
+- 验证：`test/home.test.mjs`、`test/data-jobs.test.mjs`、`test/archive.test.mjs`，60 条全绿；隔离 profile 实测复制、指针重启生效、导出下载、上传导入、指针切换。
+
+边界：
+
+- 复制时当前实例仍在服务；若同时有写操作，复制不是严格事务快照。UI 提示“重启后生效”，但没有锁；大批量写入时建议先停写。
+- 导出通过 base64 下载，受 32 MB 归档上限约束；更大的库后续应改成流式下载/导出到目录。
+- 导入只做“新库 + 切换”，不做合并/覆盖；旧库始终保留。
+- 指针在数据目录外，是“目录可迁移”的必要例外；备份时要一起记路径，但不要复制指针到新机器（路径会变）。

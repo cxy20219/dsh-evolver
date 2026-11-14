@@ -5,20 +5,23 @@
  *
  *   1. **the data** — one folder (`~/.dsh/yuanshi` by default) holding files,
  *      sidecars, the SQLite index, the injected snapshot, settings, logs and
- *      trash. Nothing lives beside that folder;
+ *      trash. Only a one-line pointer (`~/.dsh/yuanshi.home.json`) may live
+ *      beside that folder;
  *   2. **the tools** — file query/read/write/import/link/index/archive/remove;
  *   3. **the injection** — a static system section and a runtime file index
  *      read from a snapshot, so a write does not rewrite the prompt prefix.
  *
- * The browser half (the panel) is the next phase; this half is loadable on its
- * own as a host plugin.
+ * The browser half is `client.js`: five tabs, settings, and data import/export.
+ * The host half remains loadable on its own for tools and injection.
  */
 
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
 import { indexText, refreshIndex, dayKey } from './src/injection.js'
+import { createDataJobs } from './src/data-jobs.js'
+import { dataDirPointerPath, readDataDirPointer } from './src/home.js'
 import { createLogSink } from './src/logs.js'
 import { staticSection } from './src/prompt.js'
 import { createYuanshiHandler, ENDPOINTS } from './src/remote.js'
@@ -80,7 +83,19 @@ export async function apply(ctx, config) {
 	if (configured !== '' && !isAbsolute(configured)) {
 		throw new Error('dsh-yuanshi: dataDir 必须是绝对路径。')
 	}
-	const root = configured === '' ? join(resolveDshHome(), 'yuanshi') : resolve(configured)
+	const dshHome = resolveDshHome()
+	const pointerPath = dataDirPointerPath(dshHome)
+	const pointer = await readDataDirPointer(pointerPath)
+	if (pointer !== undefined) {
+		const pointerInfo = await stat(join(pointer.dataDir, 'files')).catch(() => undefined)
+		if (pointerInfo === undefined || !pointerInfo.isDirectory()) {
+			throw new Error(`dsh-yuanshi: 数据目录指针指向的不是元始库：${pointer.dataDir}（删掉 ${pointerPath} 可回到默认目录）`)
+		}
+		if (configured !== '' && resolve(configured) !== pointer.dataDir) {
+			ctx.logger?.warn?.(`dsh-yuanshi: 数据目录指针覆盖了组合配置 dataDir（${configured}）`)
+		}
+	}
+	const root = pointer?.dataDir ?? (configured === '' ? join(dshHome, 'yuanshi') : resolve(configured))
 
 	const systemDir = join(root, 'system')
 	const logs = createLogSink({ dataDir: systemDir, forward: ctx.logger })
@@ -106,6 +121,7 @@ export async function apply(ctx, config) {
 	}
 	let injected = await indexText(store, current.injectionBudget)
 	const version = await readVersion()
+	const data = createDataJobs({ root, pointerPath, settings, logger: logs, version })
 
 	const disposers = []
 	for (const tool of createTools({ store })) disposers.push(ctx.tools.register(tool))
@@ -126,7 +142,7 @@ export async function apply(ctx, config) {
 
 	const connection = ctx.get('connection')
 	if (connection !== undefined) {
-		const handler = createYuanshiHandler({ store, settings, logs, root, version })
+		const handler = createYuanshiHandler({ store, settings, logs, root, version, data })
 		for (const endpoint of ENDPOINTS) {
 			disposers.push(connection.fetch.register({
 				path: `${API_PREFIX}/${endpoint}`,
@@ -179,6 +195,7 @@ export async function apply(ctx, config) {
 	timer.unref?.()
 
 	logs.info(`元始 ${version}：数据目录 ${root}（文件 files/，系统数据 system/）`)
+	if (pointer !== undefined) logs.info(`元始：数据目录由指针 ${pointerPath} 指定`)
 
 	ctx.effect(() => () => {
 		clearInterval(timer)

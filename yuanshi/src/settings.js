@@ -2,9 +2,11 @@
  * Plugin settings.
  *
  * Everything the plugin owns lives under one data directory — including this
- * file. The directory is chosen by the composition (`config.dataDir`) or the
- * default `~/.dsh/yuanshi`; there is no second config file beside it, so
- * moving the folder moves the whole library.
+ * file. The directory is chosen by the panel pointer
+ * (`~/.dsh/yuanshi.home.json`), then the composition (`config.dataDir`), then
+ * the default `~/.dsh/yuanshi`. The pointer is the one exception beside the
+ * folder; it contains only the absolute data path, so moving the folder still
+ * moves the whole library.
  */
 
 import { readFile } from 'node:fs/promises'

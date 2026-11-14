@@ -30,6 +30,10 @@ export const ENDPOINTS = [
 	'settings',
 	'settings-save',
 	'logs',
+	'data-status',
+	'data-dir-save',
+	'data-export',
+	'data-import',
 ]
 
 /** A preview larger than this is not sent as base64. */
@@ -115,7 +119,7 @@ async function logTail(root, limit = 300) {
  * @param {{store: object, settings: object, logs: object, root: string, version?: string}} deps - The open store and its satellites.
  * @returns {(endpoint: string, payload: object) => Promise<any>} The handler.
  */
-export function createYuanshiHandler({ store, settings, logs, root, version = '' }) {
+export function createYuanshiHandler({ store, settings, logs, root, version = '', data }) {
 	return async function handleYuanshi(endpoint, payload = {}) {
 		switch (endpoint) {
 			case 'overview': {
@@ -250,6 +254,20 @@ export function createYuanshiHandler({ store, settings, logs, root, version = ''
 			case 'logs': {
 				const tail = await logTail(root, payload?.limit)
 				return { ...tail, status: { dataDir: root, settings: settings.publicView() } }
+			}
+			case 'data-status': {
+				return data.status()
+			}
+			case 'data-dir-save': {
+				const mode = text(payload, 'mode', 'copy')
+				if (mode !== 'copy' && mode !== 'attach') throw new Error('数据目录模式只能是 copy 或 attach。')
+				return data.saveDir({ dir: text(payload, 'dir'), mode })
+			}
+			case 'data-export': {
+				return data.exportLibrary()
+			}
+			case 'data-import': {
+				return data.importLibrary({ data: text(payload, 'data'), dir: text(payload, 'dir') })
 			}
 			default:
 				throw new Error(`未知接口：${String(endpoint)}`)
