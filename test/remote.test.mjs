@@ -76,7 +76,7 @@ async function post(routes, endpoint, payload = {}) {
 	return value
 }
 
-test('面板接口：19 个端点，一次完整读写/上传/预览/图/注入/自衍/设置/日志/删除', async () => {
+test('面板接口：21 个端点，一次完整读写/上传/预览/图/注入/偏好/自衍/设置/日志/删除', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-remote-'))
 	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
 	const previousHome = process.env.DSH_HOME
@@ -84,7 +84,7 @@ test('面板接口：19 个端点，一次完整读写/上传/预览/图/注入/
 	const { ctx, routes, effects } = fakeContext()
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 19)
+		assert.equal(routes.size, 21)
 
 		const empty = await post(routes, 'overview')
 		assert.equal(empty.stats.files, 0)
@@ -101,6 +101,18 @@ test('面板接口：19 个端点，一次完整读写/上传/预览/图/注入/
 		assert.ok(injection.index.length > 0)
 		assert.match(injection.static, /文件/)
 		assert.equal(injection.stale, injection.day !== injection.today)
+
+		// 偏好：写进 DSH home 的 AGENTS.md，读回来能看到那一段。
+		const fresh = await post(routes, 'preferences')
+		assert.equal(fresh.exists, false)
+		assert.equal(fresh.hasBlock, false)
+		assert.equal(fresh.content, '')
+		const savedPreferences = await post(routes, 'preferences-save', { content: '- 先读再改' })
+		assert.equal(savedPreferences.hasBlock, true)
+		assert.equal(savedPreferences.content, '- 先读再改')
+		const reread = await post(routes, 'preferences')
+		assert.equal(reread.content, '- 先读再改')
+		assert.ok(reread.path.startsWith(home), '偏好文件在 DSH home 下')
 
 		const digest = await post(routes, 'digest')
 		assert.deepEqual(digest.sessions, [])

@@ -16,6 +16,7 @@ import { join } from 'node:path'
 
 import { dayKey, indexText, readIndex, refreshIndex } from './injection.js'
 import { isTextMime } from './names.js'
+import { readPreferences, writePreferences } from './preferences.js'
 import { staticSection } from './prompt.js'
 import { listSessions } from './sessions.js'
 
@@ -34,6 +35,8 @@ export const ENDPOINTS = [
 	'settings-save',
 	'logs',
 	'injection',
+	'preferences',
+	'preferences-save',
 	'digest',
 	'rebuild',
 	'data-status',
@@ -41,6 +44,17 @@ export const ENDPOINTS = [
 	'data-export',
 	'data-import',
 ]
+
+/**
+ * The DeepSeek Harness home, resolved the same way the host resolves it.
+ *
+ * @returns {string} The absolute path.
+ */
+function dshHome() {
+	return typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME !== ''
+		? process.env.DSH_HOME
+		: join(homedir(), '.dsh')
+}
 
 /**
  * Where the host keeps its session logs.
@@ -52,10 +66,7 @@ export const ENDPOINTS = [
  * @returns {string} The absolute path.
  */
 function sessionsRoot() {
-	const home = typeof process.env.DSH_HOME === 'string' && process.env.DSH_HOME !== ''
-		? process.env.DSH_HOME
-		: join(homedir(), '.dsh')
-	return join(home, 'sessions')
+	return join(dshHome(), 'sessions')
 }
 
 /** A preview larger than this is not sent as base64. */
@@ -308,6 +319,12 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 					entries: snapshot === undefined || !Array.isArray(snapshot.top) ? 0 : snapshot.top.length,
 					stale: snapshot === undefined || String(snapshot.day) !== today,
 				}
+			}
+			case 'preferences': {
+				return readPreferences(dshHome())
+			}
+			case 'preferences-save': {
+				return writePreferences(dshHome(), payload?.content)
 			}
 			case 'digest': {
 				const listing = await listSessions({ root: sessionsRoot(), limit: payload?.limit })

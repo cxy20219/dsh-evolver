@@ -17,16 +17,16 @@ DSH 插件：**一切皆文件**的知识库。每个文件是一等实体（唯
 
 | 路径 | 内容 |
 |---|---|
-| `index.js` | 宿主装配：store、8 个 `file_*` 工具、两段注入、19 个面板接口、每日快照心跳 |
+| `index.js` | 宿主装配：store、8 个 `file_*` 工具、两段注入、21 个面板接口、每日快照心跳 |
 | `client.js` | 浏览器半边，单文件 `window.__ModuleLoader__.load` 工厂，无构建 |
-| `src/` | `store.js`（边车 + 索引）、`db.js`（SQLite）、`injection.js`、`tools.js`、`prompt.js`、`remote.js`、`sessions.js`（读会话日志）、`archive.js`、`data-jobs.js`、`migrate.js`、`home.js` 等 |
-| `test/` | `node --test`，70 条 |
+| `src/` | `store.js`（边车 + 索引）、`db.js`（SQLite）、`injection.js`、`preferences.js`（全局偏好的标记段落）、`tools.js`、`prompt.js`、`remote.js`、`sessions.js`（读会话日志）、`archive.js`、`data-jobs.js`、`migrate.js`、`home.js` 等 |
+| `test/` | `node --test`，83 条 |
 | `scripts/` | `bench.mjs` / `compare.mjs` / `migrate-from-evolver.mjs` / `seed-demo.mjs`（合成测试库） |
 
 ## 命令
 
 ```bash
-npm test                                # 70 条
+npm test                                # 83 条
 node --check src/store.js               # 单文件语法
 node scripts/bench.mjs 500              # 500 文件基准
 node scripts/migrate-from-evolver.mjs   # 老库迁移，默认 dry-run

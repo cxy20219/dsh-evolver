@@ -37,6 +37,18 @@ window.__ModuleLoader__.load({
 			'tab.settings': '设置',
 			'tab.logs': '日志',
 			'injection.static': '系统段：静态纪律',
+			'injection.tab.prompts': '提示词',
+			'injection.tab.preferences': '偏好',
+			'injection.total': '合计 {total} B：静态纪律 {static} B + 文件索引 {index} B（预算只管索引）',
+			'preferences.hint': '这一段写在 DSH 的全局 AGENTS.md 里，由加载器在每次会话开始时注入；插件只碰自己那对标记之间的内容，文件里其他规则原样保留。',
+			'preferences.file': '文件',
+			'preferences.link': '这是个软链，实际写入它指向的文件，链接本身保留：{target}',
+			'preferences.unreadable': '偏好文件读取失败，为避免覆盖原文件，保存已禁用；请检查文件权限后刷新。',
+			'preferences.append': '这个文件已经存在且没有偏好段，第一次保存会把它接在文件末尾，不覆盖已有内容。',
+			'preferences.dirty': '未保存',
+			'preferences.reset': '撤销修改',
+			'preferences.save': '保存',
+			'preferences.saved': '偏好已保存',
 			'injection.static.hint': '每轮请求都带，{bytes} 字节；它不发散，但会永久占住前缀。',
 			'injection.index': '运行时上下文：文件索引',
 			'injection.meta': '快照 {day} · {entries} 条候选 · {state}',
@@ -183,6 +195,18 @@ window.__ModuleLoader__.load({
 			'tab.settings': 'Settings',
 			'tab.logs': 'Logs',
 			'injection.static': 'System section: the fixed discipline',
+			'injection.tab.prompts': 'Prompts',
+			'injection.tab.preferences': 'Preferences',
+			'injection.total': '{total} B total: {static} B discipline + {index} B index (the budget covers the index only)',
+			'preferences.hint': 'This block lives in DSH global AGENTS.md and the loader injects it into every session. The plugin only touches what sits between its two markers; the rest of the file is left alone.',
+			'preferences.file': 'File',
+			'preferences.link': 'This is a symlink. The write lands on its target and the link stays: {target}',
+			'preferences.unreadable': 'The preferences file could not be read. Saving is disabled so the original is not overwritten; check the file permissions and refresh.',
+			'preferences.append': 'The file exists but has no preference block yet. The first save appends one at the end and leaves what is already there untouched.',
+			'preferences.dirty': 'unsaved',
+			'preferences.reset': 'Discard changes',
+			'preferences.save': 'Save',
+			'preferences.saved': 'Preferences saved',
 			'injection.static.hint': 'Sent with every request, {bytes} bytes; it never changes, but it holds the prefix.',
 			'injection.index': 'Runtime context: the file index',
 			'injection.meta': 'Snapshot {day} · {entries} candidates · {state}',
@@ -2546,18 +2570,51 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * 注入页：模型每轮看到的两段文本，以及快照与预算的状态。
+		 * 注入页：模型每轮看到的文本，分成「提示词」和「偏好」两栏。
 		 *
-		 * 两段分开显示，是因为它们的稳定性不同：静态纪律进系统段、永不变化，
-		 * 文件索引进运行时上下文、每天刷新一次。任何一边长了都会挤占另一边。
+		 * 提示词栏是插件自己拼出来的两段——静态纪律进系统段、文件索引进运行时
+		 * 上下文，两天分开显示是因为它们的稳定性不同；预算条放在这一栏顶部。
+		 * 偏好栏是写进 `~/.dsh/AGENTS.md` 的那一段，由 DSH 的 AGENTS.md 加载器
+		 * 在每次会话开始时注入，所以它跟插件版本无关，改完立刻对下一个会话生效。
 		 */
 		function InjectionTab(props) {
+			var t = props.t;
+			var [section, setSection] = useState('prompts');
+			var options = [
+				['prompts', t('injection.tab.prompts')],
+				['preferences', t('injection.tab.preferences')]
+			];
+			return h('div', null,
+				h('div', { className: 'ysTabs ysSubtabs', role: 'tablist', 'aria-label': t('tab.injection') },
+					options.map(function (option) {
+						return h('button', {
+							key: option[0],
+							type: 'button',
+							role: 'tab',
+							className: 'ysTab' + (section === option[0] ? ' ysTabActive' : ''),
+							'aria-selected': section === option[0],
+							onClick: function () { setSection(option[0]); }
+						}, option[1]);
+					})),
+				section === 'preferences'
+					? h(PreferencesPane, props)
+					: h(PromptsPane, props));
+		}
+
+		/**
+		 * 提示词栏：预算条在最上面，下面依次是静态纪律和文件索引。
+		 *
+		 * 预算只管文件索引（静态纪律是常量），所以条上同时写清两段的字节，
+		 * 免得把「索引没超预算」误读成「整个注入很轻」。
+		 */
+		function PromptsPane(props) {
 			var t = props.t;
 			var injection = props.injection;
 			var [busy, setBusy] = useState(false);
 			if (injection === null || injection === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
 			var budget = Number(injection.budget) || 0;
 			var bytes = Number(injection.bytes) || 0;
+			var staticBytes = Number(injection.staticBytes) || 0;
 			var percent = budget > 0 ? Math.min(100, Math.round((bytes / budget) * 100)) : 0;
 			function refresh() {
 				setBusy(true);
@@ -2569,14 +2626,19 @@ window.__ModuleLoader__.load({
 				}).then(function () { setBusy(false); });
 			}
 			return h('div', null,
-				h('div', { className: 'ysSection' }, t('injection.static')),
-				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
-					t('injection.static.hint').replace('{bytes}', String(injection.staticBytes ?? 0))),
-				h('pre', { className: 'ysPre' }, injection.static),
-				h('div', { className: 'ysSection' }, t('injection.index')),
 				h('div', { className: 'ysMeter' },
 					h('div', { className: 'ysMeterFill', style: { width: percent + '%' } }),
 					h('span', { className: 'ysMeterText' }, bytes + ' / ' + budget + ' B · ' + percent + '%')),
+				h('div', { className: 'ysHint', style: { marginBottom: 10 } },
+					t('injection.total')
+						.replace('{static}', String(staticBytes))
+						.replace('{index}', String(bytes))
+						.replace('{total}', String(staticBytes + bytes))),
+				h('div', { className: 'ysSection', style: { marginTop: 0 } }, t('injection.static')),
+				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
+					t('injection.static.hint').replace('{bytes}', String(staticBytes))),
+				h('pre', { className: 'ysPre' }, injection.static),
+				h('div', { className: 'ysSection' }, t('injection.index')),
 				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
 					t('injection.meta')
 						.replace('{day}', injection.day === '' ? t('injection.never') : String(injection.day))
@@ -2585,6 +2647,79 @@ window.__ModuleLoader__.load({
 				h('pre', { className: 'ysPre' }, injection.index),
 				h('div', { className: 'ysActions' },
 					h('button', { className: 'ysButton', disabled: busy, onClick: refresh }, t('injection.refresh'))));
+		}
+
+		/**
+		 * 偏好栏：编辑 `~/.dsh/AGENTS.md` 里插件维护的那一段。
+		 *
+		 * 这个文件是 DSH 的全局指令文件，插件只碰自己那对标记之间的内容；
+		 * 读失败时禁用保存，免得把空串写回去把用户的规则清空。
+		 */
+		function PreferencesPane(props) {
+			var t = props.t;
+			var preferences = props.preferences;
+			var [draft, setDraft] = useState('');
+			var [busy, setBusy] = useState(false);
+			var [loadedAt, setLoadedAt] = useState('');
+			useEffect(function () {
+				if (preferences === null || preferences === undefined) return;
+				setDraft(String(preferences.content ?? ''));
+				setLoadedAt(String(preferences.content ?? ''));
+			}, [preferences]);
+			if (preferences === null || preferences === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
+			var dirty = draft !== loadedAt;
+			var cap = Number(preferences.cap) || 0;
+			var bytes = typeof TextEncoder === 'function' ? new TextEncoder().encode(draft).length : draft.length;
+			var overCap = cap > 0 && bytes > cap;
+			function save() {
+				setBusy(true);
+				props.call('preferences-save', { content: draft }).then(function (value) {
+					props.onPreferences(value);
+					setDraft(String(value.content ?? ''));
+					setLoadedAt(String(value.content ?? ''));
+					props.notify(t('preferences.saved'));
+				}).catch(function (error) {
+					props.notify(messageOf(error), true);
+				}).then(function () { setBusy(false); });
+			}
+			return h('div', null,
+				h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.hint')),
+				h('div', { className: 'ysField' },
+					h('label', { className: 'ysLabel' }, t('preferences.file')),
+					h('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
+						h('code', { style: { fontSize: 11, wordBreak: 'break-all', flex: 1 } }, preferences.path || ''),
+						h('button', { className: 'ysButton', onClick: function () { props.onCopy(preferences.path); } }, t('action.copy')))),
+				preferences.link
+					? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.link').replace('{target}', String(preferences.link)))
+					: null,
+				preferences.readable === false
+					? h('div', { className: 'ysIssue' }, t('preferences.unreadable'))
+					: null,
+				preferences.hasBlock !== true && preferences.exists
+					? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.append'))
+					: null,
+				h('textarea', {
+					className: 'ysTextarea',
+					rows: 18,
+					style: { fontFamily: 'var(--dsw-font-family-mono,ui-monospace,monospace)', fontSize: 12, lineHeight: '18px' },
+					value: draft,
+					disabled: preferences.readable === false,
+					onChange: function (event) { setDraft(event.target.value); }
+				}),
+				h('div', { className: 'ysActions', style: { justifyContent: 'space-between' } },
+					h('span', { className: 'ysHint' },
+						bytes + ' / ' + cap + ' B' + (dirty ? ' · ' + t('preferences.dirty') : '')),
+					h('span', { style: { display: 'flex', gap: 8 } },
+						h('button', {
+							className: 'ysButton',
+							disabled: !dirty,
+							onClick: function () { setDraft(loadedAt); }
+						}, t('preferences.reset')),
+						h('button', {
+							className: 'ysButton ysButtonPrimary',
+							disabled: busy || !dirty || overCap || preferences.readable === false,
+							onClick: save
+						}, t('preferences.save')))));
 		}
 
 		/**
@@ -2933,6 +3068,7 @@ window.__ModuleLoader__.load({
 			var [preview, setPreview] = useState(null);
 			var [graph, setGraph] = useState(null);
 			var [injection, setInjection] = useState(null);
+			var [preferences, setPreferences] = useState(null);
 			var [digest, setDigest] = useState(null);
 			var [settings, setSettings] = useState(null);
 			var [logs, setLogs] = useState(null);
@@ -3070,6 +3206,9 @@ window.__ModuleLoader__.load({
 			useEffect(function () {
 				if (tab !== 'injection') return undefined;
 				call('injection').then(setInjection).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
+				// The preferences file lives outside the library and another
+				// session may have edited it; read it whenever the tab opens.
+				call('preferences').then(setPreferences).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
 				return undefined;
 			}, [tab, call, notify]);
 
@@ -3291,9 +3430,16 @@ window.__ModuleLoader__.load({
 										? h(InjectionTab, {
 											t: t,
 											injection: injection,
+											preferences: preferences,
 											call: call,
 											notify: notify,
-											onLoaded: setInjection
+											onLoaded: setInjection,
+											onPreferences: setPreferences,
+											onCopy: function (path) {
+												if (typeof navigator !== 'undefined' && navigator.clipboard) {
+													navigator.clipboard.writeText(String(path || '')).then(function () { notify(t('action.copied')); }).catch(function () { notify('复制失败', true); });
+												}
+											}
 										})
 										: tab === 'organize'
 											? h(OrganizeTab, {
