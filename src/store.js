@@ -371,7 +371,14 @@ export class FileStore {
 		// attack; it is reported instead of followed.
 		const unsafe = info?.isSymbolicLink() === true
 		const missing = info === undefined || unsafe
-		const executable = info !== undefined && (Number(info.mode) & 0o111) !== 0
+		// Windows has no POSIX permission bits — `chmod` there only toggles the
+		// read-only flag — so the mode never carries 0o111 and every script would
+		// look non-executable. Fall back to the name-level rule, which is exactly
+		// what the write path uses when it renames without new content; a shebang
+		// in a `.txt` therefore stays non-executable on both platforms.
+		const windows = process.platform === 'win32'
+		const modeExecutable = info !== undefined && (Number(info.mode) & 0o111) !== 0
+		const executable = modeExecutable || (windows && isScriptName(meta.name))
 		const out = { ...meta, path, missing, executable, ...(unsafe ? { unsafe: 'symlink' } : {}) }
 		if (text && !missing && isTextMime(meta.mime)) {
 			const buffer = await readFile(path).catch(() => undefined)

@@ -2,7 +2,7 @@ node_modules/
 *.log
 .DS_Store
 
-# Local packaging / export artifacts (INSTALL builds the zip, the panel exports archives).
-/dsh-evolver-*.zip
+# Local packaging / export artifacts (the panel exports archives).
+/dsh-ziyan-*.zip
 *.tgz
 *.tar.gz

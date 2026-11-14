@@ -137,7 +137,8 @@ test('面板接口：16 个端点，一次完整读写/上传/预览/图/设置/
 
 		const logs = await post(routes, 'logs', { limit: 20 })
 		assert.ok(Array.isArray(logs.lines))
-		assert.match(logs.path, /system\/logs\/plugin\.log$/)
+		// The host reports a native path; normalise the separator before matching.
+		assert.match(logs.path.replaceAll('\\', '/'), /system\/logs\/plugin\.log$/)
 
 		const archived = await post(routes, 'file-archive', { id: uploaded.id, archived: true })
 		assert.equal(archived.archived, true)

@@ -1,47 +1,49 @@
 {
-  "name": "dsh-evolver",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Self-evolution console for the DeepSeek Harness: an append-only card store with hierarchical tags, bidirectional links and resources; a snapshot-backed card index injected as runtime context, with injected discipline, a proactive protocol and a card tool surface; and a daily card consolidation pass.",
-  "type": "module",
-  "main": "./index.js",
-  "exports": {
-    ".": "./index.js",
-    "./client": "./client.js",
-    "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg",
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "index.js",
-    "client.js",
-    "src",
-    "cordis.patch.yml",
-    "locale/*.json",
-    "icon.svg",
-    "README.md",
-    "INSTALL.md"
-  ],
-  "scripts": {
-    "test": "node --test \"test/*.test.mjs\""
-  },
-  "engines": {
-    "node": ">=22"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "immediately": true,
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-connection"
-      ]
-    }
-  }
+	"name": "dsh-ziyan",
+	"version": "0.2.0",
+	"private": true,
+	"description": "自衍中枢：一切皆文件的知识库。每个文件有唯一 id、一句话描述、自由层级标签，文件之间可以互相链接；所有数据集中在一个数据目录。",
+	"type": "module",
+	"main": "./index.js",
+	"exports": {
+		".": "./index.js",
+		"./client": "./client.js",
+		"./package.json": "./package.json",
+		"./icon": "./icon.svg"
+	},
+	"files": [
+		"index.js",
+		"src",
+		"scripts",
+		"cordis.patch.yml",
+		"DESIGN.md",
+		"README.md",
+		"COMPARISON.md",
+		"COMPARISON.json",
+		"package.json",
+		"client.js",
+		"icon.svg"
+	],
+	"engines": {
+		"node": ">=22.13"
+	},
+	"scripts": {
+		"test": "node --test \"test/*.test.mjs\""
+	},
+	"dsh": {
+		"bundle": {
+			"patch": "./cordis.patch.yml"
+		},
+		"client": {
+			"platform": "web",
+			"immediately": true,
+			"inject": [
+				"@deepseek-ai/dsh-client-ui-renderer",
+				"@deepseek-ai/dsh-client-locale",
+				"@deepseek-ai/dsh-client-ui-layout",
+				"@deepseek-ai/dsh-client-ui-sidebar",
+				"@deepseek-ai/dsh-client-connection"
+			]
+		}
+	}
 }

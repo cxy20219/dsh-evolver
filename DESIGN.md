@@ -4,7 +4,7 @@
 
 > 一句话：**一切皆文件**。每个文件是一等实体（唯一 id + 一句话描述 + 自由层级标签 + 链接），内容可以是任意类型；元数据落在边车，SQLite 只维护「描述索引 + 关系」，正文由 agent 自己去读、去解析、去执行。
 
-状态：研究原型（worktree `research-data-model`）。旧插件 `dsh-evolver` 1.0.0 已归档在 `v1.0.0`，本包是并存的新包，验证后再决定替换根包还是独立发布。
+状态：研究原型（分支 `research-data-model`）。旧插件 `dsh-evolver` 1.0.0 已归档在 `v1.0.0` 分支，并从本仓库移除；现在仓库只有自衍中枢一个包（分支上的根目录即包根）。
 
 ## 1. 原则
 
@@ -134,6 +134,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - 图只画显式链接；没有语义推断。关系必须由 agent/面板写进 `links`，整理器可以提示“这张文档提到脚本但没链接”。
 - 未来可选：类型化边（`uses`/`derived_from`）、内联 `[[file-id]]` 自动同步到 links。
 - **可执行**：脚本扩展名或 shebang → 写入时 `chmod 0700`；`file_read` 返回 `executable: true` 与绝对 `path`，agent 用 bash 直接跑。原生二进制不加执行位；面板只 reveal，不点击执行。
+  Windows 没有 POSIX 权限位（`chmod` 只切只读位），`executable` 因此退化为按扩展名判断，口径与"改名时不带正文"的写入路径一致；`file_read` 仍给绝对 `path`。
 
 ## 7. 注入
 
@@ -235,7 +236,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 ## 14. 待定决策
 
-1. **包布局**：现在 `ziyan/` 子包并行；验证后是替换根包，还是独立仓库/包？
+1. **包布局**：已定——旧 evolver 全部移除，本包就是仓库根，分支 `research-data-model` 上独占一个包（2026-11-14 决策）。
 2. **标签层级深度**：当前不限深度、总长 64 字、最多 32 个；如果实际会出现超长路径，再决定是截断还是拒绝。
 3. **工具前缀**：已用 `file_*`；如果实际装进 desktop 后发现重名，再统一改 `ys_*`。
 4. **数据库地位**：边车为准 + DB 索引（本文默认），还是 DB 为准 + 定期导出？

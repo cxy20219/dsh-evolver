@@ -147,18 +147,22 @@ test('大小上限：超过即拒绝，不落盘', async () => {
 
 test('脚本自动带可执行位，普通文件不带；改名后权限跟着变', async () => {
 	await withStore(async (store) => {
+		// Windows cannot represent POSIX permission bits, so the raw mode is
+		// asserted only where the platform has it; `executable` is the contract
+		// both platforms share.
+		const posix = process.platform !== 'win32'
 		const script = await store.create({ tags: ['测试'],
 			name: 'deploy.sh',
 			description: '部署脚本：输出 ok，演示脚本文件可直接执行',
 			content: '#!/bin/sh\necho ok\n',
 		})
-		assert.equal((await stat(script.path)).mode & 0o777, 0o700)
+		if (posix) assert.equal((await stat(script.path)).mode & 0o777, 0o700)
 		assert.equal(script.executable, true)
 		const note = await store.create({ tags: ['测试'], name: 'note.md', description: '普通说明文件，不应带执行位', content: 'x' })
-		assert.equal((await stat(note.path)).mode & 0o777, 0o600)
+		if (posix) assert.equal((await stat(note.path)).mode & 0o777, 0o600)
 		assert.equal(note.executable, false)
 		const renamed = await store.update(script.id, { name: 'deploy.txt' })
-		assert.equal((await stat(renamed.path)).mode & 0o777, 0o600)
+		if (posix) assert.equal((await stat(renamed.path)).mode & 0o777, 0o600)
 		assert.equal(renamed.executable, false)
 	})
 })

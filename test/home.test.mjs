@@ -50,7 +50,9 @@ test('apply 读取指针目录，而不是默认目录', async () => {
 		assert.equal(tools.length, 8)
 		assert.match(await readFile(join(pointed, 'system', 'settings.json'), 'utf8'), /descriptionMaxChars/)
 		assert.ok(effects.length > 0)
-		const dispose = effects[0]
+		// `ctx.effect` stores the callback; calling it once hands back the
+		// disposer, which is what actually closes the store.
+		const dispose = await effects[0]()
 		await dispose()
 	} finally {
 		if (prev === undefined) delete process.env.DSH_HOME

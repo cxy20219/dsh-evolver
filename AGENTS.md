@@ -1,17 +1,43 @@
-> 在执行任何操作前，必须先根据下方文件索引查阅获取足够上下文，确认信息充分后再行动；`harness/harness.md` 是必须查阅的项目总览。
-# 文档索引，按需查阅
+> 改动前先按下面「先读什么」查上下文；`README.md` 是用法总览，`DESIGN.md` 是设计终稿。
+# dsh-ziyan · 自衍中枢
 
-- [Harness 开发指南](harness/harness.md)：插件仓库总览：两边代码、数据目录、测试与重启约束
-- [插件改动后的验证顺序](harness/workflow/verify-after-change.md)：改完插件的标准验证顺序：语法单测→重启或刷新→真实界面→接口字段核对
-- [索引里的标签与顺序按路径收编，改名要先改写索引](harness/experience/index-harvest-by-path.md)：改目录名必须先改写根 AGENTS.md 再重建索引，否则标签与用途全部退化成占位符
-- [校验器不许有副作用](harness/experience/validators-have-no-side-effects.md)：校验器只能读：py_compile 会写 __pycache__，改用内存 compile 并排除构建产物
-- [探针不能挂在请求路径上](harness/experience/probes-off-the-request-path.md)：状态接口现场探针 410ms；改成缓存 60 秒 + 后台刷新后 6.7ms
-- [布局是双份契约：插件改了，技能必须跟着改](harness/experience/layout-is-a-two-sided-contract.md)：harness 布局是插件与技能共有的契约，改一边必须同步改另一边并用两套校验器互验
-- [会变的东西不进系统段：静态纪律 + 运行时候选](harness/experience/cache-volatile-content-goes-to-context.md)：注入拆两半：静态纪律+主动性协议进系统段、会变的卡片索引进运行时上下文；只读每日快照（文件实测 3084 B / 预算 4096），快照缺失时回退记忆化
-- [link-layout-metrics.mjs](harness/tool/link-layout-metrics.mjs)：从 client.js 抽出 computeLinkLayout 跑真实卡片库，输出重叠/按度数半径/枝干凝聚度/耗时；`--graph` 直接跑 graph 载荷并预览弱边
-- [链接关系图的布局、实时模拟与拖拽：六大枝干社区](harness/experience/link-graph-force-layout.md)：关系图是枝干社区布局 + 可拖拽的实时力模拟：锚点云团播种、四种力、rAF 冷却与拖拽 reheat、分支归属优先落定枝干、冗余弱边不画、按长度成比例的弧线、无区域名；含无头确定性、性能实测与去外围控件的决策
-- [标签治理：动作、纪律、护栏三件套](harness/experience/tag-governance.md)：每日整理的标签治理：retag/tag-merge 动作、十四条纪律、四条代码护栏与审计，以及为什么「没动作入口的规则等于没有」
-- [记忆分层：会话、卡片、注入与图检索](harness/experience/memory-layers.md)：当前记忆分层：会话→卡片→注入（卡片索引+结构摘要）+ 双链图检索；页层已移除，写卡不再改注入
-- [混合检索：BM25 召回 + 双链扩散补全](harness/experience/hybrid-graph-search.md)：卡片检索升级为 BM25 召回 + 双链扩散补全：扩散权重、子图返回、within 二次搜索与为什么不用 embedding/GraphRAG
-- [附件更新语义：同名替换、改名归档、死链降级](harness/experience/card-write-attachment-updates.md)：card_write 更新已有卡时同名附件可替换（旧档进回收站）、未引用旧附件自动归档、死链降级为 warnings；附今日 13/42 错误的前后对照与守卫。
-- [项目级知识必须进项目 harness，不能退化成全局卡](harness/experience/project-sedimentation-measurement.md)：项目级知识必须进项目 harness：新提示词生效后 manager 仍只写卡不初始化，catalog 空状态补 needsInit/next；不代补，留给新会话观察自主建 harness。
+DSH 插件：**一切皆文件**的知识库。每个文件是一等实体（唯一 id + 一句话描述 + 自由层级标签 + 链接），元数据落在边车 `meta.json`，SQLite 只维护「描述索引 + 关系」，正文由 agent 自己读。
+
+仓库根就是包根（`package.json` = `dsh-ziyan`）。旧插件 `dsh-evolver` 1.0.0 已归档在 `v1.0.0` 分支并从本仓库移除；本分支只维护自衍中枢。
+
+## 先读什么
+
+| 想知道 | 读 |
+|---|---|
+| 插件是什么、怎么用、数据目录长什么样、怎么迁移老库 | [README.md](README.md) |
+| 为什么这样设计、每条契约的取舍、分阶段落地记录与待定决策 | [DESIGN.md](DESIGN.md) |
+| 与旧 evolver 1.0.0 的量化对比和取舍 | [COMPARISON.md](COMPARISON.md) |
+
+## 布局
+
+| 路径 | 内容 |
+|---|---|
+| `index.js` | 宿主装配：store、8 个 `file_*` 工具、两段注入、16 个面板接口、每日快照心跳 |
+| `client.js` | 浏览器半边，单文件 `window.__ModuleLoader__.load` 工厂，无构建 |
+| `src/` | `store.js`（边车 + 索引）、`db.js`（SQLite）、`injection.js`、`tools.js`、`prompt.js`、`remote.js`、`archive.js`、`data-jobs.js`、`migrate.js`、`home.js` 等 |
+| `test/` | `node --test`，63 条 |
+| `scripts/` | `bench.mjs` / `compare.mjs` / `migrate-from-evolver.mjs` |
+
+## 命令
+
+```bash
+npm test                                # 63 条
+node --check src/store.js               # 单文件语法
+node scripts/bench.mjs 500              # 500 文件基准
+node scripts/migrate-from-evolver.mjs   # 老库迁移，默认 dry-run
+```
+
+## 约束（动手前先看）
+
+- **没有构建步骤**：`package.json` 只有 `test` 一个脚本。
+- **宿主改了要重启 DSH**（`index.js` + `src/**`）；`client.js` 是浏览器半边，刷新面板即可。
+- **边车是事实，数据库是索引**：`files/<id>/meta.json` 为准，`system/ziyan.db` 随时可删、可重建；写序是 字节 → 边车 → DB，DB 失败不影响事实。
+- **新增面板接口要三处一致**：`src/remote.js` 的 `ENDPOINTS`、`createZiyanHandler` 的 switch、`client.js` 的 `call()`；`test/contract.test.mjs` 静态守这一条。
+- **描述是唯一检索面**：不索引正文，所以写入要查重，描述必须说清"这个文件回答什么问题"。
+- **标签必填、链接可悬空**：至少一个标签才能写入；删除不批量改写别人的边车，查询时把悬空目标标 `missing`。
+- **Windows 平台差异**：`chmod` 只切只读位，`executable` 退化为按扩展名判断；POSIX 权限位（`0o700/0o600`）的断言必须加平台守卫，否则测试会在 Windows 上误红。
