@@ -3,7 +3,7 @@
 
 DSH 插件：**一切皆文件**的知识库。每个文件是一等实体（唯一 id + 一句话描述 + 自由层级标签 + 链接），元数据落在边车 `meta.json`，SQLite 只维护「描述索引 + 关系」，正文由 agent 自己读。
 
-仓库根就是包根（`package.json` = `dsh-ziyan`）。旧插件 `dsh-evolver` 1.0.0 已归档在 `v1.0.0` 分支并从本仓库移除；本分支只维护自衍中枢。注意：本机 desktop profile 里仍可能装着旧 evolver，它与 ziyan 并存（工具名前缀因此要区分）。
+仓库根就是包根（`package.json` = `dsh-ziyan`）。旧插件 `dsh-evolver` 1.0.0 已归档在 `archive/v1.0.0` 分支并从本仓库移除；`master` 只维护自衍中枢。注意：本机 desktop profile 里仍可能装着旧 evolver，它与 ziyan 并存（工具名前缀因此要区分）。
 
 ## 先读什么
 
