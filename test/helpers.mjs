@@ -80,7 +80,32 @@ export async function withStore(body, options = {}) {
 		return await body(store, dir)
 	} finally {
 		store.close()
-		await rm(dir, { recursive: true, force: true })
+		await removeDir(dir)
+	}
+}
+
+/**
+ * Remove a temporary directory, retrying the lock a just-closed database keeps.
+ *
+ * Windows can report `EBUSY`/`EPERM` while a file closed moments ago is still
+ * held (an antivirus scan of the freshly written `ziyan.db` is the usual
+ * reader). The test cleanup is not what is under test, so it retries for a
+ * bounded time instead of turning a scan into a red test.
+ *
+ * @param {string} path - The directory to remove.
+ * @param {{attempts?: number, delayMs?: number}} [options] - Retry bounds.
+ * @returns {Promise<void>} Resolves once gone.
+ */
+export async function removeDir(path, { attempts = 50, delayMs = 100 } = {}) {
+	const transient = new Set(['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY'])
+	for (let attempt = 0; ; attempt += 1) {
+		try {
+			await rm(path, { recursive: true, force: true })
+			return
+		} catch (error) {
+			if (attempt >= attempts || !transient.has(error?.code)) throw error
+			await new Promise((resolve) => setTimeout(resolve, delayMs))
+		}
 	}
 }
 

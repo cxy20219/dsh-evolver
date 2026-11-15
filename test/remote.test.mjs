@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, symlink, truncate, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
@@ -7,6 +7,8 @@ import test from 'node:test'
 
 import { apply, API_PREFIX } from '../index.js'
 import { createZiyanHandler } from '../src/remote.js'
+import { estimateTokens } from '../src/tokens.js'
+import { removeDir } from './helpers.mjs'
 
 /**
  * A Host context with a fake Connection service.
@@ -80,15 +82,16 @@ async function post(routes, endpoint, payload = {}) {
 	return value
 }
 
-test('面板接口：26 个端点，一次完整读写/上传/预览/图/注入/工具/偏好/自衍/设置/日志/删除', async () => {
+test('面板接口：27 个端点，一次完整读写/上传/预览/图/注入/工具/偏好/自衍/设置/日志/删除', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-remote-'))
 	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
 	const previousHome = process.env.DSH_HOME
 	process.env.DSH_HOME = home
 	const { ctx, routes, effects } = fakeContext()
+	let failure
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 26)
+		assert.equal(routes.size, 27)
 
 		const empty = await post(routes, 'overview')
 		assert.equal(empty.stats.files, 0)
@@ -106,49 +109,53 @@ test('面板接口：26 个端点，一次完整读写/上传/预览/图/注入/
 		assert.equal(data.files, 0)
 
 		const injection = await post(routes, 'injection')
-		assert.deepEqual(Object.keys(injection).sort(), ['static', 'staticBytes'], '只返回静态段与字节数')
+		assert.deepEqual(Object.keys(injection).sort(), ['static', 'staticTokens'], '只返回静态段与 token 估算')
 		assert.match(injection.static, /\[文件\]/)
-		assert.match(injection.static, /\[项目 harness\]/)
-		assert.equal(injection.staticBytes, Buffer.byteLength(injection.static, 'utf8'))
+		assert.match(injection.static, /\[主动性\]/)
+		assert.match(injection.static, /以后哪些场景/, '主动性说明描述要包含适用场景')
+		assert.match(injection.static, /file_search/, '主动性写明开工前先搜')
+		assert.match(injection.static, /from:"harness\//, '主动性写明跨项目落库的 from')
+		assert.match(injection.static, /harness\//, '主动性写明项目内沉淀写到 harness/')
+		assert.doesNotMatch(injection.static, /\[知识沉淀\]/, '知识沉淀已并入主动性')
+		assert.equal(injection.staticTokens, estimateTokens(injection.static), '静态段的 token 估算与宿主口径一致')
+		assert.equal('staticBytes' in injection, false, '注入响应不再回字节数')
 		const refreshed = await post(routes, 'injection', { refresh: true })
 		assert.deepEqual(refreshed, injection, 'refresh 载荷不再有刷新含义，响应不变')
 
 		// 工具目录：面板「注入 → 工具」子标签的数据面，一眼看清注册了什么。
 		const catalog = await post(routes, 'tools')
-		assert.equal(catalog.total, 12)
+		assert.equal(catalog.total, 4)
+		assert.equal(catalog.tokens > 0, true, '工具 schema 有 token 估算')
+		assert.equal(catalog.tools.every((tool) => tool.tokens > 0), true, '每个工具带 token 估算')
 		assert.deepEqual(catalog.tools.map((tool) => tool.name), [
-			'file_query',
+			'file_search',
 			'file_read',
 			'file_write',
-			'file_import',
-			'file_link',
-			'file_index',
-			'file_archive',
-			'file_remove',
-			'project_harness_catalog',
-			'project_harness_write',
-			'project_harness_validate',
-			'project_harness_promote',
+			'file_edit',
 		])
-		assert.equal(catalog.tools.find((tool) => tool.name === 'file_query').category, 'read')
-		assert.equal(catalog.tools.find((tool) => tool.name === 'file_remove').category, 'destructive')
-		assert.equal(catalog.tools.find((tool) => tool.name === 'project_harness_catalog').category, 'read')
-		assert.equal(catalog.tools.find((tool) => tool.name === 'project_harness_promote').category, 'write')
+		assert.equal(catalog.tools.find((tool) => tool.name === 'file_search').category, 'read')
+		assert.equal(catalog.tools.find((tool) => tool.name === 'file_read').category, 'read')
+		assert.equal(catalog.tools.find((tool) => tool.name === 'file_write').category, 'write')
+		assert.equal(catalog.tools.find((tool) => tool.name === 'file_edit').category, 'write')
 		assert.ok(catalog.tools.every((tool) => tool.description.trim() !== ''))
 		assert.ok(catalog.tools.every((tool) => tool.parameters.type === 'object'))
 		assert.ok(catalog.tools.every((tool) => tool.output === undefined), 'output.render 不出宿主')
 
-		// 偏好：写进 DSH home 的 AGENTS.md，读回来能看到那一段。
+		// 偏好：权威文件在自衍数据目录，DSH 读的 AGENTS.md 链接到它。
 		const fresh = await post(routes, 'preferences')
-		assert.equal(fresh.exists, false)
-		assert.equal(fresh.hasBlock, false)
+		assert.equal(fresh.exists, true)
 		assert.equal(fresh.content, '')
+		assert.equal(fresh.path, join(dir, 'system', 'AGENTS.md'), '数据文件在自衍数据目录')
+		assert.equal(fresh.agentsPath, join(home, 'AGENTS.md'), 'DSH 读取入口在 DSH home')
+		assert.ok(fresh.mode === 'link' || fresh.mode === 'copy', 'AGENTS.md 与数据文件已对齐')
+		assert.equal('hasBlock' in fresh, false, '不再有受管段概念')
 		const savedPreferences = await post(routes, 'preferences-save', { content: '- 先读再改' })
-		assert.equal(savedPreferences.hasBlock, true)
 		assert.equal(savedPreferences.content, '- 先读再改')
 		const reread = await post(routes, 'preferences')
 		assert.equal(reread.content, '- 先读再改')
-		assert.ok(reread.path.startsWith(home), '偏好文件在 DSH home 下')
+		const agentsInfo = await lstat(join(home, 'AGENTS.md'))
+		assert.equal(agentsInfo.isSymbolicLink(), fresh.mode === 'link', '软链能力与报告的 mode 一致')
+		assert.equal(await readFile(join(home, 'AGENTS.md'), 'utf8'), '- 先读再改\n', 'DSH 读到的就是保存的内容')
 
 		const digest = await post(routes, 'digest')
 		assert.deepEqual(digest.sessions, [])
@@ -225,17 +232,25 @@ test('面板接口：26 个端点，一次完整读写/上传/预览/图/注入/
 		const disposer = await effects[0]()
 		await disposer()
 		await assert.rejects(post(routes, 'overview'))
+	} catch (error) {
+		failure = error
+		throw error
 	} finally {
 		if (previousHome === undefined) delete process.env.DSH_HOME
 		else process.env.DSH_HOME = previousHome
-		await rm(dir, { recursive: true, force: true })
-		await rm(home, { recursive: true, force: true })
+		try {
+			await removeDir(dir)
+			await removeDir(home)
+		} catch (cleanupError) {
+			if (failure === undefined) throw cleanupError
+			console.error('remote cleanup failed while body failed:', cleanupError.message)
+		}
 	}
 })
 
 test('tools 端点缺省依赖：没有工具就返回空目录', async () => {
 	const handler = createZiyanHandler({ store: {}, settings: {}, logs: {}, root: '' })
-	assert.deepEqual(await handler('tools'), { total: 0, tools: [] })
+	assert.deepEqual(await handler('tools'), { total: 0, tokens: 0, tools: [] })
 })
 
 test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通', async () => {
@@ -250,7 +265,7 @@ test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通'
 	})
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 26)
+		assert.equal(routes.size, 27)
 
 		const status = await post(routes, 'organize-status')
 		assert.equal(status.followsChat, true)
@@ -261,6 +276,17 @@ test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通'
 		assert.equal('kinds' in status, false, 'organize-status 不再带 kinds：面板从不读')
 		assert.equal('limits' in status, false, 'organize-status 不再带 limits：面板从不读')
 		assert.equal(status.job, null)
+
+		const prompts = await post(routes, 'organize-prompts')
+		assert.deepEqual(prompts.sections.map((section) => section.id), ['sessions', 'files', 'wrapup', 'wrapup-dry'])
+		assert.match(prompts.sections[0].text, /会话整理员/)
+		assert.match(prompts.sections[1].text, /文件整理员/)
+		assert.match(prompts.sections[2].text, /收尾/)
+		assert.match(prompts.sections[3].text, /预演计划/)
+		for (const section of prompts.sections) {
+			assert.equal(section.tokens, estimateTokens(section.text), '每段 token 估算与宿主口径一致')
+			assert.equal('bytes' in section, false, '不再回字节数')
+		}
 
 		const saved = await post(routes, 'organize-save', {
 			model: { provider: 'fake-provider', model: 'fake-model', reasoningEffort: 'low' },
@@ -325,8 +351,8 @@ test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通'
 		}
 		if (previousHome === undefined) delete process.env.DSH_HOME
 		else process.env.DSH_HOME = previousHome
-		await rm(dir, { recursive: true, force: true })
-		await rm(home, { recursive: true, force: true })
+		await removeDir(dir)
+		await removeDir(home)
 	}
 })
 
@@ -367,8 +393,8 @@ test('file-preview：超大二进制只报大小不读正文；符号链接本�
 		}
 		if (previousHome === undefined) delete process.env.DSH_HOME
 		else process.env.DSH_HOME = previousHome
-		await rm(dir, { recursive: true, force: true })
-		await rm(home, { recursive: true, force: true })
+		await removeDir(dir)
+		await removeDir(home)
 	}
 })
 
@@ -380,10 +406,12 @@ test('file-preview：超大二进制只报大小不读正文；符号链接本�
  */
 function fakeOrganizeLlm() {
 	const writeArguments = JSON.stringify({
-		name: '接口整理.md',
-		description: '通过面板接口启动的会话整理写下的文件，验证宿主接线。',
-		tags: ['测试/接口'],
 		content: '结论：整理接口接线通了。',
+		meta: {
+			name: '接口整理.md',
+			description: '通过面板接口启动的会话整理写下的文件，验证宿主接线。',
+			tags: ['测试/接口'],
+		},
 	})
 	const turns = [
 		[

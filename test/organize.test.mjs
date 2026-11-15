@@ -19,7 +19,7 @@ import { createOrganizeSettings } from '../src/organize.js'
 import { createOrganizer, MAX_SESSIONS } from '../src/organize-jobs.js'
 import { SettingsStore } from '../src/settings.js'
 import { FileStore } from '../src/store.js'
-import { tempDir } from './helpers.mjs'
+import { removeDir, tempDir } from './helpers.mjs'
 
 const PROVIDER = 'fake-provider'
 const MODEL = 'fake-model'
@@ -114,7 +114,7 @@ async function setup({ organize, now } = {}) {
 		now: now ?? (() => Date.now()),
 		async cleanup() {
 			store.close()
-			await rm(dir, { recursive: true, force: true })
+			await removeDir(dir)
 			await rm(sessionsRoot, { recursive: true, force: true })
 		},
 	}
@@ -465,7 +465,7 @@ test('模型选择：null 跟随聊天、配置优先、目录含思考强度、
 test('失控模型：一直要工具也不会失败，按步数预算收尾为 done', async () => {
 	const fixture = await setup({ organize: { model: { provider: PROVIDER, model: MODEL } } })
 	try {
-		const llm = fakeLlm([toolTurn([{ id: 'call-loop', name: 'file_index', arguments: '{}' }])])
+		const llm = fakeLlm([toolTurn([{ id: 'call-loop', name: 'file_search', arguments: '{}' }])])
 		const organizer = makeOrganizer(fixture, llm)
 		await organizer.start({ kind: 'files' })
 		await organizer.waitForIdle()
@@ -494,10 +494,12 @@ test('作业生命周期：sessions 走工具循环写文件，计数/落盘/日
 				id: 'call-1',
 				name: 'file_write',
 				arguments: JSON.stringify({
-					name: '整理链路.md',
-					description: '自衍整理作业的链路结论：会话结论如何沉淀成文件。',
-					tags: ['测试/整理'],
 					content: '结论：整理作业用工具循环。',
+					meta: {
+						name: '整理链路.md',
+						description: '自衍整理作业的链路结论：会话结论如何沉淀成文件。',
+						tags: ['测试/整理'],
+					},
 				}),
 			}]),
 			textTurn('已写入 1 个文件。'),
@@ -534,7 +536,7 @@ test('作业生命周期：sessions 走工具循环写文件，计数/落盘/日
 		assert.equal(first.model, MODEL)
 		assert.equal(first.sessionId, job.id)
 		assert.ok(first.tools.some((tool) => tool.name === 'file_write'))
-		assert.ok(!first.tools.some((tool) => tool.name === 'file_remove'))
+		assert.ok(!first.tools.some((tool) => tool.name === 'file_edit'), '会话整理不给编辑既有文件的工具')
 		assert.ok(!first.tools.some((tool) => tool.name === 'file_merge'), '会话整理不给合并工具')
 		assert.match(first.messages[0].content[0].text, /请把整理链路的结论记住/)
 
@@ -569,7 +571,7 @@ test('dry-run：只给只读工具、不写库、结果计数全零', async () =
 		})
 		const before = fixture.store.stats().files
 		const llm = fakeLlm([
-			toolTurn([{ id: 'call-1', name: 'file_index', arguments: '{}' }]),
+			toolTurn([{ id: 'call-1', name: 'file_search', arguments: '{}' }]),
 			textTurn('计划：把孤立文件补上链接。'),
 		])
 		const organizer = makeOrganizer(fixture, llm)
@@ -579,7 +581,7 @@ test('dry-run：只给只读工具、不写库、结果计数全零', async () =
 		assert.equal(job.dryRun, true)
 		assert.equal(job.status, 'done')
 		assert.ok(!llm.calls.some((call) => call.tools.some((tool) => tool.name === 'file_write')))
-		assert.deepEqual(llm.calls[0].tools.map((tool) => tool.name).sort(), ['file_index', 'file_query', 'file_read'])
+		assert.deepEqual(llm.calls[0].tools.map((tool) => tool.name).sort(), ['file_read', 'file_search'])
 		assert.equal(fixture.store.stats().files, before)
 		assert.deepEqual(job.result, { created: 0, updated: 0, merged: 0, archived: 0, removed: 0, retagged: 0, linked: 0 })
 		assert.deepEqual(job.changes, [])
@@ -600,14 +602,16 @@ test('kind=all：先会话后文件，同一作业内两阶段各用各的工具
 				id: 'call-session',
 				name: 'file_write',
 				arguments: JSON.stringify({
-					name: '全部整理.md',
-					description: '全部整理作业的会话阶段写下的文件，用来验证两阶段顺序。',
-					tags: ['测试/整理'],
 					content: '会话阶段',
+					meta: {
+						name: '全部整理.md',
+						description: '全部整理作业的会话阶段写下的文件，用来验证两阶段顺序。',
+						tags: ['测试/整理'],
+					},
 				}),
 			}]),
 			textTurn('会话阶段完成。'),
-			toolTurn([{ id: 'call-files', name: 'file_index', arguments: '{}' }]),
+			toolTurn([{ id: 'call-files', name: 'file_search', arguments: '{}' }]),
 			textTurn('文件阶段完成。'),
 		])
 		const organizer = makeOrganizer(fixture, llm)
@@ -621,12 +625,11 @@ test('kind=all：先会话后文件，同一作业内两阶段各用各的工具
 		assert.equal(job.result.created, 1)
 		assert.match(job.message, /文件阶段完成/)
 
-		// The session phase must not get the library phase's archive/merge tools.
+		// The session phase must not get the library phase's edit/merge tools.
 		const sessionTools = llm.calls[0].tools.map((tool) => tool.name).sort()
-		assert.deepEqual(sessionTools, ['file_index', 'file_link', 'file_query', 'file_read', 'file_write'])
+		assert.deepEqual(sessionTools, ['file_read', 'file_search', 'file_write'])
 		const fileTools = llm.calls[2].tools.map((tool) => tool.name)
-		assert.ok(fileTools.includes('file_archive'))
-		assert.ok(fileTools.includes('file_merge'))
+		assert.deepEqual(fileTools.sort(), ['file_edit', 'file_merge', 'file_read', 'file_search', 'file_write'])
 	} finally {
 		await fixture.cleanup()
 	}
@@ -646,7 +649,7 @@ test('收尾轮被 max-tokens 截断：保留 done，message 明说截断，不�
 		const reads = Array.from({ length: 8 }, (_, index) => ({
 			id: `read-${index + 1}`,
 			name: 'file_read',
-			arguments: JSON.stringify({ id: file.id }),
+			arguments: JSON.stringify({ target: file.id }),
 		}))
 		const partialChunks = [
 			{ type: 'text-delta', index: 0, text: '我先看库的整体结构，然后' },
@@ -692,31 +695,31 @@ test('收尾轮被 max-tokens 截断：保留 done，message 明说截断，不�
 	}
 })
 
-test('allowRemove 门控：默认不给 file_remove，显式允许且非 dry-run 才给', async () => {
+test('files 阶段工具面：file_edit 始终在（删除只是它的 meta.remove 字段），dry-run 只读', async () => {
 	const fixture = await setup({ organize: { model: { provider: PROVIDER, model: MODEL } } })
 	try {
-		const replies = () => [toolTurn([{ id: 'call-1', name: 'file_index', arguments: '{}' }]), textTurn('完成。')]
+		const replies = () => [toolTurn([{ id: 'call-1', name: 'file_search', arguments: '{}' }]), textTurn('完成。')]
 
 		const plain = fakeLlm(replies())
 		const first = makeOrganizer(fixture, plain)
 		await first.start({ kind: 'files' })
 		await first.waitForIdle()
-		const plainTools = plain.calls[0].tools.map((tool) => tool.name)
-		assert.ok(plainTools.includes('file_merge'), '整理文件提供合并工具')
-		assert.ok(!plainTools.includes('file_remove'), '默认不给物理删除')
-		assert.ok(plainTools.includes('file_archive'))
+		assert.deepEqual(plain.calls[0].tools.map((tool) => tool.name).sort(),
+			['file_edit', 'file_merge', 'file_read', 'file_search', 'file_write'])
 
+		// allowRemove 不再加装一个独立的删除工具：删除是 file_edit 的元数据动作。
 		const allowed = fakeLlm(replies())
 		const second = makeOrganizer(fixture, allowed)
 		await second.start({ kind: 'files', allowRemove: true })
 		await second.waitForIdle()
-		assert.ok(allowed.calls[0].tools.some((tool) => tool.name === 'file_remove'))
+		assert.deepEqual(allowed.calls[0].tools.map((tool) => tool.name).sort(),
+			['file_edit', 'file_merge', 'file_read', 'file_search', 'file_write'])
 
 		const drained = fakeLlm(replies())
 		const third = makeOrganizer(fixture, drained)
 		await third.start({ kind: 'files', dryRun: true, allowRemove: true })
 		await third.waitForIdle()
-		assert.ok(!drained.calls[0].tools.some((tool) => tool.name === 'file_remove'), 'dry-run 永不提供删除')
+		assert.deepEqual(drained.calls[0].tools.map((tool) => tool.name).sort(), ['file_read', 'file_search'], 'dry-run 永不提供写入')
 	} finally {
 		await fixture.cleanup()
 	}
@@ -1221,10 +1224,12 @@ test('P1 不理会取消的步骤：cancel 在 GRACE 内强制终结作业并释
 				id: 'call-stuck',
 				name: 'file_write',
 				arguments: JSON.stringify({
-					name: '卡住.md',
-					description: '这次写入永远不会返回，用来验证取消宽限期后的强制终结。',
-					tags: ['测试/整理'],
 					content: '永不落盘',
+					meta: {
+						name: '卡住.md',
+						description: '这次写入永远不会返回，用来验证取消宽限期后的强制终结。',
+						tags: ['测试/整理'],
+					},
 				}),
 			}]),
 			textTurn('第二次正常完成。'),

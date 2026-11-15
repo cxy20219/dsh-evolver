@@ -523,7 +523,7 @@ test('sourcePath 大文件：stat 预检按大小拒绝，不读正文（导入�
 	}
 })
 
-test('file_import 等价路径：store.create({sourcePath}) 对大文件与目录先拒绝、不落库', async () => {
+test('导入等价路径：store.create({sourcePath}) 对大文件与目录先拒绝、不落库', async () => {
 	const dir = await tempDir()
 	try {
 		const big = join(dir, 'big.log')

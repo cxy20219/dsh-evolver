@@ -926,7 +926,7 @@ export class IndexDatabase {
 	}
 
 	/**
-	 * The most-used tags on live files, for the overview and `file_index`.
+	 * The most-used tags on live files, for the overview and `file_search`.
 	 *
 	 * Full paths only; the store's filter expands a parent to its descendants,
 	 * but the count table stays a flat list of what was written. Archived files
@@ -1083,7 +1083,7 @@ export class IndexDatabase {
 	 * scan was walking the folders: its `create()` had already written the row,
 	 * and the rebuild transaction dropped it and re-inserted only the older
 	 * snapshot. Nothing rebuilt the index again (`open()` sees a non-empty DB),
-	 * so the file stayed invisible to `file_query`/`file_list` until someone
+	 * so the file stayed invisible to `file_search` until someone
 	 * deleted the database and gambled on the same window.
 	 *
 	 * Only rows the scan did not see *and* that are older than the start of the

@@ -1,11 +1,11 @@
 /**
- * JSON plumbing shared by the two tool sets.
+ * JSON plumbing shared by the tool set.
  *
- * `file_*` and `project_harness_*` are separate modules with different jobs,
- * but a tool result has one shape on the wire: a JSON object rendered as text,
- * and a summary that drops the body. Duplicating that here once keeps the two
- * halves from drifting apart — the model must not see a different `render`
- * depending on which tool it called.
+ * The four tools live in one module but a tool result has one shape on the
+ * wire: a JSON object rendered as text, and a summary that drops the body.
+ * Duplicating that here once keeps search/read/write/edit from drifting apart —
+ * the model must not see a different `render` depending on which tool it
+ * called.
  */
 
 /**

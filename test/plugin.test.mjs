@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { apply, resolveDshHome } from '../index.js'
+import { removeDir } from './helpers.mjs'
 
 /**
  * A Host context with just enough of the real services.
@@ -56,16 +57,25 @@ async function withHome(run) {
 	const home = await mkdtemp(join(tmpdir(), 'ys-plugin-'))
 	const previous = process.env.DSH_HOME
 	process.env.DSH_HOME = home
+	let failure
 	try {
 		await run(home)
+	} catch (error) {
+		failure = error
 	} finally {
 		if (previous === undefined) delete process.env.DSH_HOME
 		else process.env.DSH_HOME = previous
-		await rm(home, { recursive: true, force: true })
+		try {
+			await removeDir(home)
+		} catch (cleanupError) {
+			if (failure === undefined) throw cleanupError
+			console.error('cleanup failed while body had failed:', cleanupError.message)
+		}
 	}
+	if (failure !== undefined) throw failure
 }
 
-test('apply：所有数据在一个目录，注册 12 个工具与一段静态注入，写入不改注入', async () => {
+test('apply：所有数据在一个目录，注册 4 个工具与一段静态注入，写入不改注入', async () => {
 	await withHome(async (home) => {
 		const { ctx, tools, sections, contexts, effects } = fakeContext()
 		const root = join(home, 'ziyan')
@@ -73,33 +83,29 @@ test('apply：所有数据在一个目录，注册 12 个工具与一段静态�
 		assert.equal(root, join(home, 'ziyan'))
 		assert.equal(resolveDshHome(), home)
 
-		assert.equal(tools.length, 12)
+		assert.equal(tools.length, 4)
 		assert.deepEqual(tools.map((tool) => tool.name).sort(), [
-			'file_archive',
-			'file_import',
-			'file_index',
-			'file_link',
-			'file_query',
+			'file_edit',
 			'file_read',
-			'file_remove',
+			'file_search',
 			'file_write',
-			'project_harness_catalog',
-			'project_harness_promote',
-			'project_harness_validate',
-			'project_harness_write',
 		])
 		assert.equal(sections.length, 1)
 		assert.equal(sections[0].name, 'dsh-ziyan:discipline')
 		assert.equal(contexts.length, 0, '不再注册运行时上下文')
 		assert.match(sections[0].text(), /\[文件\]/)
-		assert.match(sections[0].text(), /\[项目 harness\]/)
+		assert.match(sections[0].text(), /\[主动性\]/)
+		assert.match(sections[0].text(), /以后哪些场景/, '主动性写明描述要包含适用场景')
+		assert.match(sections[0].text(), /file_search/, '主动性写明开工前先搜')
+		const discipline = sections[0].text()
+		assert.match(discipline, /from:"harness\//, '主动性写明跨项目落库的 from')
+		assert.match(discipline, /harness\//, '主动性写明项目内沉淀写到 harness/')
+		assert.doesNotMatch(discipline, /\[知识沉淀\]/, '知识沉淀已并入主动性，不再单独成段')
 		const before = sections[0].text()
 
 		const file = await tools.find((tool) => tool.name === 'file_write').execute({
-			name: 'plugin.md',
-			description: '插件装配测试：一个数据目录',
 			content: '正文',
-			tags: ['测试/插件'],
+			meta: { name: 'plugin.md', description: '插件装配测试：一个数据目录', tags: ['测试/插件'] },
 		})
 		assert.match(file.id, /^file-/)
 		assert.equal(sections[0].text(), before, '写文件不改变系统段文本')
@@ -132,7 +138,7 @@ test('apply 拒绝相对路径的 dataDir', async () => {
 	})
 })
 
-test('apply：harness 工具用 sessionQuery 的 cwd 推断项目根，按 agent id 缓存', async () => {
+test('apply：file_read("harness/") 用 sessionQuery 的 cwd 推断项目根，按 agent id 缓存', async () => {
 	const projectRoot = await mkdtemp(join(tmpdir(), 'ys-project-'))
 	await mkdir(join(projectRoot, '.git'), { recursive: true })
 	// The session header carries a real working directory; the resolver only
@@ -151,24 +157,26 @@ test('apply：harness 工具用 sessionQuery 的 cwd 推断项目根，按 agent
 			const { ctx, tools, effects } = fakeContext({ sessionQuery })
 			await apply(ctx, {})
 			try {
-				const catalogTool = tools.find((tool) => tool.name === 'project_harness_catalog')
-				const listed = await catalogTool.execute({ init: true }, { agent: { id: 'agent-a' } })
-				assert.equal(listed.project, projectRoot, '项目根由会话 header.cwd 向上推断')
+				const readTool = tools.find((tool) => tool.name === 'file_read')
+				const listed = await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-a' } })
+				assert.equal(listed.root, projectRoot, '项目根由会话 header.cwd 向上推断')
+				assert.equal(listed.present, false)
+				assert.equal(listed.needsInit, true)
 				assert.deepEqual(queries[0], [{ kind: 'id', values: ['agent-a'] }])
 				// 同一 agent 再调用命中缓存，不再查 sessionQuery。
-				await catalogTool.execute({}, { agent: { id: 'agent-a' } })
+				await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-a' } })
 				assert.equal(queries.length, 1)
 				// 另一个 agent 是另一个项目查询。
-				await catalogTool.execute({}, { agent: { id: 'agent-b' } })
+				await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-b' } })
 				assert.equal(queries.length, 2)
 				// 缓存上限 64：第 1 个 agent 被挤出后重新查，最近一个还在。
 				for (let index = 1; index <= 65; index += 1) {
-					await catalogTool.execute({}, { agent: { id: `agent-${index}` } })
+					await readTool.execute({ target: 'harness/' }, { agent: { id: `agent-${index}` } })
 				}
 				assert.equal(queries.length, 67)
-				await catalogTool.execute({}, { agent: { id: 'agent-1' } })
+				await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-1' } })
 				assert.equal(queries.length, 68, '最老的 agent 已被挤出缓存')
-				await catalogTool.execute({}, { agent: { id: 'agent-65' } })
+				await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-65' } })
 				assert.equal(queries.length, 68, '最近的 agent 仍在缓存里')
 			} finally {
 				const dispose = await effects[0]()
@@ -180,7 +188,7 @@ test('apply：harness 工具用 sessionQuery 的 cwd 推断项目根，按 agent
 	}
 })
 
-test('apply：没有 sessionQuery 时显式 project 也拒绝——无法证明它在会话工作区内', async () => {
+test('apply：没有 sessionQuery 时项目路径操作拒绝，库操作照常可用', async () => {
 	const projectRoot = await mkdtemp(join(tmpdir(), 'ys-project-'))
 	await mkdir(join(projectRoot, '.git'), { recursive: true })
 	try {
@@ -188,18 +196,23 @@ test('apply：没有 sessionQuery 时显式 project 也拒绝——无法证明�
 			const { ctx, tools, effects } = fakeContext()
 			await apply(ctx, {})
 			try {
-				const catalogTool = tools.find((tool) => tool.name === 'project_harness_catalog')
+				const readTool = tools.find((tool) => tool.name === 'file_read')
 				const exec = { agent: { id: 'agent-x' } }
+				// 无法证明 cwd 时项目路径操作一律拒绝，而不是猜一个项目。
 				await assert.rejects(
-					() => catalogTool.execute({}, exec),
-					/无法推断项目目录/,
-				)
-				// 旧行为是「显式 project 在无 sessionQuery 下仍可用」，那正是
-				// 越界写别的仓库的入口：无法证明 cwd 就只能拒绝。
-				await assert.rejects(
-					() => catalogTool.execute({ project: projectRoot }, exec),
+					() => readTool.execute({ target: 'harness/' }, exec),
 					/无法确定当前会话工作目录/,
 				)
+				await assert.rejects(
+					() => readTool.execute({ target: join(projectRoot, 'note.md') }, exec),
+					/无法确定当前会话工作目录/,
+				)
+				// 库操作不依赖会话，照常可用。
+				const written = await tools.find((tool) => tool.name === 'file_write').execute({
+					content: 'x',
+					meta: { description: '没有 sessionQuery 时仍能写库，验证库与项目路径解耦', tags: ['测试/插件'] },
+				})
+				assert.match(written.id, /^file-/)
 			} finally {
 				const dispose = await effects[0]()
 				await dispose()
@@ -218,14 +231,12 @@ test('apply：坏 DB 不让插件加载失败——隔离坏库、从边车重�
 			await writeFile(join(dir, 'system', 'ziyan.db'), 'not a sqlite database')
 			const { ctx, tools, sections, effects } = fakeContext()
 			await apply(ctx, { dataDir: dir })
-			// 12 个工具、注入段照常注册，插件没有因为索引坏掉而拒绝加载。
-			assert.equal(tools.length, 12)
+			// 4 个工具、注入段照常注册，插件没有因为索引坏掉而拒绝加载。
+			assert.equal(tools.length, 4)
 			assert.equal(sections.length, 1)
 			const written = await tools.find((tool) => tool.name === 'file_write').execute({
-				name: 'after-corrupt.md',
-				description: '坏库恢复后仍能写入的文件',
 				content: 'ok',
-				tags: ['测试/坏库'],
+				meta: { name: 'after-corrupt.md', description: '坏库恢复后仍能写入的文件', tags: ['测试/坏库'] },
 			})
 			assert.match(written.id, /^file-/)
 			const system = await readdir(join(dir, 'system'))
@@ -233,18 +244,17 @@ test('apply：坏 DB 不让插件加载失败——隔离坏库、从边车重�
 			const dispose = await effects[0]()
 			await dispose()
 		} finally {
-			await rm(dir, { recursive: true, force: true })
+			await removeDir(dir)
 		}
 	})
 })
 
-test('apply：显式 project 只收 cwd 的祖先/后代（同一项目根），仓库外项目拒绝', async () => {
+test('apply：项目根按会话 cwd 推断到仓库根，项目外路径越界拒绝', async () => {
 	const projectRoot = await mkdtemp(join(tmpdir(), 'ys-project-'))
 	const otherRoot = await mkdtemp(join(tmpdir(), 'ys-other-'))
 	await mkdir(join(projectRoot, '.git'), { recursive: true })
 	const sessionCwd = join(projectRoot, 'src', 'deep')
 	await mkdir(sessionCwd, { recursive: true })
-	await mkdir(join(sessionCwd, 'nested', '.git'), { recursive: true })
 	await mkdir(join(otherRoot, '.git'), { recursive: true })
 	try {
 		await withHome(async () => {
@@ -252,23 +262,27 @@ test('apply：显式 project 只收 cwd 的祖先/后代（同一项目根），
 			const { ctx, tools, effects } = fakeContext({ sessionQuery })
 			await apply(ctx, {})
 			try {
-				const catalogTool = tools.find((tool) => tool.name === 'project_harness_catalog')
+				const readTool = tools.find((tool) => tool.name === 'file_read')
+				const writeTool = tools.find((tool) => tool.name === 'file_write')
 				const exec = { agent: { id: 'agent-boundary' } }
-				// 仓库根（cwd 的祖先）通过。
-				assert.equal((await catalogTool.execute({ project: projectRoot }, exec)).project, projectRoot)
-				// cwd 自己与 cwd 的后代仓库通过。
-				assert.equal((await catalogTool.execute({ project: sessionCwd }, exec)).project, projectRoot, 'cwd 自己在同一项目根')
-				const nested = await catalogTool.execute({ project: join(sessionCwd, 'nested') }, exec)
-				assert.equal(nested.project, join(sessionCwd, 'nested'), '后代仓库是它自己的项目根')
-				// 仓库外另一项目：拒绝，且错误说清原因。
+				// 会话在子目录：项目根（cwd 的祖先）是 harness 的落点。
+				assert.equal((await readTool.execute({ target: 'harness/' }, exec)).root, projectRoot)
+				const written = await writeTool.execute({
+					target: 'harness/experience/from-subdir.md',
+					content: '# 子目录\n\n正文。\n',
+					meta: { summary: '会话在子目录时 harness 锚定仓库根，验证项目根推断' },
+				}, exec)
+				assert.equal(written.path, 'harness/experience/from-subdir.md')
+				// 普通项目路径按 cwd 解析：仓库根的文件在看守范围外。
+				await writeFile(join(projectRoot, 'root.md'), 'root')
 				await assert.rejects(
-					() => catalogTool.execute({ project: otherRoot }, exec),
-					/不在当前会话工作区/,
+					() => readTool.execute({ target: '../root.md' }, exec),
+					/路径越界/,
 				)
-				// 不存在的路径不会被向上猜成某个祖先仓库（稳定性 P3 的硬边界）。
+				// 绝对路径也无法越过 cwd（不能靠拼路径读别的仓库）。
 				await assert.rejects(
-					() => catalogTool.execute({ project: join(sessionCwd, 'missing-dir') }, exec),
-					/找不到这个项目/,
+					() => readTool.execute({ target: join(otherRoot, 'README.md') }, exec),
+					/路径越界/,
 				)
 			} finally {
 				const dispose = await effects[0]()

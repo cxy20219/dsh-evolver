@@ -15,8 +15,9 @@
 5. **边车是事实，数据库是索引**。`meta.json` + 文件字节是真相；SQLite 可随时删掉重建。这条沿用老库“索引必须生成”的结论。
 6. **链接可以悬空**。删除一个文件不批量改写别人的边车；查询时把悬空目标标成 `missing`，整理时再清。导入、前向引用都靠这条。
 7. **任何文件都可以链接任何文件，也可以被任何文件链接**。出边存在文件自己的 `links` 里，反链实时计算；不存重复的反链字段。
-8. **不注入文件索引/正文，agent 有问题自己搜**。插件只注入一段静止的系统纪律，不注入动态文件索引、不注入快照；需要文件时用 `file_query` 按描述/标签/links 检索，再 `file_read` 读正文。项目依赖、约定、命令、流程交给项目 harness 资源系统；跨项目知识才进自衍中枢库。
+8. **不注入文件索引/正文，agent 有问题自己搜**。插件只注入一段静止的系统纪律，不注入动态文件索引、不注入快照；需要文件时用 `file_search` 按描述/标签/links 检索，再 `file_read` 读正文。项目依赖、约定、命令、流程交给项目 harness 资源系统；跨项目知识才进自衍中枢库。
 9. **插件不替 agent 理解内容**。Word/PDF 的正文、代码在做什么、文档之间语义是否相关，都由 agent 读文件后判断；插件只负责“这个文件是什么、和谁有关、能不能直接跑”。
+10. **知识分两层沉淀**。项目内结论进项目 harness（随仓库走）；跨项目可复用的经验、流程、脚本 promote 进自衍文件库（跨仓库检索）。两层的描述都写「是什么 + 以后哪些场景/任务会用到」，因为检索面只有描述。
 
 ## 2. 实体
 
@@ -157,65 +158,62 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 ## 7. 注入
 
-**只注入一段静态系统纪律**（`ctx.systemPrompt.section`，名字 `dsh-ziyan:discipline`）：文件纪律、主动性协议、`[项目 harness]` 分工。**没有运行时上下文注入**：不注入文件索引、不注入结构摘要、没有每日快照、没有注入预算。
+**只注入一段静态系统纪律**（`ctx.systemPrompt.section`，名字 `dsh-ziyan:discipline`）：文件纪律 + 主动性协议（含两层知识沉淀与描述契约）。**没有运行时上下文注入**：不注入文件索引、不注入结构摘要、没有每日快照、没有注入预算。
 
 为什么砍掉运行时索引：
 
-- **前缀稳定**：静态段每轮字节完全一致，提示词缓存不会因为库变了就整段失效；之前靠「每日快照」拖延这件事，现在连快照都不需要。
-- **检索交给 agent**：描述就是检索面，`file_query` 支持关键词/标签/类型/图检索；需要什么搜什么，比 12 条固定候选更准，也不会让「没被选进索引的文件」看起来不存在。
-- **归属清楚**：项目里的依赖、约定、命令、流程进项目 harness（`project_harness_*`，由项目 AGENTS.md 受管块索引，DSH 自己的指令加载器会注入）；跨项目可复用的知识用 `project_harness_promote` 落进自衍中枢库，靠 `file_query` 检索。插件不再替 agent 决定「哪些知识值得每轮携带」。
+- **前缀稳定**：静态段每轮文本完全一致（面板按 token 估算显示规模），提示词缓存不会因为库变了就整段失效；之前靠「每日快照」拖延这件事，现在连快照都不需要。
+- **检索交给 agent**：描述就是检索面，`file_search` 支持关键词/标签/图检索；需要什么搜什么，比 12 条固定候选更准，也不会让「没被选进索引的文件」看起来不存在。
+- **归属清楚**：项目里的依赖、约定、命令、流程用 `file_write` 写到 `harness/` 路径（宿主自动维护项目 AGENTS.md 受管块索引，DSH 自己的指令加载器会注入）；跨项目可复用的知识用 `file_write({from:"harness/..."})` 复制进自衍中枢库，靠 `file_search` 检索。插件不再替 agent 决定「哪些知识值得每轮携带」。
 - 代价：agent 必须先搜再答，多一次工具调用；静态段里用一条纪律把「开工前先搜」写死来兜底。
 
 （历史版本曾有「静态纪律 + 12 候选运行时索引」两段注入与 `injectionBudget` 设置；该机制已在 P7 移除。）
 
-## 8. 工具面（已实现）
+## 8. 工具面：四工具极简（2026-11-15 重构）
 
-| 工具 | 作用 |
-|---|---|
-| `file_query` | 关键词/标签（单条或数组 AND）/类型/图检索；返回 id、名字、描述、标签、类型、大小、度数、分数；`graph:true` + `hops` 返回子图 |
-| `file_read` | 元数据 + 文本（上限 256 KB，超出给 path）+ 绝对 path + executable + 邻居；悬空标 `missing` |
-| `file_write` | 新建/更新文本文件；description + **至少一个 tags** + links；写前查重；被丢弃的链接进 warnings |
-| `file_import` | 从宿主机路径导入任意文件（二进制/文本/Word/PDF），复制字节入库；带 description、**至少一个 tags**、links；死链进 warnings |
-| `file_link` | 加/删链接，不重写正文 |
-| `file_index` | 类型/标签/规模总览（对应老 `card_index`） |
-| `file_archive` / `file_remove` | 归档 / 先移 trash 再删 |
-| `project_harness_catalog` | 扫项目 `harness/` 现状：四层资源、AGENTS.md 受管索引块差集、缺失/多余；`init:true` 建骨架。写前必须先调 |
-| `project_harness_write` | 写/更新一条 harness 资源（workflow/experience/tool/resources），自动重建 AGENTS.md 受管块并校验，失败回滚 |
-| `project_harness_validate` | 校验 harness 结构、索引差集、tool 脚本文档契约与 Python 语法（解释器缺失时标 skipped，不算失败） |
-| `project_harness_promote` | 把一条项目 harness 资源导入自衍中枢文件库（description/tags 必填、links 可选）；跨项目可复用的才 promote |
+用户决策：参考 Pi 的极简工具面，工具数与参数尽可能少。最终只注册 **4 个工具**，动词只有四个（search / read / write / edit）；同一套动词同时服务文件库与项目 harness——落在哪里决定套哪条契约，工具名只说「在做什么」。
 
-工具面共 12 个：8 个 `file_*` + 4 个 `project_harness_*`。前缀不是装饰——本机 desktop profile 还装着旧 evolver，它已占用全局工具名 `harness_catalog`/`harness_write`/`harness_validate`，而 DSH 的工具名在同一层唯一；ziyan 用 `project_` 前缀与之并存。卸掉旧 evolver 后也不需要改名，面板与提示词引用的都是这一套。
+| 工具 | 参数 | 作用 |
+|---|---|---|
+| `file_search` | `query` / `tags` / `limit` / `graph`（全可选） | 按描述/名字/标签检索，不搜正文；空参数返回最近文件 + 规模统计（替代旧 `file_index`）；`graph` 返回命中文件的一跳 links 子图 |
+| `file_read` | `target`（必填） | 库文件 id/短 id → 元数据 + 正文（上限 256 KB）+ 邻居；`harness/` → 项目 harness 清单与索引差集；否则按会话 cwd 解析项目内路径（`harness/...` 锚项目根），越界拒绝 |
+| `file_write` | `target` / `content` / `meta` / `from` | 新建/更新库文件、用 `from` 导入宿主或项目内文件、写项目文件、写 harness 资源（缺骨架自动建、重建 AGENTS.md 受管索引并校验，失败回滚） |
+| `file_edit` | `target` / `old` / `new` / `meta` | 正文精确替换（0 次或多次命中都报错）；`meta` 改描述/标签/links/archived/remove；harness 文档改 title/summary frontmatter，改完重建索引并校验 |
 
-### 8.1 项目 harness 与自衍中枢库的分工（新流程）
+旧 12 个工具的去向：`file_query`→`file_search`；`file_index`→`file_search` 空参数；`file_import`→`file_write({from})`；`file_link`→`file_edit(meta.links)`；`file_archive`/`file_remove`→`file_edit(meta.archived/remove)`；`file_read`/`file_write` 保留并统一寻址；`project_harness_catalog`→`file_read({"target":"harness/"})`；`project_harness_write`→`file_write` 到 `harness/` 路径；`project_harness_validate`→写入结果里的 `validation`；`project_harness_promote`→`file_write({from:"harness/..."})`。
 
-新流程把「项目内资源系统」和「跨项目知识库」分开：
+为什么不是裸名 `read`/`write`/`edit`/`search`：DSH 内置工具已占用这些名字，旧 evolver 还占着 `harness_*`，而 DSH 工具名同层唯一；`file_` 前缀是命名空间，不是业务分类。
 
-- **每个项目都必须有 `harness/`**：`harness/harness.md` 总览 + `workflow/`（流程）、`experience/`（经验判断）、`tool/`（可执行物）、`resources/`（工具要读的东西）四层。项目 `AGENTS.md` 里由工具维护一个受管块作为索引：`<!-- ziyan:harness:begin -->` 与 `<!-- ziyan:harness:end -->` 之间是索引头 + 条目列表，**块外内容（用户手写的 AGENTS.md 正文）一个字节都不动**；没有块时首次 `init:true`/写入会在末尾追加；旧 evolver 的「整篇裸索引」项目会被接管，存活资源的标题/顺序/用途不丢；块标记被改坏时所有写路径拒绝并报错，不猜。
-- **项目本地知识进 harness**：只在本仓库成立的判断、约定、命令、流程用 `project_harness_*` 写进四层，不写进自衍中枢库；注入的静态段里有一条 `[项目 harness]` 纪律明确这条分工。
-- **跨项目可复用的资源才 promote 进库**：`project_harness_promote` 把某条 harness 资源（项目内相对路径）复制为库里的文件实体，description/tags 必填、可带 links，标签建议 `来源/harness`；库的检索是描述优先、与仓库无关，正好承载「以后还能用上」的那部分。
-- 两边不自动同步：harness 是项目内的唯一出处，库里的 promote 副本是跨项目检索面；哪条该进库、和库内哪些文件相关，由 agent 判断并用 links 表达。
+参数为什么这么少：`meta` 收拢库文件与文档两套元数据（name/description/tags/links/title/summary/layer），`from` 让导入与 promote 共用同一条「复制字节入库」路径，`target` 一个字段承载「库 id / 项目路径 / `harness/` 清单」三种寻址。旧工具面 44 个顶层参数，现在 13 个（4+1+4+4）。
+
+### 8.1 项目 harness 与自衍中枢库的分工
+
+- **每个项目都必须有 `harness/`**：`harness/harness.md` 总览 + `workflow/`（流程）、`experience/`（经验判断）、`tool/`（可执行物）、`resources/`（工具要读的东西）四层。项目 `AGENTS.md` 里由工具维护一个受管块作为索引：`<!-- ziyan:harness:begin -->` 与 `<!-- ziyan:harness:end -->` 之间是索引头 + 条目列表，**块外内容（用户手写的 AGENTS.md 正文）一个字节都不动**；没有块时首次写 `harness/` 会在末尾追加；旧 evolver 的「整篇裸索引」项目会被接管，存活资源的标题/顺序/用途不丢；块标记被改坏时写路径拒绝并报错，不猜。
+- **项目本地知识进 harness**：只在本仓库成立的判断、约定、命令、流程用 `file_write` 写到 `harness/...` 路径，不写进自衍中枢库；注入的静态段把这条分工写进 `[主动性]`：干活时顺手沉淀，项目内进 harness、跨项目复制进库。
+- **跨项目可复用的资源才复制进库**：`file_write({from:"harness/..."})` 把某条 harness 资源复制为库里的文件实体，meta.description/tags 必填、可带 links，标签建议 `来源/harness`；库的检索是描述优先、与仓库无关，正好承载「以后还能用上」的那部分。
+- 两边不自动同步：harness 是项目内的唯一出处，库里的副本是跨项目检索面；哪条该进库、和库内哪些文件相关，由 agent 判断并用 links 表达。
 
 ## 9. 面板
 
 顶层页签固定为 **概览 / 图谱 / 文件 / 注入 / 自衍 / 设置 / 日志**（不再有“卡片/资源”两分）。
 
-**注入页**分「提示词 / 工具 / 偏好」三个子标签。提示词栏只展示**一段静态纪律**：文件纪律、主动性协议与 `[项目 harness]` 三段，字节固定、每轮都带；顶部一句说明「运行时不再注入文件索引，需要什么用 file_query 按描述/标签/links 自己搜；项目依赖与约定由项目 harness 管理」，再显示静态段字节数。**没有**运行时索引、快照信息、预算条，也没有重建按钮——宿主已经不再产生这些东西。
+**注入页**分「提示词 / 工具 / 偏好」三个子标签。提示词栏只展示**一段静态纪律**：文件纪律与主动性协议两段（两层知识沉淀与描述契约并入主动性），每轮都带；顶部一句说明「运行时不再注入文件索引，需要什么用 file_search 按描述/标签/links 自己搜；项目依赖与约定由项目 harness 管理」，再显示静态段的 **token 估算**（`src/tokens.js`：CJK/全角约 1 字 1 tok，其余约 4 字符 1 tok；是预算估算，不是计费数字）。**没有**运行时索引、快照信息、预算条，也没有重建按钮——宿主已经不再产生这些东西。
 
-工具栏把**插件向 DSH 注册的工具目录**摊开（现在 12 个：8 个 `file_*` + 4 个 `project_harness_*`）：名称、分类（只读 / 写入 / 危险）、一句话功能与参数（名字、类型、必填、说明；参数默认折叠）。数据来自 `tools` 接口，是工具定义的纯数据投影（`describeTools`），和模型实际拿到的工具定义同源，所以面板不会与工具面漂移；`output.render` 这类函数不跨接口。分类用静态表而不是猜描述：未知工具默认记「写入」（误标只读比误标写入危险），`destructive` 只显式登记。工具是**会话启动时绑定**的，面板只展示、不提供调用入口。
+工具栏把**插件向 DSH 注册的工具目录**摊开（现在 4 个：`file_search` / `file_read` / `file_write` / `file_edit`）：名称、分类（只读 / 写入）、一句话功能与参数（名字、类型、必填、说明；参数默认折叠），并显示整组 schema 与单个工具的 **token 估算**（工具 schema 也每轮随请求发送）。数据来自 `tools` 接口，是工具定义的纯数据投影（`describeTools`），和模型实际拿到的工具定义同源，所以面板不会与工具面漂移；`output.render` 这类函数不跨接口。分类用静态表而不是猜描述：未知工具默认记「写入」（误标只读比误标写入危险）；`file_edit` 含删除动作，按写入展示并在描述里点明。工具是**会话启动时绑定**的，面板只展示、不提供调用入口。
 
-偏好栏编辑的是 DSH 全局 `~/.dsh/AGENTS.md` 里由插件维护的那一段：DSH 的 AGENTS.md 加载器在每次会话开始时读这个文件，所以改完对下一个会话就生效，和插件版本无关。段落用一对注释标记（`<!-- ziyan:preferences:begin/end -->`）圈出来，**标记以外的字节一个都不动**——那多半是用户自己的规则。这里刻意没有沿用旧 evolver 的软链方案（把 `~/.dsh/AGENTS.md` 软链到 `preferences/AGENTS.md`）：软链要先把用户已有的 AGENTS.md 挪走，Windows 上还要开发者模式；而本机现状恰好相反——`~/.dsh/AGENTS.md` 本来就是旧 evolver 留下的软链，指向 `evolver/preferences/AGENTS.md`。所以写之前先解析真实目标、原子写落在目标上，**链接本身保留**；否则一次 `rename` 就把链接换成了普通文件，旧偏好的来源就断了。读失败（不是文件不存在）时界面禁用保存，避免把空串写回去清空规则；超过 64 KB 拒绝写入，和加载器的截断上限对齐。
+偏好栏编辑 DSH 全局 AGENTS.md 的**全文**（不再只维护一个受管段）：权威数据文件是 `<dataDir>/system/AGENTS.md`，`~/.dsh/AGENTS.md` 软链到它——面板看到并编辑的就是 DSH 每次会话开始时读到的全文，数据仍统一落在插件数据目录。第一次读取时把现有 `~/.dsh/AGENTS.md`（可能是旧 evolver 的软链目标）全文迁进数据目录、剔掉旧版 ziyan 段标记（段内内容保留），再把 `AGENTS.md` 原子替换成指向数据文件的软链；旧目标不删除。Windows 没有建链权限时退化为「数据文件 + AGENTS.md」双写，界面显示当前模式。若外部把 `AGENTS.md` 换成自己的文件，下一次读取以它为准同步回数据目录。读失败时禁用保存，避免空串覆盖；超过 64 KB 拒绝写入。页面显示当前草稿的 **token 估算**（随编辑实时更新）与字节上限。
 
-**自衍页**是整理台，形态刻意保持简单（对齐旧 evolver 的整理页）：三张紧凑卡 + 一份最近作业列表。整理本身不在这里做——它由宿主在**会话外**用选定的模型与思考强度跑工具循环；页面只负责选模型、开关自动整理、看结果。
+**自衍页**分「整理台 / 最近作业 / 提示词」三个子标签。「整理台」形态刻意保持简单（对齐旧 evolver 的整理页）：只有三张紧凑卡（模型 / 会话整理 / 文件整理），作业列表移走，避免作业多时把卡挤下去。「最近作业」单独成子标签：最多 5 条，状态徽标 / kind / 开始时间 / 结果计数 / 失败原因 / 运行中可取消 / 日志折叠，另有一个手动刷新按钮。整理本身不在这里做——它由宿主在**会话外**用选定的模型与思考强度跑工具循环；页面只负责选模型、开关自动整理、看结果。「提示词」是只读审计面：展示整理作业实际使用的系统提示词——会话整理、文件整理、收尾轮指令（正常 / 预演）与各自的 **token 估算**；用户消息按作业动态拼接（会话转录 + 标签表 / 库整理报告），不在提示词页展示实例数据。提示词文本由宿主从 `src/organize/prompts.js` 原样返回，和模型侧同源，不会与实现漂移。
 
 - **整理模型**：服务商 / 模型 / 思考强度三个下拉 +「跟随聊天」+ 保存；目录来自宿主 `llm` 服务（`listProviders`/`listModels`/`resolveModelInfo`，5 分钟缓存），默认「跟随聊天」= 用当前会话选中的模型（`agentDefaultModel.currentSelection()`，读发起时刻的值）。目录读不到（宿主没有 `llm`、或适配器失败）时禁用两个「立即整理」并说明原因，不崩页面。
 - **会话整理**：自动开关 +「空闲 N 分钟」（5–240）+ 保存 +「立即整理」。自动模式由宿主 60 秒心跳检查：扫 `~/.dsh/sessions` 下最近会话（跳过子代理/播种/0 轮），把「上次整理后又更新、且空闲 ≥ N 分钟」的会话按最旧优先最多 5 个塞进一个 `sessions` 作业；台账 `system/organize-ledger.json` 记录每个会话已整理到的 updatedAt，失败不会每分钟重试烧钱。手动「立即整理」同样自动挑 pending（≤5），没有就报「没有待整理的会话」。
-- **文件整理**：自动开关 +「每天 H 点」+ 保存 +「立即整理」。自动模式每天到点后跑一次 `files` 作业，同样只尝试一次/天；动作与之前一致：合并（`file_merge`，sources 归档）、改描述/标签/正文、补链接、归档；删除仍只在 `allowRemove` 显式打开时提供。
-- **最近作业**：最多 5 条，状态徽标 / kind / 开始时间 / 结果计数 / 失败原因 / 运行中可取消；日志默认折叠。同一时刻只允许一个作业，自动与手动共用这把互斥锁；作业记录落在 `system/organize-jobs.json`（≤20 条，不存正文），宿主重启时把未完成作业标为中断。
+- **文件整理**：自动开关 +「每天 H 点」+ 保存 +「立即整理」。自动模式每天到点后跑一次 `files` 作业，同样只尝试一次/天；动作与之前一致：合并（`file_merge`，sources 归档）、改描述/标签/正文、补链接、归档；删除动作只有 `file_edit` 的 `meta.remove`，提示词要求不要用，`allowRemove` 仍保留为宿主 API 参数但不再改变工具面。
+- **最近作业**（独立子标签）：最多 5 条，状态徽标 / kind / 开始时间 / 结果计数 / 失败原因 / 运行中可取消；日志默认折叠；可手动刷新。同一时刻只允许一个作业，自动与手动共用这把互斥锁；作业记录落在 `system/organize-jobs.json`（≤20 条，不存正文），宿主重启时把未完成作业标为中断。
 - **没有手动维护按钮**：重建索引、重建快照、重新读取、演练模式、会话勾选、四类问题网格全部去掉。数据库由宿主按需自建/重建（不再有快照这种东西）；页面上的数字（会话总数、待整理数、上次结果）只用来判断 agent 有没有在干活，不是要用户去点的操作。
 
 自动整理**默认关闭**：新装/升级后不点开关就不会产生任何模型调用。开关打开后自动作业固定 `dryRun:false`、`allowRemove:false`，用「整理模型」里选的模型。
 
-作业本体在宿主侧（`src/organize-jobs.js`）是一个**受限的工具循环**：复用 `file_*` 工具面（写语义与会话内 agent 完全一致，没有第二套存储逻辑），模型按需 `file_query`/`file_read` 读正文后再决定动作——合并用整理专用的 `file_merge`（更新 target、归档 sources），改描述/标签/正文用 `file_write`，补关系用 `file_link`，归档用 `file_archive`；`file_remove` 只在显式 `allowRemove` 且非演练时提供，物理删除进 trash。硬边界：每类作业步数上限、工具调用 30 次、单工具结果 8k 字 / 总结果 60k 字、最多 24 次写；预算用尽时要求模型收尾而不是报错。**计数由宿主拦截 store 写方法得到，不信模型自报**。`dryRun` 仍保留为宿主 API 参数（只给只读工具面、库零改动，有测试守），只是面板不再暴露——自动整理和「立即整理」都按真实写入跑。模型结论若被 `max-tokens` 截断，作业明确写「被截断」，不拿中间轮的文本冒充结论。
+作业本体在宿主侧（`src/organize-jobs.js`）是一个**受限的工具循环**：复用四个 `file_*` 动词（写语义与会话内 agent 完全一致，没有第二套存储逻辑），模型按需 `file_search`/`file_read` 读正文后再决定动作——合并用整理专用的 `file_merge`（更新 target、归档 sources），改描述/标签/正文用 `file_write` 或 `file_edit`，补关系用 `file_edit(meta.links)`，归档用 `file_edit(meta.archived)`。硬边界：每类作业步数上限、工具调用 30 次、单工具结果 8k 字 / 总结果 60k 字、最多 24 次写；预算用尽时要求模型收尾而不是报错。**计数由宿主拦截 store 写方法得到，不信模型自报**。`dryRun` 仍保留为宿主 API 参数（只给只读工具面、库零改动，有测试守），只是面板不再暴露——自动整理和「立即整理」都按真实写入跑。模型结论若被 `max-tokens` 截断，作业明确写「被截断」，不拿中间轮的文本冒充结论。
 
 把对话沉淀成文件仍然是 agent 的判断，区别只是**由谁跑**：会话里的 agent 手动整理，或这里的后台作业用指定模型整理；两者写同一套工具、守同一条写入契约。
 
@@ -253,12 +251,12 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 **A. 搜索 → 文档 → 脚本 → 直接使用**
 
-1. `file_query("报表导出")` 命中 `spec.docx`（描述里有“报表导出”）。
+1. `file_search("报表导出")` 命中 `spec.docx`（描述里有“报表导出”）。
 2. `file_read(spec)` 返回描述、path、邻居 `export-notes.md`；agent 想看 Word 正文就自己用 `textutil`/`pandoc` 读 path。
 3. `file_read(export-notes.md)` 返回邻居 `export.sh`。
 4. `file_read(export.sh)` 返回 `executable: true` + 绝对 path；agent 用 bash 跑。
 
-一次拿全链路用 `file_query graph:true, hops:2`：节点里直接有 `spec → notes → export.sh` 的边。
+一次拿全链路用 `file_search graph:true`：结果里直接有 `spec → notes → export.sh` 的一跳边；再远的链沿邻居继续读。
 
 **B. 搜索 → Word → markdown → 脚本**
 
@@ -268,7 +266,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 - 搜报错关键词 → 描述里带这个报错的修复脚本 → 读 → 跑。
 - 搜规则 → 描述命中的 markdown → 邻居里的实现脚本 / 数据文件 → 用。
-- 搜主题 → 一组同标签文件 → `file_query` 按标签过滤 → 逐个读。
+- 搜主题 → 一组同标签文件 → `file_search` 按标签过滤 → 逐个读。
 
 **不成立的场景（有意为之）**
 
@@ -286,7 +284,8 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 | P4（已完成迁移） | 迁移脚本 + trash/归档/重建 + 备份 | 136 卡 + 10 附件迁入，重复执行幂等；备份/增量同步未做 |
 | P5（已完成） | 会话沉淀/每日整理/健康度（老库 dreaming 的对应物）：自衍页的「会话外整理作业」——可选模型与思考强度、工具循环、作业状态与取消；会话全文读取、模型目录、作业落盘 | 真实 provider 跑通 files dry-run（23 次工具调用、零写入）与会话整理；面板实测模型选择/作业卡/取消可用 |
 | P6（已完成） | 项目 harness 资源系统搬入（`project_harness_*` + AGENTS.md 受管索引块 + `project_harness_promote` 落库）；自衍页按旧 evolver 整理页收口（三卡 + 自动整理调度，默认关；去掉重建索引/重建快照等手动按钮） | 164 条全绿；harness 34 条测试 + smoke（手写 AGENTS.md 项目安全建骨架、块外逐字节不动、旧裸索引接管）；自动调度默认关、空闲/每日触发有假钟测试；面板在隔离实例实测 12 工具与三卡 |
-| P7（已完成） | 移除运行时上下文注入：只保留一段静态系统纪律（文件纪律 + 主动性 + 项目 harness 分工）；删除 `src/injection.js`、每日快照、`system/index.json`、注入预算与相关设置/面板；agent 需要文件用 `file_query` 自己搜 | 166 条全绿；`injection` 端点只剩 `{static, staticBytes}`、无 context 注册、无预算字段；隔离实例实测注入页只剩静态段、设置页无注入预算、工具 12 个与自衍页不受影响 |
+| P7（已完成） | 移除运行时上下文注入：只保留一段静态系统纪律（文件纪律 + 主动性 + 项目 harness 分工）；删除 `src/injection.js`、每日快照、`system/index.json`、注入预算与相关设置/面板；agent 需要文件了自己搜 | 166 条全绿；`injection` 端点只剩 `{static, staticBytes}`（P8 起改为 `staticTokens`）、无 context 注册、无预算字段；隔离实例实测注入页只剩静态段、设置页无注入预算、工具 12 个与自衍页不受影响 |
+| P8（已完成） | 工具面极简：12 → 4（`file_search` / `file_read` / `file_write` / `file_edit`），同一套动词同时服务文件库与项目 harness；顶层参数 44 → 13；删除 `src/harness/tools.js`，harness 写入/校验并入 `file_write`/`file_edit`；注入规模改按 token 估算显示 | 222 条全绿；面板/整理器/静态提示词同步；smoke 覆盖库文件、项目文件、harness 三种落点与 AGENTS.md 受管块；静态段/工具 schema/整理提示词/偏好草稿都显示 token 估算 |
 
 ## 13. P1 落地记录（2026-11-13）
 
@@ -305,7 +304,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 1. **包布局**：已定——旧 evolver 全部移除，本包就是仓库根，分支 `research-data-model` 上独占一个包（2026-11-14 决策）。
 2. **标签层级深度**：当前不限深度、总长 64 字、最多 32 个；如果实际会出现超长路径，再决定是截断还是拒绝。
-3. **工具前缀**：已用 `file_*`；如果实际装进 desktop 后发现重名，再统一改 `ys_*`。
+3. **工具前缀**：已定——最终只有 4 个工具并沿用 `file_` 前缀（DSH 内置占 `read`/`write`/`edit`，旧 evolver 占 `harness_*`，同名会冲突）；不再按业务拆分工具。
 4. **数据库地位**：边车为准 + DB 索引（本文默认），还是 DB 为准 + 定期导出？
 5. **旧数据**：迁移后保留 `legacy_id` 多久；旧插件是否继续作为日常驱动直到 P4 验收？
 
@@ -411,7 +410,7 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 因此：
 
-- 不新增 `system/tags.json`、标签管理页、`file_index({tag})` 说明字段或标签实体；
+- 不新增 `system/tags.json`、标签管理页、`file_search({tag})` 说明字段或标签实体；
 - 不在注入/FTS 中加入标签说明；
 - 老库的默认标签说明不迁入自衍中枢；
 - 以后若出现真实的标签歧义或重复，只考虑 **alias/merge** 这类治理动作，不重新引入 prose 描述层。
@@ -486,3 +485,110 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - 100k 可靠性压测（`scripts/stress.mjs`）：8×300 混合面板调用 0 抛错；写者 200 次 + 4 读者 6,007 次调用，磁盘/scan/索引/stats 三方对账精确一致，rebuild 后仍一致；3 轮 SIGKILL 后 `integrity_check=ok`、已确认文件 100% 可读、无无主索引行；100k 索引损坏 E2E 隔离重建 37.5s 后全部读路径正常；5,000 次循环 RSS -0.1MB（无泄漏）；1M 上 200 次混合查询 0 抛错（首次短 id 冷建 1.8s，之后 page p50 43ms）。
 - 复现：`node scripts/scale.mjs --tier 10k --reset`、`--tier 100k --reset`、`--tier 1m --reset`、`--tier 1m --mode fs --force-fs --reset`（1M FS 需 ~44min）；压测 `node scripts/stress.mjs --tier 100k`。数据只落 `.scratch/scale-data`，拒绝与真实库重叠。
 - 剩余风险：1M 多标签页 ~3s；1M `shortIdIndex()` 首次冷建 ~2s；1M `organizeReport` ~1.1s（低频整理路径）；1M cold open 38–42min；真实宿主 + 浏览器未做 1M 渲染压测（面板 3000 节点上限）。
+
+## 23. 两层知识沉淀与描述契约（2026-11-15）
+
+用户决策：知识分两层沉淀——先做项目/任务，再把可复用的踩坑经验、工作流、脚本沉淀出来；跨项目能用的要落进自衍文件库；**重点在描述**。
+
+### 23.1 两层
+
+| 层 | 存在哪 | 放什么 | 怎么被找到 |
+|---|---|---|---|
+| 项目 harness | 项目内 `harness/`（workflow / experience / tool / resources 四层，随仓库走，AGENTS.md 受管块是索引） | 只在本仓库成立的判断、约定、命令、流程、可执行脚本 | 项目 AGENTS.md 索引；在项目里工作的 agent 直接读 |
+| 自衍文件库 | `~/.dsh/ziyan`（跨项目） | 以后别的项目或任务能复用的踩坑经验、工作流、可复用脚本、资料 | 描述优先的 `file_search` 检索 |
+
+流程：任务结束 → 项目内结论用 `file_write` 写到 `harness/...`（缺骨架自动建、自动重建 AGENTS.md 索引并校验）→ 判断哪条跨项目可复用 → 用 `file_write({from:"harness/..."})` 复制进库（标签建议 `来源/harness`，links 关联库内相关文件）→ 写入结果的 `validation` 即自检。只适合本项目的留在 harness，不要两边都存一份互相打架。
+
+### 23.2 描述契约（重点）
+
+无论 harness 的 `summary` 还是库文件的 `description`，都必须写清两件事：
+
+1. **它是什么**：做法、结论、流程的关键内容（不是标题复述）。
+2. **以后哪些场景、任务、问题会用到它**：写成以后会输入 `file_search` 的关键词——技术栈、错误信息、任务类型、触发条件。
+
+不要写「某次会话记录」「临时笔记」「待补」「修了个 bug」。示例：
+
+- 差：`迁移脚本`
+  好：`把旧卡片迁到自衍中枢时，附件与悬空链接两遍写入的流程与坑；以后迁移旧库或改批量导入时读它。`
+- 差：`注入教训`
+  好：`改系统段后提示词缓存整段失效的现象、自测方法与修复步骤；以后改静态 prompt 或排查缓存命中率时读它。`
+
+### 23.3 落实位置
+
+- 静态注入的 `[主动性]` 段：两层流程 + 描述契约并入主动性协议，不再单列段落（`src/prompt.js`）。
+- 工具描述：`file_write` 的 `meta.description`/`meta.summary` 与 `file_edit` 的 `meta.description`/`meta.summary` 在工具描述里都写明两件事；库文件 description 与 harness summary 是同一套要求。
+- 软校验：`meta.descriptionAdvice()` 对「短且不含场景词」的描述返回建议；`file_write` / `file_edit` 的结果带 `warnings`（不阻断写入）；harness 写入结果的 `validation.warnings` 对 summary 给出同类 warning。判断是启发式的，所以只提醒不拒绝——真正的质量仍由写的人负责。
+
+## 24. 四工具极简化（2026-11-15）
+
+用户决策：参考 Pi 的极简工具面（read/write/edit/bash），把 ziyan 的工具层压到最少——**只提供四个工具**，参数尽量少，第四个用 search 替代 bash（ziyan 不执行 shell）。
+
+### 24.1 决定
+
+- 工具从 12 个（8 个 `file_*` + 4 个 `project_harness_*`）降到 4 个：`file_search` / `file_read` / `file_write` / `file_edit`；顶层参数从 44 个降到 13 个（4+1+4+4）。
+- 一套动词**同时覆盖文件库与项目 harness**：`target` 一个字段承载「库 id / 项目路径 / `harness/` 清单」三种寻址，落在 `harness/` 下就套 harness 契约（自动建骨架、受管索引、校验回滚），落在 cwd 其他路径就是普通项目文件，命中库 id 就是库文件。
+- 旧能力全部有去向（见 §8 的映射表），没有丢掉导入、链接、归档、删除、harness 校验与 promote；变化只是它们变成现有动词的一个字段/模式。
+- 名称保留 `file_` 前缀：DSH 内置工具已占用 `read`/`write`/`edit`/`search`，旧 evolver 还占着 `harness_*`，而 DSH 工具名同层唯一；这是命名空间，不是业务分类。
+
+### 24.2 设计细节
+
+- **file_search**：空参数 = 旧 `file_index`（最近文件 + stats + 标签计数）；`query`/`tags` = 旧 `file_query`（tags AND、层级前缀）；`graph:true` = 一跳 links 子图（旧 `hops` 参数砍掉，需要更远就沿邻居继续读）。
+- **file_read**：`target="harness/"` 返回 harness catalog（替代旧 catalog 工具），写入后再读一次即可看到索引差集；项目路径读取有 256 KB 上限，二进制只给 path。
+- **file_write**：`from` 让 import 与 promote 共用一条「复制字节入库」路径；`meta` 收拢 name/description/tags/links/title/summary/layer；写 `harness/<layer>/*.md` 时 layer 由路径推断（`meta.layer` 只能确认不能矛盾），workflow/experience 要求 `meta.summary`，tool/resources 按原始文件写。
+- **file_edit**：`old`+`new` 精确替换（0 次/多次命中都报错，不猜位置）；`meta` 改库元数据或 harness frontmatter；`meta.remove` 是归档后的物理删除，项目文件拒绝删除。
+- **安全边界不变**：项目路径仍限制在会话 cwd 内（`harness/...` 锚定项目根），realpath containment 校验；`from` 允许宿主绝对路径导入但先做类型/大小/符号链接预检；显式 `project` 参数随旧工具消失，项目根由 `sessionQuery` 读回的会话 cwd + `projectRootOf` 推断。
+- **整理器同步**：`toolsForJob` 改为 `file_search`/`file_read`（dry-run）、加 `file_write`（sessions）、加 `file_edit`（files）；`allowRemove` 不再改变工具面（删除是 `file_edit` 的字段，提示词要求不用）。
+- **面板**：工具页自动从 12 变 4；分类只剩「只读 / 写入」，`file_edit` 按写入展示并在描述里点明删除动作。
+
+### 24.3 验证
+
+- `npm test` **222 条全绿**；新增测试覆盖：四工具名字/参数/分类、库文件与项目路径统一寻址、`harness/` 清单、写 harness 自动建骨架 + 受管块 + 校验回滚、file_edit 的 0/多次命中报错与元数据/归档/删除、导入与 promote 共用 from、越界拒绝、无 cwd 时库操作仍可用。
+- `.scratch/tools-smoke.mjs` 真机 smoke：新建库文件→读回→edit 改描述→写临时项目 `harness/experience/*.md`（AGENTS.md 受管块出现、validation.ok=true）→`file_read("harness/")` 返回清单→`file_search` 空参数统计。
+- 历史章节（§12/§13/§15/§16/§22 等）里的工具名按当时版本理解，不再逐条改写。
+
+## 25. 注入规模按 token 显示（2026-11-15）
+
+用户反馈：面板里显示「1687 字节」对提示词预算没有意义，所有和提示词注入相关的地方都按字符/token 算。
+
+### 25.1 口径
+
+- 统一用 **token 估算**，落在 `src/tokens.js`：CJK/全角约 1 字 1 tok，其余约 4 字符 1 tok。本机没有按路由可用的分词器；DSH token-meter 的固定启发式（每 4 字符 1 tok）对中文严重低估（其 README 自述），所以插件用 CJK 感知的简单估算，并在界面上标「约/≈」。
+- 这是**预算展示，不是计费数字**；以后宿主暴露可用 tokenizer 时，只需替换 `estimateTokens` 的实现。`client.js` 里有一份同口径实现给偏好草稿实时估算，两处必须同步改。
+
+### 25.2 覆盖的面
+
+| 面 | 数据来源 | 展示 |
+|---|---|---|
+| 静态注入 | `injection` → `{static, staticTokens}` | 「每轮请求都带，约 N tok」 |
+| 工具 schema | `tools` → `tokens` 与每个工具的 `tokens`（`describeTools` 计算） | 目录提示「每轮请求约 N tok」+ 每张卡「N 个参数 · 约 X tok」 |
+| 整理提示词 | `organize-prompts` → 每段 `tokens` | 每段「约 N tok」 |
+| 偏好草稿 | 权威文件 `<dataDir>/system/AGENTS.md`，DSH 的 `AGENTS.md` 链接到它；浏览器端实时估算 | 面板编辑整份 AGENTS.md，「约 N tok · 字节 bytes / cap」 |
+
+字节只保留在偏好上限（DSH 加载器按字节截断，属于硬限制），显示为「字节 x / cap」；其余提示词规模不再回字节数。
+
+### 25.3 验证
+
+- `npm test` **222 条全绿**；remote/panel/tools 测试断言 `staticTokens`/`tokens` 与宿主口径一致、响应里不再有 `staticBytes`/`bytes` 字段、工具卡显示 token 估算。
+- 隔离实例浏览器实测：注入页静态段、工具页、自衍页「提示词」子标签都显示 tok；工具页显示整组与单卡估算。
+
+## 26. 偏好与 DSH 全局 AGENTS.md 对齐（2026-11-15）
+
+用户反馈：DSH 的 `AGENTS.md` 明明有内容，面板「偏好」却是空白——因为旧实现只显示插件受管段的内容，段不存在就返回空串；同时用户要求**数据仍统一放在自衍中枢数据目录**。
+
+### 26.1 决定
+
+- **权威存储改为 `<dataDir>/system/AGENTS.md`**，`~/.dsh/AGENTS.md` 只是 DSH 的注入入口，由插件软链到权威文件。面板编辑的是**整份 AGENTS.md 全文**，看到什么就是 DSH 每个会话读到的什么，不再有「受管段」概念。
+- 第一次读取时自动接管：把现有 `~/.dsh/AGENTS.md`（可能是旧 evolver 的软链目标，含用户规则）全文复制进数据目录；只删旧版 ziyan 段标记行，段内内容保留；再把 `AGENTS.md` 原子替换为指向数据文件的软链。旧文件/旧软链目标不删除。
+- 没有建软链权限（Windows 未开开发者模式等）时退化为**双写**：数据文件是权威，保存时同时写 `AGENTS.md`，面板显示当前模式（link / copy）。若外部把 `AGENTS.md` 换成自己的文件，下一次读取以它为准同步回数据目录（对齐 DSH 实际读到的内容）。
+- 读失败（例如 `AGENTS.md` 是目录）仍标 `readable:false` 并禁用保存，避免空串覆盖；64 KB 字节上限保留（DSH 加载器按字节截断的硬限制）。
+
+### 26.2 接口与面板
+
+- `preferences` / `preferences-save` 响应：`{path: 数据文件, agentsPath: DSH 入口, mode: 'link'|'copy', destination, content: 全文, bytes, totalBytes, cap, readable, exists}`；不再有 `hasBlock`/`link`（旧字段）。
+- 面板文案改为「数据文件 / DSH 读取 / 当前模式」，编辑整份 AGENTS.md；token 与字节读数沿用 §25 的口径。
+- 数据导入/导出仍只覆盖 `files/` 与设置（`system/AGENTS.md` 属于本机全局偏好，不随库迁移）。
+
+### 26.3 验证
+
+- 重写 `test/preferences.test.mjs`：首读建数据文件并对齐入口、迁移旧全文且只删标记、保存往返、外部改写回同步、旧软链目标不被改写、超限拒绝、读失败不建文件。
+- remote/panel 测试改为断言数据文件在数据目录、`AGENTS.md` 入口指向它、`hasBlock` 已移除。

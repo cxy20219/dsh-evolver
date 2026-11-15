@@ -8,7 +8,8 @@
  * The extra rules of this branch: only the managed block inside `AGENTS.md` is
  * written (prose around it is never touched, which is what lets a hand-written
  * `AGENTS.md` project adopt a harness), and a resource that holds across
- * projects can be promoted into the file library (`project_harness_promote`).
+ * projects can be imported into the file library (`file_write({from})`, covered
+ * by test/tools.test.mjs).
  */
 
 import assert from 'node:assert/strict'
@@ -38,12 +39,8 @@ import {
 	withFrontmatter,
 	withIndexBlock,
 } from '../src/harness/store.js'
-import { createHarnessTools } from '../src/harness/tools.js'
 import { PYTHON_CONCURRENCY, validate } from '../src/harness/validate.js'
 import { slugOf, writeResource } from '../src/harness/write.js'
-import { fileId } from '../src/ids.js'
-import { FileStore } from '../src/store.js'
-import { tempDir } from './helpers.mjs'
 
 /**
  * Wait a few milliseconds.
@@ -68,21 +65,10 @@ async function project() {
 	const root = await mkdtemp(join(tmpdir(), 'harness-proj-'))
 	await mkdir(join(root, '.git'), { recursive: true })
 	await initHarness(root)
-	// The state a project is in after `project_harness_catalog({ init: true })`:
+	// The state a project is in after the first `file_write` to a harness path:
 	// the skeleton exists and the index already describes it.
 	await ensureIndex(root)
 	return root
-}
-
-/**
- * The four tools, keyed by name, with a fixed resolver.
- *
- * @param {(exec: object) => Promise<string | undefined>} resolveProject - How the tools find the project.
- * @param {object} [store] - The file library `promote` writes into.
- * @returns {Record<string, object>} The tools.
- */
-function harnessTools(resolveProject, store) {
-	return Object.fromEntries(createHarnessTools({ resolveProject, store }).map((tool) => [tool.name, tool]))
 }
 
 test('frontmatter 读回来和写进去一致', () => {
@@ -295,6 +281,33 @@ test('更新已有资源时保持文件名，并且不产生第二条索引', as
 	}
 })
 
+test('summary 没写场景时给软提示，不影响写入与索引', async () => {
+	const root = await project()
+	try {
+		const vague = await writeResource({
+			root,
+			layer: 'experience',
+			slug: 'vague-purpose',
+			title: '只写用途的条目',
+			summary: '查语法',
+			body: '# 只写用途的条目\n\n正文。',
+		})
+		assert.ok(vague.warnings.some((hint) => hint.includes('harness/experience/vague-purpose.md') && hint.includes('以后哪些场景')), 'summary 缺场景时给提示且不阻断写入')
+		const clear = await writeResource({
+			root,
+			layer: 'experience',
+			slug: 'clear-purpose',
+			title: '写清场景的条目',
+			summary: '排查 Python 语法报错时，先跑本项目的校验流程',
+			body: '# 写清场景的条目\n\n正文。',
+		})
+		assert.equal(clear.created, true)
+		assert.ok(!clear.warnings.some((hint) => hint.includes('harness/experience/clear-purpose.md')), '写清场景后这条不再提示')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
 test('校验能抓出缺失的层、未索引的资源、以及没有文档的脚本', async () => {
 	const root = await project()
 	try {
@@ -372,177 +385,6 @@ test('项目根也认 harness/ 与 AGENTS.md，先建资源系统再建仓库也
 	} finally {
 		await rm(withHarness, { recursive: true, force: true })
 		await rm(withAgents, { recursive: true, force: true })
-	}
-})
-
-test('项目没有 harness 时，catalog 直接给出初始化动作', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'harness-empty-'))
-	await mkdir(join(root, '.git'), { recursive: true })
-	try {
-		const tools = harnessTools(async () => root)
-		const listed = await tools.project_harness_catalog.execute({}, { agent: { id: 'session-empty' } })
-		assert.equal(listed.harness, false)
-		assert.equal(listed.needsInit, true)
-		assert.match(listed.next, /init:true/)
-		assert.match(listed.next, /自衍中枢/)
-	} finally {
-		await rm(root, { recursive: true, force: true })
-	}
-})
-
-test('project_harness_catalog({init:true}) 建骨架，随后写入并通过校验', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'harness-init-'))
-	await mkdir(join(root, '.git'), { recursive: true })
-	const exec = { agent: { id: 'session-init' } }
-	try {
-		const tools = harnessTools(async () => root)
-		const listed = await tools.project_harness_catalog.execute({ init: true }, exec)
-		assert.equal(listed.harness, true)
-		assert.equal(listed.agents, true)
-		assert.equal(listed.overview, true)
-		assert.deepEqual(listed.missing, [])
-		assert.deepEqual(listed.index.notIndexed, [])
-		for (const layer of ['workflow', 'experience', 'tool', 'resources']) {
-			assert.equal(listed.layers[layer], 0, `${layer} 层已建好`)
-		}
-		const written = await tools.project_harness_write.execute({
-			layer: 'experience', slug: 'first', title: '第一条', summary: '一句话', body: '# 第一条\n\n正文。',
-		}, exec)
-		assert.equal(written.created, true)
-		assert.equal((await tools.project_harness_validate.execute({}, exec)).ok, true)
-	} finally {
-		await rm(root, { recursive: true, force: true })
-	}
-})
-
-test('写入工具要求先看过目录，校验工具直接可用', async () => {
-	const root = await project()
-	const tools = harnessTools(async () => root)
-	const exec = { agent: { id: 'session-a' } }
-	try {
-		await assert.rejects(
-			() => tools.project_harness_write.execute({ layer: 'experience', slug: 'x', summary: 's', body: '# x\n\nb' }, exec),
-			/先调用 project_harness_catalog/,
-		)
-		const listed = await tools.project_harness_catalog.execute({}, exec)
-		assert.equal(listed.index.notIndexed.length, 0)
-		const written = await tools.project_harness_write.execute(
-			{ layer: 'experience', slug: 'first', title: '第一条', summary: '一句话', body: '# 第一条\n\n正文。' },
-			exec,
-		)
-		assert.equal(written.created, true)
-		assert.equal((await tools.project_harness_validate.execute({}, exec)).ok, true)
-	} finally {
-		await rm(root, { recursive: true, force: true })
-	}
-})
-
-test('工具显式 project 有效；推断不出项目时给出可读错误', async () => {
-	const root = await project()
-	const exec = { agent: { id: 'session-noproject' } }
-	try {
-		// 这里注入的是「工具层的 resolver 管道」，不是宿主策略：显式 project
-		// 会带着 exec 一起交给 resolver，取不到 cwd 的项目推断给出可读错误。
-		// 真正的 containment（显式 project 必须是会话 cwd 的祖先/后代）在
-		// index.js 的 resolveProject 里，用 apply 在 test/plugin.test.mjs 覆盖。
-		const explicit = harnessTools(async (call) => {
-			const value = String(call?.project ?? '').trim()
-			return value === '' ? undefined : projectRootOf(value)
-		})
-		const listed = await explicit.project_harness_catalog.execute({ project: root }, exec)
-		assert.equal(listed.project, root)
-		await assert.rejects(
-			() => explicit.project_harness_catalog.execute({}, exec),
-			/无法推断项目目录/,
-		)
-		await assert.rejects(
-			() => explicit.project_harness_catalog.execute({ project: 'relative/nope' }, exec),
-			/找不到这个项目/,
-		)
-	} finally {
-		await rm(root, { recursive: true, force: true })
-	}
-})
-
-test('promote：项目 harness 资源落进文件库，description/tags 必填', async () => {
-	const root = await project()
-	const lib = await tempDir()
-	const store = new FileStore({ dataDir: lib })
-	await store.open()
-	const exec = { agent: { id: 'session-promote' } }
-	try {
-		await writeResource({
-			root,
-			layer: 'experience',
-			slug: 'cache-prefix',
-			title: '写卡会作废前缀缓存',
-			summary: '注入块一变，整段前缀重算',
-			body: '# 写卡会作废前缀缓存\n\n现象、根因、做法。',
-		})
-		const tools = harnessTools(async () => root, store)
-
-		const promoted = await tools.project_harness_promote.execute({
-			path: 'harness/experience/cache-prefix.md',
-			description: '前缀缓存作废规律：写卡后整段前缀重算',
-			tags: ['来源/harness', '自衍中枢/注入'],
-		}, exec)
-		assert.match(promoted.id, /^file-/)
-		assert.equal(promoted.name, 'cache-prefix.md', '默认用源文件名')
-		assert.equal(promoted.text, undefined, '返回摘要，不带正文')
-		assert.equal(promoted.description, '前缀缓存作废规律：写卡后整段前缀重算')
-		assert.deepEqual(promoted.tags, ['来源/harness', '自衍中枢/注入'])
-		assert.equal(promoted.promotedFrom, 'harness/experience/cache-prefix.md')
-		const source = await readFile(join(root, 'harness/experience/cache-prefix.md'), 'utf8')
-		const stored = await store.read(promoted.id)
-		assert.equal(stored.text, source, '字节原样进库')
-
-		// 绝对路径也行，只要在本项目内；死链进 warnings 不阻断。
-		const absolute = await tools.project_harness_promote.execute({
-			path: join(root, 'harness/experience/cache-prefix.md'),
-			description: '同一资源的第二份：验证绝对路径导入',
-			tags: ['来源/harness', '测试/promote'],
-			name: 'cache-prefix-copy.md',
-			links: [fileId(0)],
-		}, exec)
-		assert.equal(absolute.name, 'cache-prefix-copy.md')
-		assert.equal(absolute.warnings.length, 1)
-		assert.match(absolute.warnings[0], /不存在或不唯一/)
-		assert.equal((await store.list({})).total, 2)
-
-		await assert.rejects(
-			() => tools.project_harness_promote.execute({ path: 'harness/experience/cache-prefix.md', tags: ['来源/harness'] }, exec),
-			/需要 description/,
-		)
-		await assert.rejects(
-			() => tools.project_harness_promote.execute({ path: 'harness/experience/cache-prefix.md', description: '一句话描述这个资源' }, exec),
-			/至少一个 tags/,
-		)
-		await assert.rejects(
-			() => tools.project_harness_promote.execute({ path: '../outside.md', description: '越界路径', tags: ['来源/harness'] }, exec),
-			/路径不合法/,
-		)
-		await assert.rejects(
-			() => tools.project_harness_promote.execute({ path: 'AGENTS.md', description: '不是 harness 资源', tags: ['来源/harness'] }, exec),
-			/只能操作 harness\//,
-		)
-		await assert.rejects(
-			() => tools.project_harness_promote.execute({ path: 'harness/experience/none.md', description: '不存在的资源', tags: ['来源/harness'] }, exec),
-			/没有这个资源/,
-		)
-
-		// 没有文件库时给明确错误，而不是崩在 store 上。
-		const libraryless = harnessTools(async () => root)
-		await assert.rejects(
-			() => libraryless.project_harness_promote.execute({
-				path: 'harness/experience/cache-prefix.md',
-				description: '一句话描述这个资源', tags: ['来源/harness'],
-			}, exec),
-			/文件库不可用/,
-		)
-	} finally {
-		store.close()
-		await rm(root, { recursive: true, force: true })
-		await rm(lib, { recursive: true, force: true })
 	}
 })
 
@@ -824,28 +666,33 @@ test('validate 对缺失/旧式索引分别给出可读提示', async () => {
 	}
 })
 
-test('手写 AGENTS.md + 无 harness：catalog(init:true) 安全建骨架，正文保留', async () => {
+test('手写 AGENTS.md + 无 harness：initHarness 与首次 ensureIndex 安全建骨架，正文保留', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'harness-handwritten-'))
 	await mkdir(join(root, '.git'), { recursive: true })
 	const prose = '# 我的项目\n\n手写说明第一行。\n\n```bash\nnpm test\n```\n'
 	await writeFile(join(root, 'AGENTS.md'), prose)
 	try {
-		const tools = harnessTools(async () => root)
-		const exec = { agent: { id: 'session-handwritten' } }
-		const listed = await tools.project_harness_catalog.execute({ init: true }, exec)
-		assert.equal(listed.harness, true)
+		await initHarness(root)
+		await ensureIndex(root)
+		const listed = await catalog(root)
+		assert.equal(listed.present, true)
 		assert.equal(listed.index.mode, 'block')
 		const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
 		assert.ok(agents.startsWith(prose), '手写正文逐字节保留')
 		assert.ok(agents.includes('(harness/harness.md)'), '块内有总览条目')
 
-		const written = await tools.project_harness_write.execute({
-			layer: 'experience', slug: 'first', title: '第一条', summary: '一句话用途', body: '# 第一条\n\n正文。',
-		}, exec)
+		const written = await writeResource({
+			root,
+			layer: 'experience',
+			slug: 'first',
+			title: '第一条',
+			summary: '一句话用途',
+			body: '# 第一条\n\n正文。',
+		})
 		assert.equal(written.created, true)
 		const afterWrite = await readFile(join(root, 'AGENTS.md'), 'utf8')
 		assert.ok(afterWrite.startsWith(prose), '写入后手写正文仍逐字节保留')
-		assert.equal((await tools.project_harness_validate.execute({}, exec)).ok, true)
+		assert.equal((await validate(root)).ok, true)
 	} finally {
 		await rm(root, { recursive: true, force: true })
 	}

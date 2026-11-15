@@ -9,8 +9,25 @@
 
 import { join } from 'node:path'
 
+import { FILES_SYSTEM, SESSION_SYSTEM, wrapUpInstruction } from '../organize/prompts.js'
 import { listSessions } from '../sessions.js'
+import { estimateTokens } from '../tokens.js'
 import { dshHome } from './support.js'
+
+/**
+ * One static prompt of an organize run, with its estimated token size.
+ *
+ * The panel only reads this; the prompts themselves are built by the organizer
+ * from the job and the library. Keeping the copy here means the page shows the
+ * same text the model receives.
+ *
+ * @param {string} id - The stable section id the panel labels.
+ * @param {string} text - The prompt text.
+ * @returns {{id: string, text: string, tokens: number}} The section.
+ */
+function promptSection(id, text) {
+	return { id, text, tokens: estimateTokens(text) }
+}
 
 /**
  * Where the host keeps its session logs.
@@ -36,6 +53,18 @@ export const organizeHandlers = {
 	},
 
 	'organize-status': async (_payload, { organizer }) => organizer().status(),
+
+	// The two system prompts are fixed; the wrap-up instruction depends only on
+	// the dry-run flag. The per-job user message (transcript / library report)
+	// is built when the job starts and is not part of this catalog.
+	'organize-prompts': async () => ({
+		sections: [
+			promptSection('sessions', SESSION_SYSTEM),
+			promptSection('files', FILES_SYSTEM),
+			promptSection('wrapup', wrapUpInstruction({ dryRun: false })),
+			promptSection('wrapup-dry', wrapUpInstruction({ dryRun: true })),
+		],
+	}),
 
 	'organize-save': async (payload, { organizer }) => organizer().save(payload ?? {}),
 

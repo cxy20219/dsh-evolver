@@ -17,6 +17,7 @@ import { lstat, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
+import { descriptionAdvice } from '../meta.js'
 import { LAYERS, OVERVIEW, REFERENCED_LAYERS, REQUIRED_INDEX_TEXT, TOOL_LAYER, catalog, indexRefs, inspectIndex } from './store.js'
 
 const run = promisify(execFile)
@@ -42,7 +43,7 @@ const PYTHON_PROBE_TIMEOUT_MS = 20_000
  *
  * A syntax check is a compile in memory: it either finishes in tens of
  * milliseconds or the interpreter is wedged. Waiting the probe's 20s for every
- * file turns one stuck interpreter into a minute-long `project_harness_write`
+ * file turns one stuck interpreter into a minute-long `file_write`
  * (stability audit P3), so a per-file check gets a much shorter deadline and
  * reports itself as skipped instead of failing the write.
  */
@@ -190,7 +191,7 @@ export async function validate(root, { python, runner } = {}) {
 		if (mode === 'broken') {
 			errors.push('AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end）；请手工补全或删掉残留标记，工具不会猜测覆盖。')
 		} else if (mode === 'absent') {
-			errors.push('AGENTS.md 里还没有受管索引块；运行 project_harness_catalog({init:true}) 或写入资源时会自动补上，块外内容不动。')
+			errors.push('AGENTS.md 里还没有受管索引块；写入 harness 资源时会自动补上，块外内容不动。')
 		} else {
 			if (mode === 'legacy') {
 				warnings.push('AGENTS.md 还是旧式裸索引（没有受管块）；下次写入会自动改造成受管块。')
@@ -216,7 +217,14 @@ export async function validate(root, { python, runner } = {}) {
 		// just train the reader to ignore warnings.
 		if (resource.summary === '' && resource.binary !== true) {
 			warnings.push(`${resource.path} 缺少 summary: frontmatter，索引里会显示占位符。`)
+			continue
 		}
+		if (resource.binary === true) continue
+		// The summary is the index line a future task sees; one that names only
+		// the artifact is not findable by the situation that needs it. Soft
+		// check: writes still succeed, the warning rides on the result.
+		const advice = descriptionAdvice(resource.summary)
+		if (advice !== '') warnings.push(`${resource.path} 的 summary ${advice}`)
 	}
 
 	// Every `harness/...` path a document names has to exist. A workflow that

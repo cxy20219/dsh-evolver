@@ -67,7 +67,7 @@ const DOCUMENT_EXTENSIONS = new Set([
  * How much one catalog scan may read.
  *
  * These are DoS bounds, not tuning knobs: a resource folder with thousands of
- * files or a huge document must not turn one `project_harness_write` into a
+ * files or a huge document must not turn one `file_write` into a
  * multi-second, hundreds-of-megabytes operation. A scan that hits `maxFiles`
  * reports itself as `limited` and callers must not rebuild the index from a
  * partial listing; the other two limits only cost summaries (the entry stays
@@ -112,6 +112,10 @@ const OVERVIEW_TEMPLATE = `# Harness 项目资源总览
 - experience：可复用判断经验。
 - tool：可重复执行的东西——脚本、可执行文件、CLI 都算。
 - resources：工具要读的东西——外部规范、长背景、模板、示例输入、静态资源。
+
+## 写法
+
+每条资源的 summary 写清两件事：它是什么（做法/结论），以及以后哪些场景、任务、问题会用到它。跨项目可复用的，再用 file_write({from:"harness/...", meta:{description,tags}}) 落进自衍文件库。
 `
 
 /**
@@ -786,7 +790,7 @@ const pathLocks = new Map()
 /**
  * The read-modify-write locks this process holds, keyed by physical path.
  *
- * Tools run concurrently inside one host process. Two `project_harness_write`
+ * Tools run concurrently inside one host process. Two `file_write`
  * calls interleaving would each rebuild the index from their own catalog
  * snapshot, and whichever wrote last would drop the other's entry
  * (stability audit P2-5). The lock is keyed by the *physical* path, so two

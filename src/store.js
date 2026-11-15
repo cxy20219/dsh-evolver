@@ -62,8 +62,8 @@ const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
 /**
  * Whether a path names a Windows device or pipe rather than a file.
  *
- * `file_import` reads whatever host path it is given, so the one class of
- * "path" that must never reach `readFile` is the class where open has side
+ * `file_write({from})` reads whatever host path it is given, so the one class
+ * of "path" that must never reach `readFile` is the class where open has side
  * effects or never returns: `\\.\pipe\...` blocks until a peer appears, and
  * `CON`/`NUL` are consoles and sinks, not files. Node can often make a scratch
  * file with such a literal name, but a caller cannot tell the two apart here,
@@ -82,9 +82,9 @@ function isWindowsSpecialPath(path) {
 /**
  * Read a payload source: verify it is a regular file with a known size first.
  *
- * `file_import` deliberately reads files outside the library, so the size and
- * type check must happen *before* the bytes are read. A 96 MiB sparse file used
- * to be read whole and only then rejected by the size limit, which turns one
+ * `file_write({from})` deliberately reads files outside the library, so the
+ * size and type check must happen *before* the bytes are read. A 96 MiB sparse
+ * file used to be read whole and only then rejected by the size limit, which turns one
  * tool call into a host-memory spike. A symlink is resolved first (reading
  * through a link is part of the documented capability) and the resolved target
  * is what gets checked, so a link can only ever widen the check, never skip it;
@@ -362,7 +362,7 @@ export class FileStore {
 		if (Buffer.isBuffer(input.content)) return { buffer: Buffer.from(input.content), sourceName: '' }
 		if (typeof input.content === 'string') return { buffer: Buffer.from(input.content, 'utf8'), sourceName: '' }
 		if (typeof input.sourcePath === 'string' && input.sourcePath !== '') {
-			// Check type and size before reading anything: `file_import` accepts
+			// Check type and size before reading anything: `file_write({from})` accepts
 			// arbitrary host paths, and a 100 MB file must be refused, not loaded
 			// and then refused.
 			const buffer = await readPayloadSource(input.sourcePath, this.maxBytes)

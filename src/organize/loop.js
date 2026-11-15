@@ -124,7 +124,7 @@ export function createAccounting(store) {
 /**
  * The organizer-only merge tool.
  *
- * Not registered with the host: chat sessions keep the eight `file_*` tools
+ * Not registered with the host: chat sessions keep the four `file_*` tools
  * and only an organize job ever sees this compound action. The target's body
  * and metadata change in one store write; every source is archived, never
  * removed, so a merge never destroys content.
@@ -187,8 +187,11 @@ export function createMergeTool({ raw, counters, record }) {
  *
  * Dry-run gets read-only tools and therefore cannot write by construction; the
  * prompt still asks for a plan, so the run is useful without pretending a write
- * succeeded. Removal is only offered when the caller explicitly allowed it and
- * the job is not a dry run.
+ * succeeded. The sessions phase writes new files but cannot reorganize existing
+ * ones; the files phase adds `file_edit` (replace, retag, relink, archive) and
+ * the organizer-only merge. `file_edit`'s `meta.remove` is the delete action,
+ * so `allowRemove` no longer changes the tool list: removal is never offered as
+ * its own tool, only as a metadata field the prompt tells the model to avoid.
  *
  * @param {object} job - The job snapshot.
  * @param {{store: object, raw: object, counters: object, record: Function}} accounting - The instrumented store.
@@ -199,14 +202,10 @@ export function toolsForJob(job, accounting, phase) {
 	const all = createTools({ store: accounting.store })
 	const byName = new Map(all.map((tool) => [tool.name, tool]))
 	const pick = (names) => names.map((name) => byName.get(name)).filter((tool) => tool !== undefined)
-	if (job.dryRun) return pick(['file_query', 'file_read', 'file_index'])
-	if (phase === 'sessions') return pick(['file_query', 'file_read', 'file_index', 'file_write', 'file_link'])
-	const tools = pick(['file_query', 'file_read', 'file_index', 'file_write', 'file_link', 'file_archive'])
+	if (job.dryRun) return pick(['file_search', 'file_read'])
+	if (phase === 'sessions') return pick(['file_search', 'file_read', 'file_write'])
+	const tools = pick(['file_search', 'file_read', 'file_write', 'file_edit'])
 	tools.push(createMergeTool(accounting))
-	if (job.allowRemove) {
-		const remove = byName.get('file_remove')
-		if (remove !== undefined) tools.push(remove)
-	}
 	return tools
 }
 
@@ -489,8 +488,7 @@ async function executeTool(byName, call) {
 	}
 	try {
 		const value = await tool.execute(args)
-		const write = name === 'file_write' || name === 'file_link' || name === 'file_archive'
-			|| name === 'file_remove' || name === 'file_merge'
+		const write = name === 'file_write' || name === 'file_edit' || name === 'file_merge'
 		return { value, isError: false, write }
 	} catch (error) {
 		return { value: { error: errorMessage(error) }, isError: true, write: false }

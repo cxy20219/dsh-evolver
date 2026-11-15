@@ -6,12 +6,12 @@
  *   1. **the data** — one folder (`~/.dsh/ziyan` by default) holding files,
  *      sidecars, the SQLite index, settings, logs and trash. Only a one-line
  *      pointer (`~/.dsh/ziyan.home.json`) may live beside that folder;
- *   2. **the tools** — file query/read/write/import/link/index/archive/remove,
- *      plus the `project_harness_*` set that maintains a project's own
- *      `harness/` resources and promotes the reusable ones into the library;
+ *   2. **the tools** — four verbs: search, read, write and edit. The same
+ *      verbs serve the file library and a project's own `harness/` resources,
+ *      so where a write lands decides which contract applies;
  *   3. **the injection** — one static system section, and nothing else. No
  *      library index is injected, so a write never rewrites the prompt prefix;
- *      an agent that needs a file searches for it with `file_query`.
+ *      an agent that needs a file searches for it with `file_search`.
  *
  * The browser half is `client.js`: the panel tabs, settings, and data
  * import/export. The host half remains loadable on its own for tools and
@@ -23,8 +23,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
 import { createDataJobs } from './src/data-jobs.js'
-import { isWithin, projectRootOf } from './src/harness/store.js'
-import { createHarnessTools } from './src/harness/tools.js'
+import { projectRootOf } from './src/harness/store.js'
 import { dataDirPointerPath, readDataDirPointer } from './src/home.js'
 import { createLogSink } from './src/logs.js'
 import { createOrganizer } from './src/organize-jobs.js'
@@ -131,25 +130,16 @@ export async function apply(ctx, config) {
 	})
 
 	/**
-	 * Find the project a harness tool call belongs to.
+	 * Where a tool call is: the session cwd and its project root.
 	 *
 	 * Tools do not receive a working directory — the run context carries only
 	 * the agent id — so it is read back from the session header, which the host
 	 * records when the session starts. `sessionQuery` is optional: a host
-	 * without it still loads, and the tools ask for an explicit `project`.
+	 * without it still loads, and the library verbs keep working; only the
+	 * project-path verbs refuse, because they cannot prove where they are.
 	 *
-	 * An explicit `project` is not a free pass: a call may only name the
-	 * session's own project — the cwd itself, one of its ancestors (a
-	 * repository or monorepo root above the subdirectory the session opened
-	 * in), or a descendant (a nested repository below it). Anything else is
-	 * refused, because the tool writes `harness/**` and the managed block of
-	 * `AGENTS.md`, and those are instructions for every future session in that
-	 * repository: one injected conversation must not be able to edit another
-	 * project's prompt. A host that cannot prove the cwd must refuse explicit
-	 * projects rather than trust them.
-	 *
-	 * @param {{project?: string, agent?: {id?: string}}} exec - The call context.
-	 * @returns {Promise<string | undefined>} The project root.
+	 * @param {{agent?: {id?: string}}} exec - The call context.
+	 * @returns {Promise<{cwd?: string, root?: string}>} The location.
 	 */
 	// One entry per agent id; a long-lived host would otherwise keep every id
 	// it has ever seen. Small enough to make the lookup still worth it.
@@ -173,31 +163,20 @@ export async function apply(ctx, config) {
 		projectCache.set(id, resolved)
 		return resolved
 	}
-	async function resolveProject(exec) {
-		const explicit = String(exec?.project ?? '').trim()
+	async function pathsOf(exec) {
 		const cwd = await cwdFor(exec)
-		if (explicit !== '') {
-			const root = await projectRootOf(explicit)
-			if (root === undefined) return undefined
-			if (cwd === undefined) {
-				throw new Error('无法确定当前会话工作目录，不能使用显式 project；请在会话内调用（或让宿主挂载 sessionQuery）。')
-			}
-			const cwdRoot = await projectRootOf(cwd)
-			const sameProject = cwdRoot !== undefined && isWithin(cwdRoot, root) && isWithin(root, cwdRoot)
-			if (!(isWithin(cwd, root) || isWithin(root, cwd) || sameProject)) {
-				throw new Error(`显式 project 不在当前会话工作区内：${root}（cwd ${cwd}）。跨项目写入被拒绝。`)
-			}
-			return root
-		}
-		if (cwd === undefined) return undefined
-		return projectRootOf(cwd)
+		if (cwd === undefined) return {}
+		// A session opened inside a repository still owns `harness/` at the
+		// repository root; a folder with no project marker is its own root.
+		const root = await projectRootOf(cwd)
+		return { cwd, root: root ?? cwd }
 	}
 
 	const disposers = []
 	// One array goes to both places on purpose: registering and describing must
 	// stay the same set, so the panel cannot show a tool the model does not have
 	// (or miss one it does).
-	const tools = [...createTools({ store }), ...createHarnessTools({ resolveProject, store })]
+	const tools = createTools({ store, paths: pathsOf })
 	for (const tool of tools) disposers.push(ctx.tools.register(tool))
 	disposers.push(ctx.systemPrompt.section({
 		name: 'dsh-ziyan:discipline',

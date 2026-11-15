@@ -42,28 +42,41 @@ window.__ModuleLoader__.load({
 			'injection.tab.prompts': '提示词',
 			'injection.tab.tools': '工具',
 			'injection.tab.preferences': '偏好',
-			'preferences.hint': '这一段写在 DSH 的全局 AGENTS.md 里，由加载器在每次会话开始时注入；插件只碰自己那对标记之间的内容，文件里其他规则原样保留。',
-			'preferences.file': '文件',
-			'preferences.link': '这是个软链，实际写入它指向的文件，链接本身保留：{target}',
+			'preferences.hint': '这里编辑的是 DSH 全局 AGENTS.md 全文：数据统一存在自衍中枢数据目录，DSH 读的 AGENTS.md 链接到它；改这里就是改每个会话开始时注入的规则。',
+			'preferences.file': '数据文件',
+			'preferences.link': 'DSH 读取：{agents}',
+			'preferences.mode.link': '已软链到数据文件，改这里等于改 DSH 读到的内容。',
+			'preferences.mode.copy': '不能建软链，已退化为两边同步写：数据文件与 DSH 的 AGENTS.md 保持同一份内容。',
 			'preferences.unreadable': '偏好文件读取失败，为避免覆盖原文件，保存已禁用；请检查文件权限后刷新。',
-			'preferences.append': '这个文件已经存在且没有偏好段，第一次保存会把它接在文件末尾，不覆盖已有内容。',
 			'preferences.dirty': '未保存',
+			'preferences.size': '约 {tokens} tok · 字节 {bytes} / {cap}',
 			'preferences.reset': '撤销修改',
 			'preferences.save': '保存',
 			'preferences.saved': '偏好已保存',
-			'injection.static.hint': '每轮请求都带，{bytes} 字节；它不发散，但会永久占住前缀。',
-			'injection.runtime.removed': '运行时不再注入文件索引；agent 需要文件时用 file_query 按描述/标签/links 自己搜；项目依赖与约定由项目 harness 管理。',
-			'injection.tools.hint': '插件向 DSH 注册了 {n} 个工具，Agent 在任意会话里都能直接调用；工具在会话启动时绑定，换插件版本要重启宿主。',
+			'injection.static.hint': '每轮请求都带，约 {tokens} tok；它不发散，但会永久占住前缀。',
+			'injection.runtime.removed': '运行时不再注入文件索引；agent 需要文件时用 file_search 按描述/标签/links 自己搜；项目依赖与约定由项目 harness 管理。',
+			'injection.tools.hint': '插件向 DSH 注册了 {n} 个工具（每轮请求约 {tokens} tok）；Agent 在任意会话里都能直接调用，工具在会话启动时绑定，换插件版本要重启宿主。',
 			'injection.tools.read': '只读',
 			'injection.tools.write': '写入',
 			'injection.tools.destructive': '危险',
 			'injection.tools.empty': '没有注册任何工具。',
 			'injection.tools.failed': '工具目录读取失败：{error}',
 			'injection.tools.params': '{n} 个参数',
+			'injection.tools.tokens': '约 {n} tok',
 			'injection.tools.noParams': '无参数',
 			'injection.tools.required': '必填',
 			'injection.tools.retry': '重试',
-			'organize.hint': '整理由 agent 作业在会话外运行：作业读会话或库，自己决定写什么。这里只负责选模型、开关自动整理、看结果；注入只有一段静态纪律，不再注入文件索引。',
+			'organize.hint': '整理由 agent 作业在会话外运行：作业读会话或库，自己决定写什么。这里只负责选模型、开关自动整理；结果在「最近作业」子标签；注入只有一段静态纪律，不再注入文件索引。',
+			'organize.tab.workbench': '整理台',
+			'organize.tab.prompts': '提示词',
+			'organize.tab.jobs': '最近作业',
+			'organize.prompts.hint': '整理作业在会话外运行时的系统提示词（只读）。用户消息按作业动态拼接：会话整理附所选会话的转录与标签表，文件整理附库的整理报告。',
+			'organize.prompts.sessions': '会话整理系统提示词',
+			'organize.prompts.files': '文件整理系统提示词',
+			'organize.prompts.wrapup': '收尾轮指令',
+			'organize.prompts.wrapupDry': '收尾轮指令（预演）',
+			'organize.prompts.size': '约 {n} tok',
+			'organize.prompts.loadFailed': '提示词读取失败：{error}',
 			'organize.enabled': '开',
 			'organize.disabled': '关',
 			'organize.model': '整理模型',
@@ -233,28 +246,41 @@ window.__ModuleLoader__.load({
 			'injection.tab.prompts': 'Prompts',
 			'injection.tab.tools': 'Tools',
 			'injection.tab.preferences': 'Preferences',
-			'preferences.hint': 'This block lives in DSH global AGENTS.md and the loader injects it into every session. The plugin only touches what sits between its two markers; the rest of the file is left alone.',
-			'preferences.file': 'File',
-			'preferences.link': 'This is a symlink. The write lands on its target and the link stays: {target}',
+			'preferences.hint': 'This edits the whole DSH global AGENTS.md. The data lives in the 自衍中枢 data directory; the AGENTS.md DSH reads links to it, so changes here are what every session is injected with.',
+			'preferences.file': 'Data file',
+			'preferences.link': 'Read by DSH: {agents}',
+			'preferences.mode.link': 'It is symlinked to the data file, so editing here edits what DSH reads.',
+			'preferences.mode.copy': 'Symlinks are unavailable, so the data file and the DSH AGENTS.md are kept in sync as two copies.',
 			'preferences.unreadable': 'The preferences file could not be read. Saving is disabled so the original is not overwritten; check the file permissions and refresh.',
-			'preferences.append': 'The file exists but has no preference block yet. The first save appends one at the end and leaves what is already there untouched.',
 			'preferences.dirty': 'unsaved',
+			'preferences.size': '≈ {tokens} tok · {bytes} / {cap} bytes',
 			'preferences.reset': 'Discard changes',
 			'preferences.save': 'Save',
 			'preferences.saved': 'Preferences saved',
-			'injection.static.hint': 'Sent with every request, {bytes} bytes; it never changes, but it holds the prefix.',
-			'injection.runtime.removed': 'The host no longer injects a file index; when an agent needs files it searches them itself with file_query by description, tags or links. Project dependencies and conventions live in the project harness.',
-			'injection.tools.hint': 'The plugin registers {n} tools with DSH; any agent session can call them directly. Tools are bound when a session starts, so plugin changes need a host restart.',
+			'injection.static.hint': 'Sent with every request, ≈ {tokens} tok; it never changes, but it holds the prefix.',
+			'injection.runtime.removed': 'The host no longer injects a file index; when an agent needs files it searches them itself with file_search by description, tags or links. Project dependencies and conventions live in the project harness.',
+			'injection.tools.hint': 'The plugin registers {n} tools with DSH (≈ {tokens} tok per request); any agent session can call them directly. Tools are bound when a session starts, so plugin changes need a host restart.',
 			'injection.tools.read': 'Read-only',
 			'injection.tools.write': 'Write',
 			'injection.tools.destructive': 'Destructive',
 			'injection.tools.empty': 'No tools are registered.',
 			'injection.tools.failed': 'Failed to load the tool catalog: {error}',
 			'injection.tools.params': '{n} parameters',
+			'injection.tools.tokens': '≈ {n} tok',
 			'injection.tools.noParams': 'No parameters',
 			'injection.tools.required': 'required',
 			'injection.tools.retry': 'Retry',
-			'organize.hint': 'Organize jobs run outside the chat: the agent reads sessions or the library and decides what to write. This page only picks the model, toggles the schedule and shows results; injection is just the static discipline section, with no file index.',
+			'organize.hint': 'Organize jobs run outside the chat: the agent reads sessions or the library and decides what to write. This page only picks the model and toggles the schedule; results live in the "Recent jobs" sub-tab. Injection is just the static discipline section, with no file index.',
+			'organize.tab.workbench': 'Workbench',
+			'organize.tab.prompts': 'Prompts',
+			'organize.tab.jobs': 'Recent jobs',
+			'organize.prompts.hint': 'The system prompts an organize job runs with outside the chat (read-only). The user message is assembled per job: a session transcript plus tag table for session jobs, the library report for file jobs.',
+			'organize.prompts.sessions': 'Session organizer system prompt',
+			'organize.prompts.files': 'File organizer system prompt',
+			'organize.prompts.wrapup': 'Closing-turn instruction',
+			'organize.prompts.wrapupDry': 'Closing-turn instruction (dry run)',
+			'organize.prompts.size': '≈ {n} tok',
+			'organize.prompts.loadFailed': 'Failed to load the prompts: {error}',
 			'organize.enabled': 'On',
 			'organize.disabled': 'Off',
 			'organize.model': 'Organize model',
@@ -614,6 +640,28 @@ window.__ModuleLoader__.load({
 			if (value < 1024) return value + ' B';
 			if (value < 1024 * 1024) return (value / 1024).toFixed(1) + ' KB';
 			return (value / 1024 / 1024).toFixed(1) + ' MB';
+		}
+
+		/**
+		 * 估算一段提示词占用的 token：CJK/全角约 1 字 1 tok，其余约 4 字符 1 tok。
+		 *
+		 * 与宿主 `src/tokens.js` 同一口径（宿主算静态段与整理提示词，这里算
+		 * 正在编辑的偏好草稿）；只是预算展示的估算，不是计费数字。
+		 */
+		var CJK_TOKEN = /[\u2e80-\u2eff\u2f00-\u2fdf\u3000-\u303f\u3040-\u30ff\u3100-\u312f\u31a0-\u31bf\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef\uac00-\ud7af]/u;
+
+		function estimateTokens(text) {
+			var value = String(text === undefined || text === null ? '' : text);
+			if (value === '') return 0;
+			var cjk = 0;
+			var other = 0;
+			for (var index = 0; index < value.length; index += 1) {
+				var char = String.fromCodePoint(value.codePointAt(index));
+				if (char.length === 2) index += 1;
+				if (CJK_TOKEN.test(char)) cjk += 1;
+				else other += 1;
+			}
+			return cjk + Math.ceil(other / 4);
 		}
 
 		function relativeTime(iso) {
@@ -2185,6 +2233,9 @@ window.__ModuleLoader__.load({
 
 		//#region components
 
+		/**
+		 * 侧边栏/面板图标：大脑（两条半球的轮廓 + 中央沟 + 脑回）。
+		 */
 		function Icon(props) {
 			var size = props.size || 18;
 			return h('svg', {
@@ -2198,9 +2249,15 @@ window.__ModuleLoader__.load({
 				strokeLinejoin: 'round',
 				'aria-hidden': true
 			},
-				h('path', { d: 'M7 3.5h7l4 4v13H7z' }),
-				h('path', { d: 'M14 3.5v4.5h4' }),
-				h('path', { d: 'M9.5 12h6M9.5 15h6M9.5 18h3.5' })
+				h('path', { d: 'M11.9 4.8C11.6 3.2 10.3 2 8.7 2 7 2 5.6 3.3 5.6 5c0 .2 0 .4.1.6C4.2 6 3.2 7.3 3.2 8.8c0 1.1.5 2 1.3 2.7-.3.5-.5 1.1-.5 1.7 0 1.9 1.6 3.4 3.5 3.4.5 0 1-.1 1.4-.3.4 1.2 1.5 2 2.8 2h.2V4.8z' }),
+				h('path', { d: 'M12.1 4.8C12.4 3.2 13.7 2 15.3 2c1.7 0 3.1 1.3 3.1 3 0 .2 0 .4-.1.6 1.5.4 2.5 1.7 2.5 3.2 0 1.1-.5 2-1.3 2.7.3.5.5 1.1.5 1.7 0 1.9-1.6 3.4-3.5 3.4-.5 0-1-.1-1.4-.3-.4 1.2-1.5 2-2.8 2h-.2V4.8z' }),
+				h('path', { d: 'M12 4.8v6.4' }),
+				h('path', { d: 'M9.9 7.9c-1 .1-1.8.9-1.9 1.9' }),
+				h('path', { d: 'M8.1 12.2c.8-.4 1.7-.1 2.2.6' }),
+				h('path', { d: 'M9.2 15.7c.7-.2 1.4.2 1.7.9' }),
+				h('path', { d: 'M14.1 7.9c1 .1 1.8.9 1.9 1.9' }),
+				h('path', { d: 'M15.9 12.2c-.8-.4-1.7-.1-2.2.6' }),
+				h('path', { d: 'M14.8 15.7c-.7-.2-1.4.2-1.7.9' })
 			);
 		}
 
@@ -2935,7 +2992,7 @@ window.__ModuleLoader__.load({
 		 * 注入页：模型每轮看到的文本，分成「提示词」和「偏好」两栏。
 		 *
 		 * 提示词栏只剩插件注册的那段静态纪律：运行时上下文注入已移除，agent
-		 * 需要库里的文件时自己用 file_query 搜，项目依赖与约定由项目 harness
+		 * 需要库里的文件时自己用 file_search 搜，项目依赖与约定由项目 harness
 		 * 管理。偏好栏是写进 `~/.dsh/AGENTS.md` 的那一段，由 DSH 的 AGENTS.md
 		 * 加载器在每次会话开始时注入，所以它跟插件版本无关，改完立刻对下一个
 		 * 会话生效。
@@ -2970,7 +3027,7 @@ window.__ModuleLoader__.load({
 		/**
 		 * 提示词栏：只剩静态纪律这一段，外加一句「运行时不再注入索引」的说明。
 		 *
-		 * 运行时上下文注入移除后，agent 需要文件时自己用 file_query 按描述/
+		 * 运行时上下文注入移除后，agent 需要文件时自己用 file_search 按描述/
 		 * 标签/links 搜，项目依赖与约定由项目 harness 管理。所以这里没有预算
 		 * 条、没有快照信息，也没有重建按钮：已经没有要手动维护的对象了。
 		 */
@@ -2978,20 +3035,24 @@ window.__ModuleLoader__.load({
 			var t = props.t;
 			var injection = props.injection;
 			if (injection === null || injection === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
-			var staticBytes = Number(injection.staticBytes) || 0;
+			var staticTokens = Number(injection.staticTokens) || 0;
 			return h('div', null,
 				h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('injection.runtime.removed')),
 				h('div', { className: 'ysSection', style: { marginTop: 0 } }, t('injection.static')),
 				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
-					t('injection.static.hint').replace('{bytes}', String(staticBytes))),
+					t('injection.static.hint').replace('{tokens}', String(staticTokens))),
 				h('pre', { className: 'ysPre' }, injection.static));
 		}
 
 		/**
 		 * 偏好栏：编辑 `~/.dsh/AGENTS.md` 里插件维护的那一段。
 		 *
-		 * 这个文件是 DSH 的全局指令文件，插件只碰自己那对标记之间的内容；
-		 * 读失败时禁用保存，免得把空串写回去把用户的规则清空。
+		 * 偏好栏：编辑 DSH 全局 AGENTS.md 的全文。
+		 *
+		 * 数据统一存在自衍中枢数据目录（system/AGENTS.md）；DSH 读的
+		 * `~/.dsh/AGENTS.md` 链接到它（不能建链接时两边同步写），所以这里显示
+		 * 的就是每个会话实际注入的规则。读失败时禁用保存，免得把空串写回去
+		 * 把用户的规则清空。
 		 */
 		function PreferencesPane(props) {
 			var t = props.t;
@@ -3008,6 +3069,7 @@ window.__ModuleLoader__.load({
 			var dirty = draft !== loadedAt;
 			var cap = Number(preferences.cap) || 0;
 			var bytes = typeof TextEncoder === 'function' ? new TextEncoder().encode(draft).length : draft.length;
+			var tokens = estimateTokens(draft);
 			var overCap = cap > 0 && bytes > cap;
 			function save() {
 				setBusy(true);
@@ -3027,14 +3089,15 @@ window.__ModuleLoader__.load({
 					h('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
 						h('code', { style: { fontSize: 11, wordBreak: 'break-all', flex: 1 } }, preferences.path || ''),
 						h('button', { className: 'ysButton', onClick: function () { props.onCopy(preferences.path); } }, t('action.copy')))),
-				preferences.link
-					? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.link').replace('{target}', String(preferences.link)))
-					: null,
+				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
+					t('preferences.link').replace('{agents}', String(preferences.agentsPath || ''))),
+				preferences.mode === 'link'
+					? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.mode.link'))
+					: preferences.mode === 'copy'
+						? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.mode.copy'))
+						: null,
 				preferences.readable === false
 					? h('div', { className: 'ysIssue' }, t('preferences.unreadable'))
-					: null,
-				preferences.hasBlock !== true && preferences.exists
-					? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.append'))
 					: null,
 				h('textarea', {
 					className: 'ysTextarea',
@@ -3046,7 +3109,11 @@ window.__ModuleLoader__.load({
 				}),
 				h('div', { className: 'ysActions', style: { justifyContent: 'space-between' } },
 					h('span', { className: 'ysHint' },
-						bytes + ' / ' + cap + ' B' + (dirty ? ' · ' + t('preferences.dirty') : '')),
+						t('preferences.size')
+							.replace('{tokens}', String(tokens))
+							.replace('{bytes}', String(bytes))
+							.replace('{cap}', String(cap))
+						+ (dirty ? ' · ' + t('preferences.dirty') : '')),
 					h('span', { style: { display: 'flex', gap: 8 } },
 						h('button', {
 							className: 'ysButton',
@@ -3064,8 +3131,8 @@ window.__ModuleLoader__.load({
 		 * 工具栏：插件向 DSH 注册的工具目录。
 		 *
 		 * 目录来自宿主（`tools` 接口），面板只读——Agent 在会话里调用工具，
-		 * 这里回答「有哪些工具、各要什么参数」。参数默认折叠：`file_query`
-		 * 一个工具就有九个参数，全展开会把列表拉长，折叠后点一下才看细节。
+		 * 这里回答「有哪些工具、各要什么参数」。参数默认折叠：`file_write`
+		 * 一个工具就有四个顶层参数（target/content/meta/from），全展开会把列表拉长，折叠后点一下才看细节。
 		 */
 		function ToolsPane(props) {
 			var t = props.t;
@@ -3082,6 +3149,8 @@ window.__ModuleLoader__.load({
 			var tools = Array.isArray(catalog.tools) ? catalog.tools : [];
 			var total = Number(catalog.total);
 			if (!Number.isFinite(total)) total = tools.length;
+			var totalTokens = Number(catalog.tokens);
+			if (!Number.isFinite(totalTokens)) totalTokens = 0;
 			if (tools.length === 0) {
 				return h('div', null,
 					h('div', { className: 'ysEmpty' }, t('injection.tools.empty')),
@@ -3095,7 +3164,7 @@ window.__ModuleLoader__.load({
 			];
 			return h('div', null,
 				h('div', { className: 'ysHint', style: { marginBottom: 4 } },
-					t('injection.tools.hint').replace('{n}', String(total))),
+					t('injection.tools.hint').replace('{n}', String(total)).replace('{tokens}', String(totalTokens))),
 				groups.map(function (group) {
 					var items = tools.filter(function (tool) { return tool.category === group[0]; });
 					if (items.length === 0) return null;
@@ -3112,9 +3181,7 @@ window.__ModuleLoader__.load({
 								onToggle: function () { setOpen(open === tool.name ? '' : tool.name); }
 							});
 						})));
-				}),
-				h('div', { className: 'ysActions' },
-					h('button', { className: 'ysButton', onClick: props.onReload }, t('action.refresh'))));
+				}));
 		}
 
 		/**
@@ -3127,8 +3194,10 @@ window.__ModuleLoader__.load({
 			var properties = schema.properties !== null && typeof schema.properties === 'object' ? schema.properties : {};
 			var required = Array.isArray(schema.required) ? schema.required : [];
 			var names = Object.keys(properties);
-			var toggle = names.length === 0 ? t('injection.tools.noParams')
-				: t('injection.tools.params').replace('{n}', String(names.length));
+			var toolTokens = Number(tool.tokens) || 0;
+			var toggle = (names.length === 0 ? t('injection.tools.noParams')
+				: t('injection.tools.params').replace('{n}', String(names.length)))
+				+ (toolTokens > 0 ? ' · ' + t('injection.tools.tokens').replace('{n}', String(toolTokens)) : '');
 			return h('div', { className: 'ysTool' },
 				h('div', { className: 'ysToolHead' },
 					h('span', { className: 'ysToolName' }, tool.name),
@@ -3156,12 +3225,12 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * 自衍页：整理台。
+		 * 自衍页：整理台 / 最近作业 / 提示词三个子标签。
 		 *
-		 * 和旧 evolver 的整理页同一个形态：一张模型卡、会话整理 / 文件整理两张
-		 * 作业卡，下面是最近作业。页面不做任何维护动作——注入只有一段静态纪律
-		 * （没有索引/快照），整理由宿主里的 agent 作业在会话外跑；这里只负责
-		 * 选模型、开关自动整理、看结果。
+		 * 整理台保持旧 evolver 的三卡形态（模型、会话整理、文件整理），只负责
+		 * 选模型与开关自动整理；最近作业单独成子标签，避免作业多时把三卡挤下去；
+		 * 提示词是只读审计面。页面不做任何维护动作——注入只有一段静态纪律
+		 * （没有索引/快照），整理由宿主里的 agent 作业在会话外跑。
 		 */
 		function OrganizeTab(props) {
 			var t = props.t;
@@ -3179,6 +3248,19 @@ window.__ModuleLoader__.load({
 			var [autoFiles, setAutoFiles] = useState(false);
 			var [hour, setHour] = useState('3');
 			var lastRunning = useRef('');
+			var [subtab, setSubtab] = useState('workbench');
+			var [prompts, setPrompts] = useState(null);
+			var [promptsError, setPromptsError] = useState('');
+			useEffect(function () {
+				if (subtab !== 'prompts' || prompts !== null || promptsError !== '') return undefined;
+				var stopped = false;
+				props.call('organize-prompts').then(function (value) {
+					if (!stopped) setPrompts(value);
+				}).catch(function (error) {
+					if (!stopped) setPromptsError(messageOf(error));
+				});
+				return function () { stopped = true; };
+			}, [subtab, prompts, promptsError]);
 			useEffect(function () {
 				if (status === null || status === undefined) return;
 				syncFromStatus();
@@ -3534,14 +3616,60 @@ window.__ModuleLoader__.load({
 						? h('div', { className: 'ysHint ysJobFailed' }, t('organize.lastError').replace('{error}', String(lastFiles.error)))
 						: null);
 			}
+			function promptsPane() {
+				if (promptsError !== '') {
+					return h('div', { className: 'ysHint ysJobFailed' },
+						t('organize.prompts.loadFailed').replace('{error}', promptsError));
+				}
+				if (prompts === null || prompts === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
+				var sections = Array.isArray(prompts.sections) ? prompts.sections : [];
+				var labels = {
+					sessions: t('organize.prompts.sessions'),
+					files: t('organize.prompts.files'),
+					wrapup: t('organize.prompts.wrapup'),
+					'wrapup-dry': t('organize.prompts.wrapupDry')
+				};
+				return h('div', null,
+					h('div', { className: 'ysHint', style: { marginBottom: 14 } }, t('organize.prompts.hint')),
+					sections.map(function (section) {
+						var label = labels[section.id] !== undefined ? labels[section.id] : String(section.id);
+						return h('div', { key: section.id },
+							h('div', { className: 'ysSection' }, label),
+							h('div', { className: 'ysHint' }, t('organize.prompts.size').replace('{n}', String(section.tokens || 0))),
+							h('pre', { className: 'ysPre' }, String(section.text === undefined ? '' : section.text)));
+					}));
+			}
+			function jobsPane() {
+				return h('div', null,
+					jobRunning ? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('organize.busy')) : null,
+					history.length === 0
+						? h('div', { className: 'ysEmpty' }, t('organize.job.none'))
+						: h('div', null, history.slice(0, 5).map(jobRow)),
+					h('div', { className: 'ysActions' },
+						h('button', { className: 'ysButton', onClick: refreshJobs }, t('action.refresh'))));
+			}
+			var subtabOptions = [
+				['workbench', t('organize.tab.workbench')],
+				['jobs', t('organize.tab.jobs')],
+				['prompts', t('organize.tab.prompts')]
+			];
+			var subtabBar = h('div', { className: 'ysTabs ysSubtabs', role: 'tablist', 'aria-label': t('tab.organize') },
+				subtabOptions.map(function (option) {
+					return h('button', {
+						key: option[0],
+						type: 'button',
+						role: 'tab',
+						className: 'ysTab' + (subtab === option[0] ? ' ysTabActive' : ''),
+						'aria-selected': subtab === option[0],
+						onClick: function () { setSubtab(option[0]); }
+					}, option[1]);
+				}));
+			if (subtab === 'prompts') return h('div', null, subtabBar, promptsPane());
+			if (subtab === 'jobs') return h('div', null, subtabBar, jobsPane());
 			return h('div', null,
+				subtabBar,
 				h('div', { className: 'ysHint', style: { marginBottom: 14 } }, t('organize.hint')),
-				h('div', { className: 'ysOrganizeCards' }, modelCard(), sessionsCard(), filesCard()),
-				h('div', { className: 'ysSection' }, t('organize.jobs')),
-				jobRunning ? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('organize.busy')) : null,
-				history.length === 0
-					? h('div', { className: 'ysEmpty' }, t('organize.job.none'))
-					: h('div', null, history.slice(0, 5).map(jobRow)));
+				h('div', { className: 'ysOrganizeCards' }, modelCard(), sessionsCard(), filesCard()));
 		}
 
 

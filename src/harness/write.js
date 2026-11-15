@@ -7,12 +7,12 @@
  * a consistent folder is undone rather than reported as done.
  *
  * The tool layer that calls this passes a project root it already resolved;
- * the path helpers below are also what `project_harness_promote` uses to turn a
+ * the path helpers below are also what `file_write({from})` uses to turn a
  * relative path into the one file it is allowed to import into the library.
  *
  * Ported from dsh-evolver 1.0.0. The one host adaptation is containment: the
  * old `src/workspace.js` is gone, and the real-path check moved into
- * `harness/store.js`, so both write and promote read the same rule.
+ * `harness/store.js`, so both write and import read the same rule.
  */
 
 import { lstat, mkdir, readFile, rm } from 'node:fs/promises'

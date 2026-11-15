@@ -34,6 +34,16 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
 /** Locale keys the organize page's three cards and job list use. */
 const ORGANIZE_KEYS = [
 	'organize.hint',
+	'organize.tab.workbench',
+	'organize.tab.prompts',
+	'organize.tab.jobs',
+	'organize.prompts.hint',
+	'organize.prompts.sessions',
+	'organize.prompts.files',
+	'organize.prompts.wrapup',
+	'organize.prompts.wrapupDry',
+	'organize.prompts.size',
+	'organize.prompts.loadFailed',
 	'organize.enabled',
 	'organize.disabled',
 	'organize.model',
@@ -247,6 +257,7 @@ test('源码契约：整理台的启动参数、轮询与自动开关', async ()
 	assertSource(source, /call\('organize-jobs', \{ limit: 5 \}\)/, '最近作业只取 5 条')
 	assertSource(source, /call\('organize-cancel', \{ id: job\.id \}\)/, '取消按钮带作业 id')
 	assertSource(source, /call\('organize-status'\)\.then\(props\.onStatus\)/, '作业结束时刷新状态')
+	assertSource(source, /\['jobs', t\('organize\.tab\.jobs'\)\]/, '最近作业是独立子标签')
 	assertSource(source, /clearTimeout/, '轮询要能停')
 })
 
@@ -758,14 +769,27 @@ function baseRoutes() {
 		settings: { dataDir: 'C:\\ziyan' },
 		logs: { path: 'plugin.log', lines: [] },
 		'data-status': { current: 'C:\\ziyan' },
-		injection: { static: '静态纪律', staticBytes: 12 },
-		preferences: { path: 'AGENTS.md', content: '', cap: 65536, readable: true, exists: true, hasBlock: false },
+		injection: { static: '静态纪律', staticTokens: 120 },
+		preferences: {
+			path: 'C:\\ziyan\\system\\AGENTS.md',
+			agentsPath: 'C:\\Users\\tester\\.dsh\\AGENTS.md',
+			mode: 'link',
+			destination: 'C:\\ziyan\\system\\AGENTS.md',
+			content: '',
+			bytes: 0,
+			totalBytes: 0,
+			cap: 65536,
+			readable: true,
+			exists: true,
+		},
 		tools: {
 			total: 1,
+			tokens: 120,
 			tools: [{
-				name: 'file_query',
+				name: 'file_search',
 				description: '按描述/名字/标签检索文件。',
 				category: 'read',
+				tokens: 120,
 				parameters: { type: 'object', properties: { query: { type: 'string', description: '检索词' } }, required: ['query'] },
 			}],
 		},
@@ -794,6 +818,14 @@ function baseRoutes() {
 			},
 		},
 		'organize-status': organizeStatus(),
+		'organize-prompts': {
+			sections: [
+				{ id: 'sessions', text: '你是会话整理员。\n规则：先查重。', tokens: 42 },
+				{ id: 'files', text: '你是文件整理员。\n允许合并。', tokens: 36 },
+				{ id: 'wrapup', text: '收尾：总结做了什么。', tokens: 30 },
+				{ id: 'wrapup-dry', text: '收尾：列出建议动作。', tokens: 30 },
+			],
+		},
 		'organize-jobs': { jobs: [job], total: 1, running: job.id },
 		'organize-start': (payload) => ({ job: Object.assign({}, job, { id: 'organize-new', status: 'queued', kind: payload.kind }) }),
 		'organize-cancel': () => ({ cancelled: true, job: Object.assign({}, job, { status: 'cancelled' }) }),
@@ -816,15 +848,16 @@ async function mountPanel(overrides = {}) {
 
 test('注入页提示词：只剩静态段与一句说明，没有预算/索引/快照', async () => {
 	const panel = await mountPanel({
-		injection: { static: '静态纪律：先读 AGENTS.md。', staticBytes: 30 },
+		injection: { static: '静态纪律：先读 AGENTS.md。', staticTokens: 30 },
 	})
 	try {
 		await click(panel, '注入')
 		const text = textOf(panel.tree())
 		assert.match(text, /静态纪律：先读 AGENTS\.md/, '静态段照旧展示')
-		assert.match(text, /30 字节/, '静态段字节数来自 staticBytes')
+		assert.match(text, /30 tok/, '静态段 token 估算来自 staticTokens')
+		assert.doesNotMatch(text, /\d+ 字节/, '不再显示字节数')
 		assert.match(text, /运行时不再注入/, '说明运行时不再注入索引')
-		assert.match(text, /file_query/, '说明 agent 需要文件时自己用 file_query 搜')
+		assert.match(text, /按描述/, '说明 agent 需要文件时自己按描述搜')
 		assert.match(text, /harness/, '说明项目依赖与约定由项目 harness 管理')
 		// 新提示用「不再注入文件索引」点名被移除的东西；除这一句外，提示词栏
 		// 不应再有任何索引/快照/预算相关文案。
@@ -878,12 +911,14 @@ test('注入页工具子标签仍展示分类与参数折叠', async () => {
 		await click(panel, '注入')
 		await click(panel, '工具')
 		let text = textOf(panel.tree())
-		assert.match(text, /file_query/)
+		assert.match(text, /file_search/)
 		assert.match(text, /只读/)
+		assert.match(text, /每轮请求约 120 tok/, '工具 schema 的 token 估算来自 tools.tokens')
 		assert.doesNotMatch(text, /检索词/, '参数默认折叠')
 		await click(panel, '1 个参数')
 		text = textOf(panel.tree())
 		assert.match(text, /检索词/, '展开后显示参数说明')
+		assert.match(text, /约 120 tok/, '工具卡显示自身 token 估算')
 	} finally {
 		panel.dispose()
 	}
@@ -901,7 +936,8 @@ test('自衍页三卡渲染：模型 / 会话整理 / 文件整理，自动开�
 		assert.ok(sessionsCard !== undefined, '有会话整理卡')
 		assert.ok(filesCard !== undefined, '有文件整理卡')
 
-		// One compact page-level hint, then three cards, then the recent jobs.
+		// One compact page-level hint, then three cards. The recent-jobs list is
+		// its own sub-tab, so it no longer pushes the cards down.
 		assert.match(text, /整理由 agent 作业在会话外运行/)
 		assert.doesNotMatch(text, /快照/, '整理页提示不再说宿主每日重建注入快照')
 		assert.match(text, /服务商一/, '模型卡列出目录')
@@ -923,6 +959,38 @@ test('自衍页三卡渲染：模型 / 会话整理 / 文件整理，自动开�
 		assert.equal(fileInputs[0].props.checked, false, '每日自动整理默认关')
 		assert.equal(String(fileInputs[1].props.value), '3', '默认 3 点')
 		assert.match(textOf(filesCard), /上次失败：模型炸了/)
+	} finally {
+		panel.dispose()
+	}
+})
+
+test('自衍页子标签：整理台默认三卡，提示词显示系统提示词与收尾指令', async () => {
+	const panel = await mountPanel()
+	try {
+		await click(panel, '自衍')
+		assert.ok(findCard(panel.tree(), '整理模型') !== undefined, '默认子标签是整理台')
+		const firstCall = panel.calls.filter((item) => item.endpoint === 'organize-prompts').length
+		assert.equal(firstCall, 0, '没点到提示词前不请求提示词')
+
+		await click(panel, '提示词')
+		const promptsCall = panel.calls.filter((item) => item.endpoint === 'organize-prompts').pop()
+		assert.ok(promptsCall !== undefined, '提示词子标签读取 organize-prompts')
+		const text = textOf(panel.tree())
+		assert.match(text, /整理作业在会话外运行时的系统提示词/, '有只读说明')
+		assert.match(text, /会话整理系统提示词/, '显示会话整理系统提示词')
+		assert.match(text, /文件整理系统提示词/, '显示文件整理系统提示词')
+		assert.match(text, /收尾轮指令/, '显示收尾轮指令')
+		assert.match(text, /你是会话整理员/, '展示会话系统提示词正文')
+		assert.match(text, /收尾：列出建议动作/, '展示预演收尾指令正文')
+		assert.match(text, /42 tok/, '显示每段 token 估算')
+		assert.equal(findCard(panel.tree(), '整理模型'), undefined, '提示词子标签不显示整理卡')
+
+		await click(panel, '最近作业')
+		assert.match(textOf(panel.tree()), /运行中/, '最近作业子标签显示作业状态')
+		assert.equal(findCard(panel.tree(), '整理模型'), undefined, '最近作业子标签不显示整理卡')
+
+		await click(panel, '整理台')
+		assert.ok(findCard(panel.tree(), '整理模型') !== undefined, '切回整理台恢复三卡')
 	} finally {
 		panel.dispose()
 	}
@@ -1010,6 +1078,7 @@ test('自衍页最近作业：状态/结果/折叠日志与运行中取消', asy
 	const panel = await mountPanel()
 	try {
 		await click(panel, '自衍')
+		await click(panel, '最近作业')
 		const text = textOf(panel.tree())
 		assert.match(text, /最近作业/)
 		assert.match(text, /运行中/, '作业状态')
@@ -1037,6 +1106,7 @@ test('自衍页最近作业为空：显示空态', async () => {
 	const panel = await mountPanel({ 'organize-jobs': { jobs: [], total: 0, running: '' } })
 	try {
 		await click(panel, '自衍')
+		await click(panel, '最近作业')
 		assert.match(textOf(panel.tree()), /还没有作业/)
 	} finally {
 		panel.dispose()

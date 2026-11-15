@@ -77,7 +77,7 @@ export function normalizeDescription(value) {
 export function assertDescription(value, maxChars = DEFAULT_DESCRIPTION_CHARS) {
 	const clean = normalizeDescription(value)
 	if (clean === '') {
-		throw new Error('文件必须写 description：一句话说清这个文件是什么、回答什么问题。')
+		throw new Error('文件必须写 description：一句话说清这个文件是什么、以后哪些场景/任务会用到它（描述是唯一检索面）。')
 	}
 	if (PLACEHOLDER_DESCRIPTION.test(clean)) {
 		throw new Error('描述不能是占位词（「暂无」「TODO」之类）：索引里显示的就是这段文本。')
@@ -91,6 +91,37 @@ export function assertDescription(value, maxChars = DEFAULT_DESCRIPTION_CHARS) {
 	}
 	return clean
 }
+
+/**
+ * Whether a one-line description says *when* the resource will be useful.
+ *
+ * The description is the only retrieval surface: a future agent searches with
+ * the words of its current task, so a description that names the artifact but
+ * not the situations it serves cannot be found. This is a soft check — the
+ * write succeeds and the result carries an advice — because judging a sentence
+ * mechanically is unreliable; the point is to nudge the writer, not to reject.
+ *
+ * @param {unknown} value - The raw description or harness summary.
+ * @returns {string} An advice sentence, or `''` when the text already says enough.
+ */
+export function descriptionAdvice(value) {
+	const clean = normalizeDescription(value)
+	if (clean === '') return ''
+	const chars = [...clean].length
+	// Long sentences usually carry their own context; short ones need a
+	// scenario word to be findable later.
+	if (chars >= 30) return ''
+	if (chars >= 12 && SCENARIO_MARKERS.test(clean)) return ''
+	return '描述建议写清两件事：①它是什么（做法/结论）；②以后哪些场景、任务或问题会用到它（写进以后会搜的场景关键词）；不要写“某次会话记录/临时用/待补”。'
+}
+
+/**
+ * Words that name a situation or an action, i.e. how a future task would ask.
+ *
+ * Deliberately broad and only used to decide whether a *short* description is
+ * worth one nudge; a long description passes without a marker.
+ */
+const SCENARIO_MARKERS = /场景|任务|用于|用来|适用|解决|排查|排错|复现|流程|工作流|步骤|命令|脚本|配置|部署|测试|怎么|如何|以后|后续|下次|需要时|重用|复用|验证|检查|修复|迁移|发布|构建|调试|性能|报错|问题|导入|导出/
 
 /**
  * Normalise one free-form tag.

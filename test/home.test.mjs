@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -7,6 +7,7 @@ import test from 'node:test'
 import { apply } from '../index.js'
 import { dataDirPointerPath, readDataDirPointer, writeDataDirPointer } from '../src/home.js'
 import { FileStore } from '../src/store.js'
+import { removeDir } from './helpers.mjs'
 
 test('指针：缺失、写入、读取与非法路径', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'ziyan-home-'))
@@ -20,7 +21,7 @@ test('指针：缺失、写入、读取与非法路径', async () => {
 		await writeFile(pointer, 'not json')
 		await assert.rejects(() => readDataDirPointer(pointer), /不是合法 JSON/)
 	} finally {
-		await rm(root, { recursive: true, force: true })
+		await removeDir(root)
 	}
 })
 
@@ -47,7 +48,7 @@ test('apply 读取指针目录，而不是默认目录', async () => {
 			effect(effect) { effects.push(effect); return () => {} },
 		}
 		await apply(ctx, {})
-		assert.equal(tools.length, 12)
+		assert.equal(tools.length, 4)
 		assert.match(await readFile(join(pointed, 'system', 'settings.json'), 'utf8'), /descriptionMaxChars/)
 		assert.ok(effects.length > 0)
 		// `ctx.effect` stores the callback; calling it once hands back the
@@ -57,7 +58,7 @@ test('apply 读取指针目录，而不是默认目录', async () => {
 	} finally {
 		if (prev === undefined) delete process.env.DSH_HOME
 		else process.env.DSH_HOME = prev
-		await rm(home, { recursive: true, force: true })
+		await removeDir(home)
 	}
 })
 
@@ -79,6 +80,6 @@ test('指针指向缺失库时 apply 明确报错', async () => {
 	} finally {
 		if (prev === undefined) delete process.env.DSH_HOME
 		else process.env.DSH_HOME = prev
-		await rm(home, { recursive: true, force: true })
+		await removeDir(home)
 	}
 })
