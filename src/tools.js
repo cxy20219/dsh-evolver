@@ -14,35 +14,28 @@
  * `file_read` is the only tool that returns text, and it caps it.
  */
 
-import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
-import { writeFileAtomic } from './atomic.js'
 import {
 	LAYERS,
 	catalog,
-	initHarness,
-	inspectIndex,
-	isReallyInside,
 	isWithin,
 	projectRootOf,
-	renderIndex,
-	splitFrontmatter,
-	writeAgentsIndex,
 } from './harness/store.js'
-import { validate } from './harness/validate.js'
-import { slugOf, writeResource } from './harness/write.js'
+import { removeHarnessResource, slugOf, writeHarnessResource } from './harness/write.js'
+import { readSidecar } from './harness/sidecar.js'
 import { isFileId } from './ids.js'
 import { OBJECT_OUTPUT, sanitize, summaryOf } from './json.js'
 import { descriptionAdvice } from './meta.js'
 import { isTextMime, isTextual } from './names.js'
 import { estimateTokens } from './tokens.js'
 
-/** The markdown layers: their resources carry a title/summary frontmatter. */
-const DOCUMENT_LAYERS = ['workflow', 'experience']
-
 /** The most a project file read returns inline. */
 const PROJECT_READ_BYTES = 256 * 1024
+
+/** The markdown layers: their resources are documents with a `.md` name. */
+const DOCUMENT_LAYERS = ['workflow', 'experience']
 
 /**
  * Resolve a full id or a unique short id to a full id.
@@ -234,17 +227,18 @@ function summarizeCatalog(state) {
 		resources: state.resources.map((item) => ({
 			path: item.path,
 			title: item.title,
-			...(item.summary === '' ? { summary: '(missing)' } : {}),
+			...(item.description === '' ? { description: '(missing)' } : { description: item.description }),
 		})),
 		index: {
 			entries: state.index.refs.length,
 			mode: state.index.mode,
 			notIndexed: state.index.missing,
 			pointingNowhere: state.index.stale,
-			...((state.index.mode === 'absent' || state.index.mode === 'legacy') ? {
-				next: state.index.mode === 'legacy'
-					? 'AGENTS.md 是旧式裸索引（没有受管块）；下一次写入会自动包进受管块。'
-					: 'AGENTS.md 还没有受管索引块；写入 harness 资源时会自动追加，块外内容不动。',
+			...(state.index.mode === 'absent' ? {
+				next: '项目还没有 AGENTS.md；写入一个 harness/ 资源时，插件会按目录生成索引。',
+			} : {}),
+			...(state.index.mode === 'handwritten' ? {
+				next: 'AGENTS.md 是手写文档，不是索引；写入 harness 资源时它会先被备份，再按目录重建。',
 			} : {}),
 		},
 		missing: state.missing,
@@ -252,112 +246,18 @@ function summarizeCatalog(state) {
 	}
 	if (!state.present) {
 		summary.needsInit = true
-		summary.next = '项目没有 harness/。写入一个 harness/ 路径（如 harness/experience/x.md）会自动建骨架并重建 AGENTS.md 索引。'
+		summary.next = '项目没有 harness/。写入一个 harness/ 路径（如 harness/experience/x.md）会自动建骨架并生成 AGENTS.md 索引。'
 	}
 	return summary
 }
 
 /**
- * Put one file back only while it still holds what this write put there.
- *
- * @param {string} path - The file.
- * @param {string} written - The exact text this write put there.
- * @param {string | undefined} previous - The text before the write.
- * @returns {Promise<boolean>} True when the file was restored.
- */
-async function restoreIfUnchanged(path, written, previous) {
-	const current = await readFile(path, 'utf8').catch(() => undefined)
-	if (current !== written) return false
-	if (previous === undefined) await rm(path, { force: true }).catch(() => {})
-	else await writeFileAtomic(path, previous).catch(() => {})
-	return true
-}
-
-/**
- * Put the managed index back to the snapshot a failed write merged into.
- *
- * @param {string} agentsPath - The document.
- * @param {{changed: boolean, text: string, previous: string | undefined}} applied - What the index write produced.
- * @returns {Promise<boolean>} True when it was restored.
- */
-async function restoreAgents(agentsPath, applied) {
-	if (applied?.changed !== true) return false
-	const current = await readFile(agentsPath, 'utf8').catch(() => undefined)
-	if (current !== applied.text) return false
-	if (applied.previous === undefined) await rm(agentsPath, { force: true }).catch(() => {})
-	else await writeFileAtomic(agentsPath, applied.previous).catch(() => {})
-	return true
-}
-
-/**
- * Write one harness file verbatim, rebuild the index, validate, and roll back
- * the whole cycle when any step fails.
- *
- * This is the same strategy `writeResource` uses for documents (stability
- * audit P2-5): the raw target and `AGENTS.md` are only restored while they
- * still hold what this write left there, so an edit made in the window wins.
- *
- * @param {object} options - The write.
- * @param {string} options.root - The project root.
- * @param {string} options.absolute - The destination file.
- * @param {string} options.relativePath - Its `harness/...` spelling.
- * @param {string} options.layer - The layer it lives in.
- * @param {unknown} options.target - The caller's original target.
- * @param {string} options.content - The bytes as text.
- * @param {boolean} options.created - Whether the file did not exist before.
- * @returns {Promise<object>} What happened.
- */
-async function writeHarnessRaw({ root, absolute, relativePath, layer, target, content, created }) {
-	const agentsPath = join(root, 'AGENTS.md')
-	const previous = await readFile(absolute, 'utf8').catch(() => undefined)
-	const agentsPrevious = await readFile(agentsPath, 'utf8').catch(() => undefined)
-	if (agentsPrevious !== undefined && inspectIndex(agentsPrevious).mode === 'broken') {
-		throw new Error('AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end），没有写入；请手工补全或删掉残留标记后重试。')
-	}
-	if (!(await isReallyInside(join(root, 'harness'), absolute))) {
-		throw new Error(`路径越界（真实路径不在 harness/ 内）：${relativePath}`)
-	}
-	const written = content.endsWith('\n') ? content : `${content}\n`
-	await writeFileAtomic(absolute, written)
-	let state
-	let applied
-	try {
-		// Rebuild equivalent to ensureIndex, but keep the snapshot so a failed
-		// validation can put AGENTS.md back.
-		state = await catalog(root)
-		if (state.limited === true) {
-			throw new Error('harness/ 的文件数超过单次扫描上限，catalog 清单不完整，拒绝写入并重建索引；请先精简 harness/。')
-		}
-		applied = await writeAgentsIndex(root, renderIndex(state))
-	} catch (error) {
-		await restoreIfUnchanged(absolute, written, previous)
-		throw error
-	}
-	const report = await validate(root)
-	if (!report.ok) {
-		await restoreIfUnchanged(absolute, written, previous)
-		await restoreAgents(agentsPath, applied)
-		throw new Error(`校验未通过，已回滚：${report.errors.slice(0, 3).join('；')}`)
-	}
-	return harnessResult({
-		target,
-		path: relativePath,
-		layer,
-		created,
-		indexed: state.resources.length,
-		errors: report.errors,
-		warnings: report.warnings,
-		skipped: report.skipped,
-	})
-}
-
-/**
  * Shape one harness write result.
  *
- * @param {{target: unknown, path: string, layer: string, created: boolean, indexed: number, errors?: string[], warnings?: string[], skipped?: object[]}} value - The parts.
+ * @param {{target: unknown, path: string, layer: string, created: boolean, indexed: number, errors?: string[], warnings?: string[], skipped?: object[], backup?: string}} value - The parts.
  * @returns {object} The result.
  */
-function harnessResult({ target, path, layer, created, indexed, errors = [], warnings = [], skipped = [] }) {
+function harnessResult({ target, path, layer, created, indexed, errors = [], warnings = [], skipped = [], backup }) {
 	return {
 		target,
 		path,
@@ -365,6 +265,7 @@ function harnessResult({ target, path, layer, created, indexed, errors = [], war
 		created,
 		warnings,
 		indexed,
+		...(backup === undefined ? {} : { backup }),
 		validation: { ok: errors.length === 0, errors, warnings, skipped },
 	}
 }
@@ -519,13 +420,13 @@ export function createTools({ store, paths } = {}) {
 		},
 		{
 			name: 'file_write',
-			description: '写：无 target → 新建库文件（content + meta.description + meta.tags）；target 是库文件 id/短 id → 更新正文或元数据；from 非空 → 把宿主文件导入库（相对路径按会话 cwd，越界拒绝）；target 是项目内路径 → 写项目文件；target 在项目 harness/ 下 → 写 harness 资源（缺骨架自动建、重建 AGENTS.md 索引并校验，校验不过回滚）。meta: {name,description,tags,links,title,summary,layer}；描述写清「是什么 + 以后哪些场景/任务会用到它」。',
+			description: '写：无 target → 新建库文件（content + meta.description + meta.tags）；target 是库文件 id/短 id → 更新正文或元数据；from 非空 → 把宿主文件导入库（相对路径按会话 cwd，越界拒绝）；target 是项目内路径 → 写项目文件（项目根的 AGENTS.md 是生成的索引，拒绝手写）；target 在项目 harness/ 下 → 写 harness 资源（缺骨架自动建、写描述边车、按目录重建 AGENTS.md 索引并校验，校验不过回滚）。meta: {name,description,tags,links,title}；描述写清「是什么 + 以后哪些场景/任务会用到它」。',
 			parameters: {
 				type: 'object',
 				properties: {
 					target: { type: 'string', description: '库文件 id/短 id（更新）、项目内路径（写项目文件或 harness 资源）；新建库文件时留空' },
 					content: { type: 'string', description: '文本正文；新建库文件与项目文件必填，更新库文件时给了就替换正文' },
-					meta: { type: 'object', additionalProperties: true, description: '元数据对象：{name?,description?,tags?,links?,title?,summary?,layer?}；库文件新建/导入需要 description + tags；workflow/experience 需要 summary；layer 可覆盖但必须与路径层一致' },
+					meta: { type: 'object', additionalProperties: true, description: '元数据对象：{name?,description?,tags?,links?,title?}；库文件新建/导入需要 description + tags；harness 资源需要 description（写进同名边车 <文件>.meta.json，索引按它生成），title 可选；layer 可覆盖但必须与路径层一致' },
 					from: { type: 'string', description: '导入源：宿主绝对路径，或相对会话 cwd 的项目内路径（越界拒绝）；给了 from 就不看 target' },
 				},
 			},
@@ -542,19 +443,19 @@ export function createTools({ store, paths } = {}) {
 				const location = await requireLocation(paths, exec)
 				const resolved = resolveProjectPath(location, target)
 				if (resolved.harness) return writeHarnessFile(location, target, resolved, input, meta)
-				return writeProjectFile(target, resolved.absolute, input)
+				return writeProjectFile(location, target, resolved.absolute, input)
 			},
 		},
 		{
 			name: 'file_edit',
-			description: '改：库文件给 old+new 精确替换正文一处（0 次或多次都报错），meta 改 description/tags/links/archived；meta.remove:true 是归档后的物理删除（文件夹移入回收站，优先用 meta.archived 归档）。项目文件只做 old+new 文本替换（meta.remove 拒绝）；harness 的 workflow/experience markdown 还能用 meta.title/summary 改 frontmatter，改完自动重建 AGENTS.md 索引并校验，失败回滚。',
+			description: '改：库文件给 old+new 精确替换正文一处（0 次或多次都报错），meta 改 description/tags/links/archived；meta.remove:true 是归档后的物理删除（文件夹移入回收站，优先用 meta.archived 归档）。项目文件只做 old+new 文本替换（meta.remove 拒绝）；harness 资源还能用 meta.description/meta.title 改它的描述边车，改完自动按目录重建 AGENTS.md 索引并校验，失败回滚；meta.remove:true 删除 harness 资源及其边车。',
 			parameters: {
 				type: 'object',
 				properties: {
 					target: { type: 'string', description: '库文件 id/短 id，或项目内路径（harness/... 按项目根）' },
 					old: { type: 'string', description: '要替换的原文；必须恰好命中一处' },
 					new: { type: 'string', description: '替换后的文本；old 给定时必填' },
-					meta: { type: 'object', additionalProperties: true, description: '元数据：{description?,tags?,links?,archived?,remove?,title?,summary?}；remove:true 是归档后的物理删除，项目文件拒绝删除' },
+					meta: { type: 'object', additionalProperties: true, description: '元数据：{description?,tags?,links?,archived?,remove?,title?}；remove:true 是归档后的物理删除（库文件）或删除 harness 资源，普通项目文件拒绝删除' },
 				},
 				required: ['target'],
 			},
@@ -568,7 +469,7 @@ export function createTools({ store, paths } = {}) {
 				const hasMeta = ['description', 'tags', 'links', 'archived', 'remove', 'title', 'summary']
 					.some((field) => meta[field] !== undefined)
 				if (!hasPatch && !hasMeta) {
-					throw new Error('file_edit 没有可执行的操作：给 old+new（正文精确替换）或 meta 的 description/tags/links/archived/remove（库文件）/ title/summary（harness 文档）之一。')
+					throw new Error('file_edit 没有可执行的操作：给 old+new（正文精确替换）或 meta 的 description/tags/links/archived/remove（库文件）/ description/title（harness 资源）之一。')
 				}
 				const id = resolveInput(store, target)
 				if (id !== '') return sanitize(await editLibraryFile(store, id, input, meta, hasPatch))
@@ -670,8 +571,11 @@ async function updateLibraryFile(store, id, input, meta) {
  * @param {object} input - The call arguments.
  * @returns {Promise<object>} What happened.
  */
-async function writeProjectFile(target, absolute, input) {
+async function writeProjectFile(location, target, absolute, input) {
 	if (typeof input.content !== 'string') throw new Error('写项目文件需要 content。')
+	if (isAgentsIndex(location, absolute)) {
+		throw new Error('AGENTS.md 是 harness 的生成索引，不能手写；要写的项目规则请写进 harness/harness.md，再由插件重建索引。')
+	}
 	const previous = await lstat(absolute).catch(() => undefined)
 	if (previous !== undefined && previous.isDirectory()) throw new Error(`目标是目录，不能写文件：${target}`)
 	await mkdir(dirname(absolute), { recursive: true })
@@ -703,65 +607,63 @@ async function writeHarnessFile(location, target, resolved, input, meta) {
 		if (!LAYERS.includes(declared)) throw new Error(`meta.layer 必须是 ${LAYERS.join(' / ')} 之一。`)
 		if (declared !== layer) throw new Error(`meta.layer=${declared} 与路径层 ${layer} 不一致：文件落在哪一层就属于哪一层。`)
 	}
+	if (meta.tags !== undefined || meta.links !== undefined) {
+		throw new Error('meta.tags/meta.links 是文件库的字段；harness 资源用 meta.description 与 meta.title。')
+	}
 	if (typeof input.content !== 'string') throw new Error('写 harness 资源需要 content（文本正文/脚本正文）。')
+	if (relativePath.endsWith('.meta.json')) {
+		throw new Error(`harness 资源的描述边车由插件维护，不能直接写：${target}`)
+	}
 	const existed = (await lstat(resolved.absolute).catch(() => undefined)) !== undefined
-	await initHarness(location.root)
-	if (layer === 'overview') return writeHarnessRaw({
-		root: location.root,
-		absolute: resolved.absolute,
-		relativePath,
-		layer,
-		target,
-		content: input.content,
-		created: !existed,
-	})
-	if (!DOCUMENT_LAYERS.includes(layer)) {
-		if (meta.title !== undefined || meta.summary !== undefined) {
-			throw new Error('tool/resources 与 harness.md 按原始文件写入，不写 frontmatter；title/summary 只用于 workflow/experience。')
+	// A document layer names its files itself; a new file has to look like one.
+	if (!existed && DOCUMENT_LAYERS.includes(layer)) {
+		if (relativePath.split('/').length > 3) {
+			throw new Error(`${layer} 资源只能直接放在 harness/${layer}/ 下，不支持多级目录：${target}`)
 		}
-		return writeHarnessRaw({
-			root: location.root,
-			absolute: resolved.absolute,
-			relativePath,
-			layer,
-			target,
-			content: input.content,
-			created: !existed,
-		})
+		const stem = basename(relativePath).replace(/\.md$/i, '')
+		if (slugOf(stem) !== stem) {
+			throw new Error(`文件名不合法：${basename(relativePath)}（只能用小写英文、数字、. _ -，并以 .md 结尾）。`)
+		}
 	}
-	const summary = typeof meta.summary === 'string' ? meta.summary.trim() : ''
-	if (summary === '') {
-		throw new Error(`写 ${layer} 资源需要 meta.summary：一句话说清它是什么 + 以后哪些场景/任务会用到它（会进 AGENTS.md 索引）。`)
-	}
-	// `writeResource` edits an existing file by path, but a new document needs
-	// a layer + slug; a document layer has no subdirectories of its own.
-	if (!existed && relativePath.split('/').length > 3) {
-		throw new Error(`${layer} 资源只能直接放在 harness/${layer}/ 下，不支持多级目录：${target}`)
-	}
-	const stem = basename(relativePath).replace(/\.md$/i, '')
-	if (!existed && slugOf(stem) !== stem) {
-		throw new Error(`文件名不合法：${basename(relativePath)}（workflow/experience 只能用小写英文、数字、. _ -，并以 .md 结尾）。`)
-	}
-	const result = existed
-		? await writeResource({ root: location.root, path: relativePath, title: meta.title, summary, body: input.content })
-		: await writeResource({
-			root: location.root,
-			layer,
-			slug: stem,
-			title: meta.title,
-			summary,
-			body: input.content,
-		})
+	const description = harnessDescription(meta)
+	const result = await writeHarnessResource({
+		root: location.root,
+		relative: relativePath,
+		content: input.content,
+		title: typeof meta.title === 'string' ? meta.title : undefined,
+		description,
+	})
 	return harnessResult({
 		target,
 		path: result.path,
 		layer,
 		created: result.created,
 		indexed: result.indexed,
-		errors: result.errors,
+		errors: result.validation.errors,
 		warnings: result.warnings,
-		skipped: result.skipped,
+		skipped: result.validation.skipped,
+		backup: result.backup,
 	})
+}
+
+/**
+ * The description a harness resource is written with.
+ *
+ * `meta.description` is the field; `meta.summary` is accepted as the older
+ * spelling so a caller that learned it earlier still works. The contract is
+ * the library's: one line saying what the file is and which situations will
+ * need it.
+ *
+ * @param {Record<string, unknown>} meta - The meta argument.
+ * @returns {string} The description.
+ */
+function harnessDescription(meta) {
+	const raw = meta.description !== undefined ? meta.description : meta.summary
+	const description = typeof raw === 'string' ? raw.trim() : ''
+	if (description === '') {
+		throw new Error('写 harness 资源需要 meta.description：一句话说清它是什么 + 以后哪些场景/任务会用到它（它会进 AGENTS.md 索引，也是唯一的检索面）。')
+	}
+	return description
 }
 
 /**
@@ -820,12 +722,18 @@ async function editLibraryFile(store, id, input, meta, hasPatch) {
 async function editProjectFile(location, target, resolved, input, meta, hasPatch) {
 	const info = await stat(resolved.absolute).catch(() => undefined)
 	if (info === undefined || !info.isFile()) throw new Error(`项目内没有这个文件：${target}（解析为 ${resolved.absolute}）。`)
-	if (meta.remove === true) throw new Error('file_edit 不能删除项目文件；项目文件只做正文替换（meta.remove 只用于库文件）。')
-	const forLibrary = ['description', 'tags', 'links', 'archived'].filter((field) => meta[field] !== undefined)
+	if (isAgentsIndex(location, resolved.absolute)) {
+		throw new Error('AGENTS.md 是 harness 的生成索引，不能手写；要写的项目规则请写进 harness/harness.md，再由插件重建索引。')
+	}
+	if (meta.remove === true && !resolved.harness) throw new Error('file_edit 不能删除项目文件；项目文件只做正文替换（meta.remove 只用于库文件与 harness 资源）。')
+	const forLibrary = ['tags', 'links', 'archived'].filter((field) => meta[field] !== undefined)
 	if (forLibrary.length > 0) {
 		throw new Error(`项目文件不支持 ${forLibrary.map((field) => `meta.${field}`).join('/')}；那是库文件的字段。`)
 	}
 	if (!resolved.harness) {
+		if (meta.description !== undefined || meta.title !== undefined || meta.summary !== undefined) {
+			throw new Error('meta.description/meta.title/meta.summary 只用于 harness 资源与库文件；普通项目文件只做 old+new 正文替换。')
+		}
 		if (!hasPatch) throw new Error('项目文件只支持 old+new 正文替换。')
 		const current = await readFile(resolved.absolute, 'utf8')
 		const next = replaceOnce(current, input.old, input.new)
@@ -837,36 +745,60 @@ async function editProjectFile(location, target, resolved, input, meta, hasPatch
 	if (relativePath === undefined || layer === undefined) {
 		throw new Error(`harness/ 下只能改 harness/harness.md 或四层内的资源：${target}`)
 	}
+	if (meta.remove === true) {
+		const removed = await removeHarnessResource({ root: location.root, relative: relativePath })
+		return {
+			target,
+			path: relativePath,
+			layer,
+			removed: true,
+			indexed: removed.indexed,
+			warnings: removed.warnings,
+			validation: removed.validation,
+		}
+	}
 	const current = await readFile(resolved.absolute, 'utf8')
 	const nextText = hasPatch ? replaceOnce(current, input.old, input.new) : current
-	if (!DOCUMENT_LAYERS.includes(layer)) {
-		if (meta.title !== undefined || meta.summary !== undefined) {
-			throw new Error('title/summary 只能改 workflow/experience 的 frontmatter；tool/resources 与 harness.md 是原始文件。')
-		}
-		return writeHarnessRaw({
-			root: location.root,
-			absolute: resolved.absolute,
-			relativePath,
-			layer,
-			target,
-			content: nextText,
-			created: false,
-		})
+	// The description lives in the sidecar, so an edit that only changes it
+	// still rewrites the resource through the same cycle: index rebuilt,
+	// validated, rolled back on failure.
+	const sidecar = await readSidecar(location.root, relativePath)
+	const description = meta.description !== undefined
+		? String(meta.description)
+		: (meta.summary !== undefined ? String(meta.summary) : (sidecar?.description ?? ''))
+	const title = meta.title !== undefined ? String(meta.title) : sidecar?.title
+	if (!hasPatch && description === (sidecar?.description ?? '')) {
+		throw new Error('没有可执行的修改：给 old+new（正文精确替换）或 meta.description/meta.title（资源描述与标题）。')
 	}
-	const parsed = splitFrontmatter(nextText)
-	const title = meta.title === undefined ? parsed.meta.title : String(meta.title)
-	const summary = meta.summary === undefined ? parsed.meta.summary : String(meta.summary)
-	const result = await writeResource({ root: location.root, path: relativePath, title, summary, body: parsed.body })
+	const result = await writeHarnessResource({
+		root: location.root,
+		relative: relativePath,
+		content: nextText,
+		title,
+		description,
+	})
 	return harnessResult({
 		target,
 		path: result.path,
 		layer,
 		created: false,
 		indexed: result.indexed,
-		errors: result.errors,
+		errors: result.validation.errors,
 		warnings: result.warnings,
-		skipped: result.skipped,
+		skipped: result.validation.skipped,
+		backup: result.backup,
 	})
+}
+
+/**
+ * Whether a project path is the generated index.
+ *
+ * @param {{root: string}} location - The session location.
+ * @param {string} absolute - The resolved path.
+ * @returns {boolean} True when it is the project's `AGENTS.md`.
+ */
+function isAgentsIndex(location, absolute) {
+	return resolve(absolute) === resolve(join(location.root, 'AGENTS.md'))
 }
 
 /**

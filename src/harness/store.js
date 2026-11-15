@@ -30,8 +30,10 @@
 import { realpathSync } from 'node:fs'
 import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
+import { createHash } from 'node:crypto'
 
 import { writeFileAtomic } from '../atomic.js'
+import { isSidecarName, readSidecar, sidecarPath, writeSidecar } from './sidecar.js'
 
 /** The four resource layers, in the order the index lists them. */
 export const LAYERS = ['workflow', 'experience', 'tool', 'resources']
@@ -93,12 +95,15 @@ export const REQUIRED_INDEX_TEXT = [
 /**
  * The markers of the managed block inside `AGENTS.md`.
  *
- * A project's `AGENTS.md` is usually a hand-written document; the harness only
- * owns the part between these two comments. Every byte outside them belongs to
- * whoever wrote the file, and no write may move it.
+ * A project's `AGENTS.md` is the harness index and nothing else: it is written
+ * by the plugin from the folder, so it can be rebuilt at any time and can
+ * never disagree with `harness/`. Hand-written project rules belong in
+ * `harness/harness.md`, which the index points at.
  */
-export const BLOCK_BEGIN = '<!-- ziyan:harness:begin -->'
-export const BLOCK_END = '<!-- ziyan:harness:end -->'
+export const OVERVIEW_TITLE = 'Harness 开发指南'
+
+/** The description the overview carries until somebody writes a better one. */
+export const OVERVIEW_DESCRIPTION = '项目总览、关键约束、常用入口和注意事项；开始任何任务前先读它'
 
 const OVERVIEW_TEMPLATE = `# Harness 项目资源总览
 
@@ -115,7 +120,7 @@ const OVERVIEW_TEMPLATE = `# Harness 项目资源总览
 
 ## 写法
 
-每条资源的 summary 写清两件事：它是什么（做法/结论），以及以后哪些场景、任务、问题会用到它。跨项目可复用的，再用 file_write({from:"harness/...", meta:{description,tags}}) 落进自衍文件库。
+每条资源旁边有一个同名边车 \`<文件名>.meta.json\`，里面写清两件事：它是什么（做法/结论），以及以后哪些场景、任务、问题会用到它；项目根的 AGENTS.md 就是按这些边车生成的索引。跨项目可复用的，再用 file_write({from:"harness/...", meta:{description,tags}}) 落进自衍文件库。
 `
 
 /**
@@ -384,12 +389,16 @@ async function readHeadText(path, maxBytes) {
 }
 
 /**
- * Fill one catalog entry with the title and purpose a resource declares.
+ * Fill one catalog entry with the title and description it declares.
  *
- * The entry is always kept even when nothing is read: the folder is the
- * truth, and a binary or an oversized document still belongs in the index by
- * its file name. What is skipped or truncated is counted on the catalog, so a
- * caller can tell "no summary yet" from "not read on purpose".
+ * The sidecar is the source of truth: `harness/tool/x.mjs.meta.json` says what
+ * `x.mjs` is for, and the index shows that sentence. A resource without a
+ * sidecar keeps its place in the listing — the folder is the truth — but has
+ * no description yet, which the caller reports as a warning rather than
+ * dropping the entry.
+ *
+ * A document's own first heading is used as the title when no sidecar exists,
+ * because the title is a label and the file itself is the next best evidence.
  *
  * @param {string} root - The project root.
  * @param {object} resource - The entry being described.
@@ -398,10 +407,17 @@ async function readHeadText(path, maxBytes) {
  * @param {object} totals - Mutable scan counters.
  * @returns {Promise<void>} Resolves once described.
  */
-async function describeDocument(root, resource, entry, caps, totals) {
+async function describeResource(root, resource, entry, caps, totals) {
 	const fallback = basename(resource.path)
 	resource.title = fallback
-	resource.summary = ''
+	resource.description = ''
+	const sidecar = await readSidecar(root, resource.path)
+	if (sidecar !== undefined) {
+		resource.sidecar = true
+		resource.title = sidecar.title !== '' ? sidecar.title : fallback
+		resource.description = sidecar.description
+		return
+	}
 	if (!DOCUMENT_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
 		resource.binary = true
 		totals.skipped += 1
@@ -420,9 +436,8 @@ async function describeDocument(root, resource, entry, caps, totals) {
 	}
 	const { text } = await readHeadText(join(root, resource.path), take)
 	totals.bytes += take
-	const { meta, body } = splitFrontmatter(text)
-	resource.title = meta.title ?? firstHeading(body) ?? fallback
-	resource.summary = meta.summary ?? ''
+	const { body } = splitFrontmatter(text)
+	resource.title = firstHeading(body) || fallback
 }
 
 /**
@@ -446,37 +461,6 @@ export function splitFrontmatter(text) {
 		if (match !== null) meta[match[1]] = match[2].replace(/^["']|["']$/g, '').trim()
 	}
 	return { meta, body: source.slice(end + 5), fenced: true }
-}
-
-/**
- * Collapse a field to the single line frontmatter can carry.
- *
- * A newline in a title or a summary does not fail loudly: it ends the
- * frontmatter field early, leaves the rest of the text as body, and makes the
- * index show half a sentence. The field is a label, so whitespace becomes one
- * space before anything is written.
- *
- * @param {unknown} value - The field.
- * @returns {string} The single-line text.
- */
-function singleLine(value) {
-	return String(value ?? '').replace(/[\r\n\u0000]+/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
-/**
- * Render a document with frontmatter.
- *
- * @param {Record<string, string>} meta - The fields to write.
- * @param {string} body - The document body.
- * @returns {string} The document.
- */
-export function withFrontmatter(meta, body) {
-	const lines = Object.entries(meta)
-		.map(([key, value]) => [key, singleLine(value)])
-		.filter(([, value]) => value !== '')
-		.map(([key, value]) => `${key}: ${value}`)
-	if (lines.length === 0) return String(body ?? '')
-	return `---\n${lines.join('\n')}\n---\n${String(body ?? '')}`
 }
 
 /**
@@ -535,16 +519,17 @@ export async function catalog(root, { limits } = {}) {
 
 	const top = await readdir(harnessDir).catch(() => [])
 	for (const name of top.sort()) {
+		if (isSidecarName(name)) continue
 		if (name !== OVERVIEW && !LAYERS.includes(name)) state.unexpected.push(name)
 	}
 	state.overview = await exists(join(harnessDir, OVERVIEW))
 	if (!state.overview) state.missing.push(OVERVIEW)
 	else {
 		const info = await lstat(join(harnessDir, OVERVIEW)).catch(() => undefined)
-		const resource = { path: `harness/${OVERVIEW}`, layer: 'overview', title: OVERVIEW, summary: '' }
+		const resource = { path: `harness/${OVERVIEW}`, layer: 'overview', title: OVERVIEW, description: '' }
 		state.resources.push(resource)
 		totals.files += 1
-		await describeDocument(root, resource, { name: OVERVIEW, size: info?.size ?? 0 }, caps, totals)
+		await describeResource(root, resource, { name: OVERVIEW, size: info?.size ?? 0 }, caps, totals)
 	}
 
 	for (const layer of LAYERS) {
@@ -557,7 +542,7 @@ export async function catalog(root, { limits } = {}) {
 		}
 		const room = Math.max(0, caps.maxFiles - totals.files)
 		const listed = await listFiles(dir, room)
-		const accepted = listed.files
+		const accepted = listed.files.filter((entry) => !isSidecarName(entry.name))
 		state.layers[layer] = accepted.map((entry) => `harness/${layer}/${entry.name}`)
 		if (listed.omitted > 0) {
 			state.limited = true
@@ -565,21 +550,19 @@ export async function catalog(root, { limits } = {}) {
 		}
 		totals.files += accepted.length
 		for (const entry of accepted) {
-			const resource = { path: `harness/${layer}/${entry.name}`, layer, title: baseOf(entry.name), summary: '' }
+			const resource = { path: `harness/${layer}/${entry.name}`, layer, title: baseOf(entry.name), description: '' }
 			state.resources.push(resource)
-			await describeDocument(root, resource, entry, caps, totals)
+			await describeResource(root, resource, entry, caps, totals)
 		}
 	}
 
 	const agentsText = await readText(agentsPath)
-	const inspected = inspectIndex(agentsText)
+	const inspected = inspectAgents(agentsText)
 	// An index written before this plugin owned it already carries the
 	// one-line purposes; harvest them so adopting a project loses nothing.
-	// Frontmatter wins once a file has it, so the harvest fades out as files
-	// are touched. Only the index part is harvested: hand-written prose around
-	// the block is not an index and must not be read as one.
-	const indexText = inspected.mode === 'block' ? inspected.inner : inspected.mode === 'legacy' ? agentsText : ''
-	const harvested = parseIndexEntries(indexText)
+	// The sidecar wins once a resource has one, so the harvest only fills the
+	// gaps and fades out as resources are touched.
+	const harvested = inspected.mode === 'index' ? parseIndexEntries(agentsText) : new Map()
 	for (const resource of state.resources) {
 		const known = harvested.get(resource.path)
 		if (known === undefined) continue
@@ -588,14 +571,14 @@ export async function catalog(root, { limits } = {}) {
 		// entries that were fine.
 		resource.label = known.label
 		resource.order = known.order
-		if (resource.summary === '') {
-			resource.summary = known.summary
+		if (resource.description === '' && known.summary !== '') {
+			resource.description = known.summary
 			resource.harvested = true
 		}
 	}
 	state.index.mode = inspected.mode
-	state.index.present = inspected.mode === 'block' || inspected.mode === 'legacy'
-	state.index.refs = indexRefs(indexText)
+	state.index.present = inspected.mode === 'index'
+	state.index.refs = indexRefs(inspected.mode === 'index' ? agentsText : '')
 	const existing = new Set(state.resources.map((item) => item.path))
 	state.index.stale = state.index.refs.filter((ref) => ref !== 'harness/harness.md' && !existing.has(ref))
 	state.index.missing = state.resources.map((item) => item.path).filter((path) => !state.index.refs.includes(path))
@@ -650,47 +633,63 @@ export function indexRefs(text) {
 }
 
 /**
- * Build the index block from a catalog.
+ * The order the index lists resources in.
  *
- * Deterministic on purpose: the same folder produces the same bytes, so a
- * diff only ever shows what actually changed.
+ * The overview comes first, then the four layers in their fixed order. Inside
+ * a layer the entries an older index had keep the position its author gave
+ * them; a resource that was added later lands at the end of its own layer, in
+ * path order. The result is deterministic: the same folder always produces the
+ * same index, so a diff only ever shows what actually changed.
+ *
+ * @param {object[]} resources - The catalog resources.
+ * @returns {object[]} The resources, ordered.
+ */
+export function orderResources(resources) {
+	const overview = resources.filter((resource) => resource.layer === 'overview')
+	const ordered = []
+	for (const layer of LAYERS) {
+		const inLayer = resources.filter((resource) => resource.layer === layer)
+		const known = inLayer.filter((resource) => resource.order !== undefined)
+			.sort((left, right) => left.order - right.order)
+		const fresh = inLayer.filter((resource) => resource.order === undefined)
+			.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+		ordered.push(...known, ...fresh)
+	}
+	return [...overview, ...ordered]
+}
+
+/**
+ * Build the index from a catalog.
+ *
+ * The index is the whole `AGENTS.md`: a fixed header, then one line per
+ * resource — every file under `harness/`, with the description its sidecar
+ * declares. Nothing is left out, because an index that skips a file is an
+ * index that hides it.
  *
  * @param {object} state - The catalog.
- * @returns {string} The block, without the markers.
+ * @returns {string} The index document.
  */
 export function renderIndex(state) {
 	const lines = [REQUIRED_INDEX_TEXT[0], REQUIRED_INDEX_TEXT[1], '']
-	const link = (resource) => {
-		const label = resource.label || resource.title || basename(resource.path)
-		const summary = resource.summary || '待补充 summary'
-		return `- [${label}](${resource.path})：${summary}`
+	for (const resource of orderResources(state.resources)) {
+		const label = resource.sidecar === true
+			? resource.title
+			: (resource.label || resource.title || basename(resource.path))
+		const description = String(resource.description ?? '').trim()
+		lines.push(description === ''
+			? `- [${label}](${resource.path})`
+			: `- [${label}](${resource.path})：${description}`)
 	}
-	const overview = state.resources.find((resource) => resource.path === `harness/${OVERVIEW}`)
-	lines.push(
-		`- [Harness 开发指南](harness/harness.md)：${overview?.summary || '项目总览、关键约束、常用入口和注意事项'}`,
-	)
-	const layerIndex = (resource) => LAYERS.indexOf(resource.layer)
-	const ordered = state.resources
-		.filter((resource) => resource.path !== 'harness/harness.md')
-		.sort((left, right) => {
-			// Known entries keep the position the author gave them; new ones
-			// land at the end of their own layer, in path order.
-			const leftOrder = left.order ?? Number.MAX_SAFE_INTEGER
-			const rightOrder = right.order ?? Number.MAX_SAFE_INTEGER
-			if (leftOrder !== rightOrder) return leftOrder - rightOrder
-			if (layerIndex(left) !== layerIndex(right)) return layerIndex(left) - layerIndex(right)
-			return left.path < right.path ? -1 : left.path > right.path ? 1 : 0
-		})
-	for (const resource of ordered) lines.push(link(resource))
 	return lines.join('\n')
 }
 
 /**
- * Whether a document is nothing but an old-style harness index.
+ * Whether a document is nothing but an index.
  *
- * This is the shape the old evolver generated: the whole `AGENTS.md` was the
- * index. It is still accepted as `legacy` so an old project can be adopted, but
- * only the managed block is written.
+ * This is the shape the index has always had: a header, then one link line
+ * per resource. A file that looks like this is an index — an old one or a
+ * current one — and its entries can be harvested. A file with prose in it is
+ * a hand-written document, and the plugin does not touch it without a backup.
  *
  * @param {string} text - The trimmed document.
  * @returns {boolean} True when every line belongs to an index.
@@ -709,81 +708,30 @@ export function isBareIndex(text) {
 }
 
 /**
- * Locate the index inside an `AGENTS.md`.
+ * What shape the project's `AGENTS.md` has.
  *
- * Four shapes: the managed block (`block`); an old-style bare index as the
- * whole file (`legacy`, parsed as an index so adopting it keeps its labels); a
- * file with neither (`absent`); and a half-written pair of markers (`broken`,
- * never guessed at — a wrong guess would eat the document).
+ * - `absent`: there is no file (or it is empty);
+ * - `index`: the file is an index — the current one or an old one, both of
+ *   which can be harvested and rebuilt;
+ * - `handwritten`: the file holds prose. It is not an index, so the plugin
+ *   will not silently replace it: it backs it up first.
  *
  * @param {string} text - The AGENTS.md text.
- * @returns {{mode: 'block' | 'legacy' | 'absent' | 'broken', begin: number, end: number, inner: string}} Where the index lives.
+ * @returns {{mode: 'absent' | 'index' | 'handwritten'}} What it is.
  * @internal exported for tests
  */
-export function inspectIndex(text) {
+export function inspectAgents(text) {
 	const source = String(text ?? '')
-	const begin = source.indexOf(BLOCK_BEGIN)
-	const end = source.indexOf(BLOCK_END)
-	if (begin !== -1 && end !== -1 && begin + BLOCK_BEGIN.length <= end) {
-		return {
-			mode: 'block',
-			begin,
-			end: end + BLOCK_END.length,
-			inner: source.slice(begin + BLOCK_BEGIN.length, end),
-		}
-	}
-	if (begin !== -1 || end !== -1) return { mode: 'broken', begin: -1, end: -1, inner: '' }
-	if (source.trim() === '') return { mode: 'absent', begin: -1, end: -1, inner: '' }
-	if (isBareIndex(source)) return { mode: 'legacy', begin: -1, end: -1, inner: source }
-	// Hand-written prose without an index block: there is no index yet.
-	return { mode: 'absent', begin: -1, end: -1, inner: '' }
-}
-
-/**
- * Put the managed index block into an `AGENTS.md` without touching anything
- * outside it.
- *
- * - a file that already has the block: replace only what is between the
- *   markers, keep both markers and every outside byte;
- * - a file that is nothing but an old-style bare index: adopt it as the block
- *   (its labels, order and purposes reach the new index through the catalog
- *   harvest, so adopting loses no curated content);
- * - a missing or empty file: write just the block;
- * - hand-written prose: append the block after one blank line, keeping every
- *   existing byte where it was.
- *
- * A half-written pair of markers is an error, not a repair: the missing half
- * means someone edited the file by hand, and guessing where their content ends
- * could delete it.
- *
- * @param {string} document - The current AGENTS.md text (empty when absent).
- * @param {string} indexText - The rendered index.
- * @returns {string} The new document.
- * @internal exported for tests
- */
-export function withIndexBlock(document, indexText) {
-	const source = String(document ?? '')
-	const block = `${BLOCK_BEGIN}\n${String(indexText ?? '').trimEnd()}\n${BLOCK_END}`
-	const inspected = inspectIndex(source)
-	if (inspected.mode === 'block') {
-		return `${source.slice(0, inspected.begin)}${block}${source.slice(inspected.end)}`
-	}
-	if (inspected.mode === 'broken') {
-		throw new Error('AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end），拒绝猜测；请手工补全或删掉残留标记后重试。')
-	}
-	if (inspected.mode === 'legacy') return `${block}\n`
-	if (source.trim() === '') return `${block}\n`
-	// Hand-written prose stays byte-for-byte where it was; the block is
-	// appended after one blank line, keeping the file's own newline shape.
-	const separator = source.endsWith('\n') ? '\n' : '\n\n'
-	return `${source}${separator}${block}\n`
+	if (source.trim() === '') return { mode: 'absent' }
+	// An index always has entries; a file with only headings is a document
+	// that happens to look like one, and replacing it without a backup would
+	// lose whatever the author wrote there.
+	if (isBareIndex(source) && /^- \[/m.test(source)) return { mode: 'index' }
+	return { mode: 'handwritten' }
 }
 
 /** How many times an index write re-reads `AGENTS.md` after an external edit. */
 const INDEX_WRITE_RETRIES = 2
-
-/** The error a half-written marker pair produces everywhere. */
-const BROKEN_INDEX_ERROR = 'AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end），拒绝猜测；请手工补全或删掉残留标记后重试。'
 
 const pathLocks = new Map()
 
@@ -865,32 +813,48 @@ function sameSnapshot(left, right) {
  */
 export async function writeAgentsIndex(root, indexText, { hooks } = {}) {
 	const agentsPath = join(root, 'AGENTS.md')
+	const next = `${String(indexText ?? '').trimEnd()}\n`
 	for (let attempt = 0; attempt <= INDEX_WRITE_RETRIES; attempt += 1) {
 		const before = await fileSnapshot(agentsPath)
-		if (before.text !== undefined && inspectIndex(before.text).mode === 'broken') throw new Error(BROKEN_INDEX_ERROR)
-		const next = withIndexBlock(before.text ?? '', indexText)
-		const mode = inspectIndex(next).mode
-		if (next === (before.text ?? '')) return { changed: false, text: next, mode, previous: before.text }
+		if (next === (before.text ?? '')) return { changed: false, text: next, previous: before.text }
 		// The only way to inject an external edit into the window in a test;
 		// production callers pass no hooks and this is a no-op.
 		if (hooks?.beforeIndexWrite !== undefined) await hooks.beforeIndexWrite({ attempt, path: agentsPath })
 		const now = await fileSnapshot(agentsPath)
 		if (!sameSnapshot(before, now)) continue
 		await writeFileAtomic(agentsPath, next)
-		return { changed: true, text: next, mode, previous: before.text }
+		return { changed: true, text: next, previous: before.text }
 	}
-	throw new Error('AGENTS.md 在读取后被其他写入改动（重试 2 次仍未稳定），索引合并冲突；没有覆盖对方的改动，请稍后重试。')
+	throw new Error('AGENTS.md 在读取后被其他写入改动（重试 2 次仍未稳定），索引写入冲突；没有覆盖对方的改动，请稍后重试。')
 }
 
 /**
- * Rebuild the managed index block of one project.
+ * Keep a hand-written `AGENTS.md` before the index replaces it.
  *
- * The only way the block changes is by running this: it is derived from the
- * folder, so it cannot disagree with it. Everything outside the block is
- * preserved as it was.
+ * The project's `AGENTS.md` is the harness index, so a file that holds prose
+ * there has to go somewhere. It is copied to `AGENTS.legacy-<hash>.md` first:
+ * the name is derived from the content, so backing the same document up twice
+ * does not litter the project, and the copy is never indexed.
  *
  * @param {string} root - The project root.
- * @returns {Promise<{entries: number, changed: boolean, mode: string}>} What was written.
+ * @param {string} text - The hand-written document.
+ * @returns {Promise<string>} The project-relative path of the backup.
+ */
+export async function backupAgents(root, text) {
+	const digest = createHash('sha256').update(String(text ?? '')).digest('hex').slice(0, 8)
+	const name = `AGENTS.legacy-${digest}.md`
+	await writeFileAtomic(join(root, name), String(text ?? ''))
+	return name
+}
+
+/**
+ * Rebuild the index of one project.
+ *
+ * The index is derived from the folder, so it cannot disagree with it. A
+ * hand-written `AGENTS.md` is backed up before it is replaced.
+ *
+ * @param {string} root - The project root.
+ * @returns {Promise<{entries: number, changed: boolean, backup?: string}>} What was written.
  */
 export async function ensureIndex(root) {
 	const agentsPath = join(root, 'AGENTS.md')
@@ -899,8 +863,13 @@ export async function ensureIndex(root) {
 		if (state.limited) {
 			throw new Error(`harness/ 的文件数超过单次扫描上限（${CATALOG_LIMITS.maxFiles}），catalog 清单不完整，拒绝用它重建 AGENTS.md 索引；请先精简 harness/。`)
 		}
+		const current = await readText(agentsPath)
+		let backup
+		if (current !== '' && inspectAgents(current).mode === 'handwritten') {
+			backup = await backupAgents(root, current)
+		}
 		const applied = await writeAgentsIndex(root, renderIndex(state))
-		return { entries: state.resources.length, changed: applied.changed, mode: applied.mode }
+		return { entries: state.resources.length, changed: applied.changed, ...(backup === undefined ? {} : { backup }) }
 	})
 }
 
@@ -934,13 +903,6 @@ export async function migrateLayout(root, { dryRun = false } = {}) {
 async function migrateLayoutLocked(root, { dryRun = false } = {}) {
 	const harnessDir = join(root, 'harness')
 	const agentsPath = join(root, 'AGENTS.md')
-	// Check the index before moving anything: a half-written marker pair means
-	// the document must not be touched, and moving the folders first would
-	// leave a migrated tree with an unreadable index.
-	const agentsBefore = await readFile(agentsPath, 'utf8').catch(() => undefined)
-	if (agentsBefore !== undefined && inspectIndex(agentsBefore).mode === 'broken') {
-		throw new Error('AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end），没有迁移；请手工补全或删掉残留标记后重试。')
-	}
 	const moved = []
 	const renamed = []
 	const present = await readdir(harnessDir).catch(() => [])
@@ -1005,19 +967,12 @@ async function migrateLayoutLocked(root, { dryRun = false } = {}) {
 	}
 	// The index lives at the project root, not under harness/. Rewriting it
 	// here is what lets the migration keep each entry's label and purpose:
-	// they are looked up by path, and the path just changed. Only the managed
-	// block (or an old bare index, which is all index) is rewritten — prose a
-	// person wrote around the block must come through byte-identical.
+	// they are looked up by path, and the path just changed. Only an index is
+	// rewritten — a hand-written `AGENTS.md` is left alone, and the write that
+	// triggered the migration backs it up before replacing it.
 	const agents = await readFile(agentsPath, 'utf8').catch(() => undefined)
-	if (agents !== undefined) {
-		const inspected = inspectIndex(agents)
-		let next = agents
-		if (inspected.mode === 'block') {
-			const inner = rewritePaths(inspected.inner)
-			next = `${agents.slice(0, inspected.begin + BLOCK_BEGIN.length)}${inner}${agents.slice(inspected.end - BLOCK_END.length)}`
-		} else if (inspected.mode === 'legacy') {
-			next = rewritePaths(agents)
-		}
+	if (agents !== undefined && inspectAgents(agents).mode === 'index') {
+		const next = rewritePaths(agents)
 		if (next !== agents) await writeFile(agentsPath, next, { mode: 0o600 })
 	}
 
@@ -1062,6 +1017,11 @@ async function countRewrites(harnessDir) {
 /**
  * Create the folder skeleton when it is missing.
  *
+ * The overview gets a sidecar of its own, so the index has something to say
+ * about it before anybody writes the project overview. A project still laid
+ * out the old way is migrated first: the four layers are the structure the
+ * index describes, and a retired folder would only be noise in it.
+ *
  * @param {string} root - The project root.
  * @param {{dryRun?: boolean}} [options] - Whether to only report.
  * @returns {Promise<string[]>} What was created.
@@ -1081,6 +1041,17 @@ export async function initHarness(root, { dryRun = false } = {}) {
 				await mkdir(target, { recursive: true, mode: 0o700 })
 			}
 		}
+	}
+	if (!dryRun) {
+		const overview = `harness/${OVERVIEW}`
+		if (!(await exists(sidecarPath(root, overview)))) {
+			await writeSidecar(root, overview, { title: OVERVIEW_TITLE, description: OVERVIEW_DESCRIPTION })
+		}
+		const retired = []
+		for (const name of Object.keys(RETIRED_LAYERS)) {
+			if (await exists(join(harnessDir, name))) retired.push(name)
+		}
+		if (retired.length > 0) await migrateLayout(root)
 	}
 	return created
 }

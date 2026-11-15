@@ -336,6 +336,23 @@ export class IndexDatabase {
 	}
 
 	/**
+	 * SQLite's cross-connection change counter.
+	 *
+	 * `this.version` only counts writes made through this connection. Cached
+	 * views also need to notice maintenance that commits elsewhere (a repair
+	 * script, or another host on the same data directory): SQLite bumps this
+	 * pragma when another connection writes, and leaves it alone for our own
+	 * writes, so reading it is cheap enough to do per cached read.
+	 *
+	 * @returns {number} The connection's data-version counter; 0 when closed.
+	 */
+	dataVersion() {
+		if (this.db === null) return 0
+		const row = this.statement('data-version', 'PRAGMA data_version').get()
+		return Number(row?.data_version) || 0
+	}
+
+	/**
 	 * Write one key into the index metadata table.
 	 *
 	 * @param {string} key - The key.

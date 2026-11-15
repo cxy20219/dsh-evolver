@@ -180,9 +180,12 @@ export class FileStore {
 		this.db = new IndexDatabase({ path: this.dbPath, logger })
 		// Aggregates the overview asks for are computed from index scans; cache
 		// them against the index version so a panel refresh is free until the
-		// library changes.
-		this.statsCache = { version: -1, value: null }
-		this.tagCache = { version: -1, byLimit: new Map() }
+		// library changes. The version alone only covers writes made through
+		// this connection, so the cache key also carries SQLite's
+		// data-version: maintenance committed by another process (repair,
+		// second host) bumps it without touching `db.version`.
+		this.statsCache = { version: -1, dataVersion: -1, value: null }
+		this.tagCache = { version: -1, dataVersion: -1, byLimit: new Map() }
 	}
 
 	/**
@@ -895,14 +898,18 @@ export class FileStore {
 	/**
 	 * The most-used tags.
 	 *
-	 * Cached against the index version: the tag tree is drawn on every overview
-	 * and only changes when the library does.
+	 * Cached against the index version and SQLite's data-version: the tag tree
+	 * is drawn on every overview and only changes when the library does, but
+	 * another process committing maintenance must invalidate it too.
 	 *
 	 * @param {number} [limit] - Maximum tags.
 	 * @returns {Array<{tag: string, count: number}>} The counts.
 	 */
 	tagCounts(limit = 200) {
-		if (this.tagCache.version !== this.db.version) this.tagCache = { version: this.db.version, byLimit: new Map() }
+		const dataVersion = this.db.dataVersion()
+		if (this.tagCache.version !== this.db.version || this.tagCache.dataVersion !== dataVersion) {
+			this.tagCache = { version: this.db.version, dataVersion, byLimit: new Map() }
+		}
 		const key = Math.max(1, Math.min(1000, Math.round(Number(limit) || 200)))
 		const cached = this.tagCache.byLimit.get(key)
 		if (cached !== undefined) return cached
@@ -962,17 +969,22 @@ export class FileStore {
 	/**
 	 * Counts for the overview and the injected summary.
 	 *
-	 * Cached against the index version; a write invalidates it. The orphan
-	 * count is arithmetic over two index counts instead of a per-file probe.
+	 * Cached against the index version and SQLite's data-version, so both a
+	 * write through this store and a commit from another connection invalidate
+	 * it. The orphan count is arithmetic over two index counts instead of a
+	 * per-file probe.
 	 *
 	 * @returns {{files: number, archived: number, links: number, tags: number, tagAssignments: number, orphans: number, mimes: Array<{mime: string, count: number}>}} The stats.
 	 */
 	stats() {
-		if (this.statsCache.version === this.db.version) return this.statsCache.value
+		const dataVersion = this.db.dataVersion()
+		if (this.statsCache.version === this.db.version && this.statsCache.dataVersion === dataVersion) {
+			return this.statsCache.value
+		}
 		const base = this.db.stats()
 		const orphans = base.files + base.archived - this.db.linkedCount()
 		const value = { ...base, orphans }
-		this.statsCache = { version: this.db.version, value }
+		this.statsCache = { version: this.db.version, dataVersion, value }
 		return value
 	}
 

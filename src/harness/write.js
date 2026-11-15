@@ -1,38 +1,39 @@
 /**
  * Writing one harness resource.
  *
- * Three things happen together, which is the whole reason this is a function
- * and not an instruction: the file lands, the index is rebuilt from the folder
- * it now contains, and the structure is validated. A write that cannot produce
- * a consistent folder is undone rather than reported as done.
+ * Four things happen together, which is the whole reason this is a function
+ * and not an instruction: the file lands, its sidecar lands beside it, the
+ * index is rebuilt from the folder it now contains, and the structure is
+ * validated. A write that cannot produce a consistent folder is undone rather
+ * than reported as done.
+ *
+ * The sidecar carries the title and the description the index shows, so the
+ * same contract as the library applies to every resource — a script, a
+ * template, a note. The description is required: an entry the reader cannot
+ * search by is an entry that does not exist.
  *
  * The tool layer that calls this passes a project root it already resolved;
  * the path helpers below are also what `file_write({from})` uses to turn a
  * relative path into the one file it is allowed to import into the library.
- *
- * Ported from dsh-evolver 1.0.0. The one host adaptation is containment: the
- * old `src/workspace.js` is gone, and the real-path check moved into
- * `harness/store.js`, so both write and import read the same rule.
  */
 
 import { lstat, mkdir, readFile, rm } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { writeFileAtomic } from '../atomic.js'
 
 import {
 	CATALOG_LIMITS,
-	LAYERS,
-	RESOURCE_LAYER,
-	TOOL_LAYER,
+	backupAgents,
 	catalog,
-	inspectIndex,
+	initHarness,
+	inspectAgents,
 	isReallyInside,
 	renderIndex,
-	withFrontmatter,
 	withPathLock,
 	writeAgentsIndex,
 } from './store.js'
+import { assertResourceDescription, removeSidecar, sidecarPath, writeSidecar } from './sidecar.js'
 import { validate } from './validate.js'
 
 /** The name a resource file may have: one segment, no traversal. */
@@ -56,73 +57,6 @@ export function slugOf(value) {
 }
 
 /**
- * The project-relative POSIX spelling of an absolute path.
- *
- * @param {string} root - The project root.
- * @param {string} path - An absolute path.
- * @returns {string | undefined} The relative path, or undefined when outside.
- */
-function relativeTo(root, path) {
-	const base = resolve(root)
-	const probe = resolve(base, path)
-	const rel = relative(base, probe)
-	if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined
-	return rel.split(sep).join('/')
-}
-
-/**
- * Resolve one existing harness resource inside a project.
- *
- * A promoted resource has to be read, so the input may be a project-relative
- * path (`harness/experience/x.md`) or an absolute one; both are normalised the
- * same way and must stay inside `harness/`, following symlinks, before a byte
- * is read.
- *
- * @param {string} root - The project root.
- * @param {unknown} path - The caller's path.
- * @returns {Promise<{absolute: string, relative: string}>} The resolved resource.
- */
-export async function resolveResourcePath(root, path) {
-	const raw = String(path ?? '').trim()
-	if (raw === '') throw new Error('需要 path：项目内 harness 资源的相对路径。')
-	const absolute = resolve(root, raw)
-	const rel = relativeTo(root, absolute)
-	if (rel === undefined) throw new Error(`路径不合法（越过了项目根）：${raw}`)
-	if (!rel.startsWith('harness/')) throw new Error(`只能操作 harness/ 下的资源：${raw}`)
-	if (!(await isReallyInside(join(root, 'harness'), absolute))) {
-		throw new Error(`路径不合法（越过了 harness/ 的真实目录）：${raw}`)
-	}
-	const info = await lstat(absolute).catch(() => undefined)
-	if (info === undefined || !info.isFile()) throw new Error(`没有这个资源：${rel}`)
-	return { absolute, relative: rel }
-}
-
-/**
- * Work out which file a write targets.
- *
- * @param {{root: string, layer?: string, slug?: string, path?: string}} options - The write.
- * @returns {Promise<string>} The absolute path.
- */
-async function resolveTarget({ root, layer, slug, path }) {
-	if (typeof path === 'string' && path.trim() !== '') {
-		return (await resolveResourcePath(root, path)).absolute
-	}
-	if (!LAYERS.includes(String(layer))) {
-		throw new Error(`layer 必须是 ${LAYERS.join(' / ')} 之一。`)
-	}
-	const name = slugOf(slug)
-	if (name === '') throw new Error(`文件名不合法：${String(slug ?? '')}（只能用小写英文、数字、. _ -）`)
-	// A workflow or an experience is a document; a tool or a resource is
-	// whatever the file is, extension included.
-	const extension = layer === TOOL_LAYER || layer === RESOURCE_LAYER ? '' : '.md'
-	// A document layer names its files itself: `foo.md` as a slug would have
-	// produced `foo.md.md`, which then looks like a different resource.
-	const stem = extension === '.md' ? name.replace(/\.md$/i, '') : name
-	const file = extension === '' ? stem : `${stem}${extension}`
-	return join(root, 'harness', String(layer), file)
-}
-
-/**
  * Put one file back only while it still holds what this write put there.
  *
  * A rollback must not become a second clobber: if a user (or another process)
@@ -143,7 +77,7 @@ async function restoreIfUnchanged(path, written, previous) {
 }
 
 /**
- * Put the managed index back to the text it had before a failed write.
+ * Put the index back to the text it had before a failed write.
  *
  * The restore target is the snapshot the index write actually merged into, not
  * the preflight read: an editor may have changed the document between the two,
@@ -154,7 +88,7 @@ async function restoreIfUnchanged(path, written, previous) {
  *
  * @param {string} agentsPath - The document.
  * @param {{changed: boolean, text: string, previous: string | undefined}} applied - What the index write produced.
- * @returns {Promise<boolean>} True when it was restored.
+ * @returns {Promise<boolean>} True when the document was restored.
  */
 async function restoreAgents(agentsPath, applied) {
 	if (applied.changed !== true) return false
@@ -166,67 +100,93 @@ async function restoreAgents(agentsPath, applied) {
 }
 
 /**
+ * Give every resource that has a description in the index a sidecar.
+ *
+ * An index written before this plugin owned the project already carries the
+ * one-line purposes; copying them into sidecars is what turns an old project
+ * into a described one without inventing a word. Resources the old index never
+ * mentioned are left alone: they get a warning until somebody says what they
+ * are.
+ *
+ * @param {string} root - The project root.
+ * @param {object} state - The catalog.
+ * @returns {Promise<string[]>} The resources that gained a sidecar.
+ */
+async function adoptDescriptions(root, state) {
+	const adopted = []
+	for (const resource of state.resources) {
+		if (resource.sidecar === true) continue
+		if (resource.description === '') continue
+		await writeSidecar(root, resource.path, { title: resource.label || resource.title, description: resource.description })
+		adopted.push(resource.path)
+	}
+	return adopted
+}
+
+/**
  * Write or update one resource and leave the folder consistent.
  *
- * The whole target → index → validate cycle runs under one per-project lock,
- * because every step reads the folder and the index is rebuilt from what it
- * read: two writes interleaving would each render an index missing the other's
- * file (stability audit P2-5). Within the cycle, `writeAgentsIndex` re-reads
- * `AGENTS.md` before every write and retries if it changed, so an editor
- * outside this process is never overwritten either.
+ * The whole target → sidecar → index → validate cycle runs under one
+ * per-project lock, because every step reads the folder and the index is
+ * rebuilt from what it read: two writes interleaving would each render an index
+ * missing the other's file (stability audit P2-5). Within the cycle,
+ * `writeAgentsIndex` re-reads `AGENTS.md` before every write and retries if it
+ * changed, so an editor outside this process is never overwritten either.
  *
  * @param {object} options - The write.
  * @param {string} options.root - The project root.
- * @param {string} [options.layer] - One of the four layers.
- * @param {string} [options.slug] - File name without extension.
- * @param {string} [options.title] - The document heading.
- * @param {string} [options.summary] - The one-line purpose the index shows.
- * @param {string} [options.body] - The document text.
- * @param {string} [options.path] - An existing resource to replace.
+ * @param {string} options.relative - The resource's project-relative path.
+ * @param {string} options.content - The file's text.
+ * @param {string} [options.title] - The title the index shows.
+ * @param {string} options.description - The one-line purpose the index shows.
  * @param {object} [options.hooks] - Test seam for the read→write and validate→rollback windows.
  * @returns {Promise<object>} What happened.
  */
-export async function writeResource({ root, layer, slug, title, summary, body, path, hooks }) {
-	const target = await resolveTarget({ root, layer, slug, path })
-	const heading = String(title ?? '').trim()
-	const text = String(body ?? '').trim()
-	if (text === '') throw new Error('正文不能为空。')
-	if (heading === '' && !text.startsWith('#')) throw new Error('需要一个标题：给 title，或让正文以 # 开头。')
-
-	const document = withFrontmatter(
-		{
-			title: heading,
-			summary: String(summary ?? '').trim(),
-		},
-		text.startsWith('#') ? text : `# ${heading}\n\n${text}`,
-	)
-
+export async function writeHarnessResource({ root, relative: relativePath, content, title, description, hooks }) {
+	if (typeof content !== 'string') throw new Error('写 harness 资源需要 content（文本正文）。')
+	if (!relativePath.startsWith('harness/')) throw new Error(`只能写 harness/ 下的资源：${relativePath}`)
+	// The skeleton, the overview's sidecar and a retired layout are settled
+	// before the path is checked: the folder has to exist before "inside it"
+	// can be decided. The migration takes the same lock, and a lock that waits
+	// for itself never comes back.
+	await initHarness(root)
+	const target = join(root, ...relativePath.split('/'))
+	if (!(await isReallyInside(join(root, 'harness'), target))) {
+		throw new Error(`路径越界（真实路径不在 harness/ 内）：${relativePath}`)
+	}
+	const clean = assertResourceDescription(description)
 	const agentsPath = join(root, 'AGENTS.md')
-	return withPathLock(agentsPath, () => writeResourceLocked({ root, agentsPath, target, document, hooks }))
+	return withPathLock(agentsPath, () => writeResourceLocked({
+		root,
+		agentsPath,
+		target,
+		relativePath,
+		content,
+		title,
+		description: clean,
+		hooks,
+	}))
 }
 
 /**
  * The write cycle, already under the project lock.
  *
- * @param {{root: string, agentsPath: string, target: string, document: string, hooks?: object}} options - The write.
+ * @param {{root: string, agentsPath: string, target: string, relativePath: string, content: string, title?: string, description: string, hooks?: object}} options - The write.
  * @returns {Promise<object>} What happened.
  */
-async function writeResourceLocked({ root, agentsPath, target, document, hooks }) {
+async function writeResourceLocked({ root, agentsPath, target, relativePath, content, title, description, hooks }) {
 	const previous = await readFile(target, 'utf8').catch(() => undefined)
-	const agentsPrevious = await readFile(agentsPath, 'utf8').catch(() => undefined)
-	// Preflight the index before anything is written. Only a broken marker pair
-	// is refused: hand-written prose is normal, and the block is appended after
-	// it rather than replacing it.
-	if (agentsPrevious !== undefined && inspectIndex(agentsPrevious).mode === 'broken') {
-		throw new Error('AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end），没有写入；请手工补全或删掉残留标记后重试。')
-	}
-
-	const writtenTarget = `${document.trimEnd()}\n`
+	const sidecar = sidecarPath(root, relativePath)
+	const previousSidecar = await readFile(sidecar, 'utf8').catch(() => undefined)
+	const written = content.endsWith('\n') ? content : `${content}\n`
 	await mkdir(dirname(target), { recursive: true, mode: 0o700 })
-	await writeFileAtomic(target, writtenTarget)
+	await writeFileAtomic(target, written)
+	const sidecarText = `${JSON.stringify({ schema: 1, title: String(title ?? '').trim(), description }, null, '\t')}\n`
+	await writeFileAtomic(sidecar, sidecarText)
 
 	let state
 	let applied
+	let backup
 	try {
 		// The index is rebuilt from the folder, never edited by hand: that is
 		// what makes "every resource is indexed" a property instead of a hope.
@@ -234,18 +194,23 @@ async function writeResourceLocked({ root, agentsPath, target, document, hooks }
 		if (state.limited === true) {
 			throw new Error(`harness/ 的文件数超过单次扫描上限（${CATALOG_LIMITS.maxFiles}），catalog 清单不完整，拒绝写入并重建索引；请先精简 harness/。`)
 		}
+		const current = await readFile(agentsPath, 'utf8').catch(() => undefined)
+		if (current !== undefined && current.trim() !== '' && inspectAgents(current).mode === 'handwritten') {
+			// The index owns this file now, but the prose in it is somebody's
+			// work: it is kept beside the project before it is replaced.
+			backup = await backupAgents(root, current)
+		}
 		applied = await writeAgentsIndex(root, renderIndex(state), { hooks })
 	} catch (error) {
-		// Either the index was never touched (broken markers, conflict, limited
-		// scan) or it belongs to someone else now. The target is ours to remove
-		// only while it still holds what this write put there.
-		await restoreIfUnchanged(target, writtenTarget, previous)
+		await restoreIfUnchanged(target, written, previous)
+		await restoreIfUnchanged(sidecar, sidecarText, previousSidecar)
 		throw error
 	}
 
 	const report = await validate(root)
 	if (!report.ok) {
-		await restoreIfUnchanged(target, writtenTarget, previous)
+		await restoreIfUnchanged(target, written, previous)
+		await restoreIfUnchanged(sidecar, sidecarText, previousSidecar)
 		// The rollback of the document happens only when it is still ours; an
 		// edit made in the window is kept, and the next write/tool run will
 		// rebuild a consistent index around it.
@@ -254,12 +219,66 @@ async function writeResourceLocked({ root, agentsPath, target, document, hooks }
 		throw new Error(`校验未通过，已回滚：${report.errors.slice(0, 3).join('；')}`)
 	}
 
-	return {
-		path: target.slice(root.length + 1).split('\\').join('/'),
-		created: previous === undefined,
-		errors: report.errors,
-		warnings: report.warnings,
-		skipped: report.skipped,
-		indexed: state.resources.length,
+	const adopted = await adoptDescriptions(root, state)
+	const warnings = [...report.warnings]
+	if (backup !== undefined) {
+		warnings.push(`AGENTS.md 原是手写文档，已备份为 ${backup}，并按 harness/ 重建为索引；原手写内容请搬进 harness/harness.md。`)
 	}
+	if (adopted.length > 0) {
+		warnings.push(`已从旧索引继承 ${adopted.length} 条描述，写进对应资源的边车。`)
+	}
+	return {
+		path: relativePath,
+		created: previous === undefined,
+		indexed: state.resources.length,
+		warnings,
+		...(backup === undefined ? {} : { backup }),
+		validation: { ok: report.errors.length === 0, errors: report.errors, warnings: report.warnings, skipped: report.skipped },
+	}
+}
+
+/**
+ * Remove one resource, its sidecar and its index entry.
+ *
+ * @param {object} options - The removal.
+ * @param {string} options.root - The project root.
+ * @param {string} options.relative - The resource's project-relative path.
+ * @returns {Promise<object>} What happened.
+ */
+export async function removeHarnessResource({ root, relative: relativePath }) {
+	if (!relativePath.startsWith('harness/')) throw new Error(`只能删除 harness/ 下的资源：${relativePath}`)
+	const target = join(root, ...relativePath.split('/'))
+	if (!(await isReallyInside(join(root, 'harness'), target))) {
+		throw new Error(`路径越界（真实路径不在 harness/ 内）：${relativePath}`)
+	}
+	const info = await lstat(target).catch(() => undefined)
+	if (info === undefined) throw new Error(`没有这个资源：${relativePath}`)
+	const agentsPath = join(root, 'AGENTS.md')
+	return withPathLock(agentsPath, async () => {
+		const previous = await readFile(target, 'utf8').catch(() => undefined)
+		await rm(target, { force: true })
+		await removeSidecar(root, relativePath)
+		let state
+		let applied
+		try {
+			state = await catalog(root)
+			applied = await writeAgentsIndex(root, renderIndex(state))
+		} catch (error) {
+			if (previous !== undefined) await writeFileAtomic(target, previous).catch(() => {})
+			throw error
+		}
+		const report = await validate(root)
+		if (!report.ok) {
+			if (previous !== undefined) await writeFileAtomic(target, previous).catch(() => {})
+			await restoreAgents(agentsPath, applied)
+			throw new Error(`校验未通过，已回滚：${report.errors.slice(0, 3).join('；')}`)
+		}
+		return {
+			path: relativePath,
+			removed: true,
+			indexed: state.resources.length,
+			warnings: report.warnings,
+			validation: { ok: report.errors.length === 0, errors: report.errors, warnings: report.warnings, skipped: report.skipped },
+		}
+	})
 }

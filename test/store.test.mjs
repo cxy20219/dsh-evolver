@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { FileStore, readPayloadSource } from '../src/store.js'
 import { IndexDatabase } from '../src/db.js'
 import { isReservedName } from '../src/names.js'
-import { tempDir, withStore } from './helpers.mjs'
+import { removeDir, tempDir, withStore } from './helpers.mjs'
 
 test('新建文本文件：边车、正文、MIME 都正确', async () => {
 	await withStore(async (store, dir) => {
@@ -726,4 +726,35 @@ test('短 id：撞车的五位后缀拒绝解析，更长后缀唯一；写入/�
 		store.db.remove(right)
 		assert.equal(store.resolveId('XY3AB'), left, '撞车项删除后五位后缀重新唯一')
 	})
+})
+
+test('外部连接提交后，统计与标签缓存按 data_version 失效', async () => {
+	const dir = await tempDir()
+	const first = new FileStore({ dataDir: dir })
+	const second = new FileStore({ dataDir: dir })
+	await first.open()
+	await second.open()
+	try {
+		assert.equal(first.stats().files, 0, '先缓存空库统计')
+		assert.deepEqual(first.tagCounts(10), [], '先缓存空库标签')
+		await second.create({
+			tags: ['测试/外部写'],
+			name: 'external.md',
+			description: '外部连接写入，用于验证宿主缓存能检测到别的连接提交',
+			content: 'x',
+		})
+		assert.equal(first.stats().files, 1, '别的连接提交后统计缓存失效')
+		assert.deepEqual(first.tagCounts(10).map((row) => row.tag), ['测试/外部写'], '别的连接提交后标签缓存失效')
+		await first.create({
+			tags: ['测试/自身写'],
+			name: 'self.md',
+			description: '本连接写入，用于验证原有的 version 失效路径仍然生效',
+			content: 'y',
+		})
+		assert.equal(second.stats().files, 2, '反方向同样能看到对方提交')
+	} finally {
+		first.close()
+		second.close()
+		await removeDir(dir)
+	}
 })

@@ -18,7 +18,8 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { descriptionAdvice } from '../meta.js'
-import { LAYERS, OVERVIEW, REFERENCED_LAYERS, REQUIRED_INDEX_TEXT, TOOL_LAYER, catalog, indexRefs, inspectIndex } from './store.js'
+import { LAYERS, OVERVIEW, REFERENCED_LAYERS, REQUIRED_INDEX_TEXT, TOOL_LAYER, catalog, indexRefs, renderIndex } from './store.js'
+import { sidecarRelative } from './sidecar.js'
 
 const run = promisify(execFile)
 
@@ -188,43 +189,37 @@ export async function validate(root, { python, runner } = {}) {
 	} else {
 		const text = await readFile(join(root, 'AGENTS.md'), 'utf8').catch(() => '')
 		const mode = state.index.mode
-		if (mode === 'broken') {
-			errors.push('AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end）；请手工补全或删掉残留标记，工具不会猜测覆盖。')
-		} else if (mode === 'absent') {
-			errors.push('AGENTS.md 里还没有受管索引块；写入 harness 资源时会自动补上，块外内容不动。')
+		if (mode === 'handwritten') {
+			errors.push('AGENTS.md 是手写文档，不是 harness 索引；把里面的内容搬进 harness/harness.md 后重新写一次 harness 资源，插件会按目录重建索引（手写版本会先被备份）。')
 		} else {
-			if (mode === 'legacy') {
-				warnings.push('AGENTS.md 还是旧式裸索引（没有受管块）；下次写入会自动改造成受管块。')
-			}
-			// `legacy` means the whole file is the old index; `block` means only
-			// the managed part is. Prose outside the block is never checked as
-			// an index.
-			const indexText = mode === 'block' ? inspectIndex(text).inner : text
 			for (const required of REQUIRED_INDEX_TEXT) {
-				if (!indexText.includes(required)) {
-					errors.push(`AGENTS.md 的索引块不符合 harness 模板，缺少：${required}`)
+				if (!text.includes(required)) {
+					errors.push(`AGENTS.md 的索引不符合 harness 模板，缺少：${required}`)
 				}
+			}
+			// The index is derived from the folder: if the two disagree, the
+			// file was edited by hand or the folder changed without a write.
+			const expected = `${renderIndex(state).trimEnd()}\n`
+			if (text.replace(/\r\n/g, '\n') !== expected) {
+				errors.push('AGENTS.md 与 harness/ 不一致：索引必须由目录生成（再写一次 harness 资源即可重建）。')
 			}
 			for (const ref of state.index.stale) errors.push(`AGENTS.md 索引了不存在的资源：${ref}`)
 			for (const ref of state.index.missing) errors.push(`AGENTS.md 没有索引已有资源：${ref}`)
-			if (indexText.includes('/xxx')) errors.push('AGENTS.md 里还留着 harness/xxx 占位索引。')
+			if (text.includes('/xxx')) errors.push('AGENTS.md 里还留着 harness/xxx 占位索引。')
 		}
 	}
 
 	for (const resource of state.resources) {
-		// A binary resource has no frontmatter to miss; it is indexed by name on
-		// purpose (a catalog never reads it), so warning about a summary would
-		// just train the reader to ignore warnings.
-		if (resource.summary === '' && resource.binary !== true) {
-			warnings.push(`${resource.path} 缺少 summary: frontmatter，索引里会显示占位符。`)
+		// A resource without a description is still indexed — the folder is
+		// the truth — but the reader has nothing to search by, so it is
+		// reported. The write path requires a description for the resource it
+		// writes; this check catches the ones that were already there.
+		if (resource.description === '') {
+			warnings.push(`${resource.path} 缺少描述：写一句「它是什么 + 以后哪些场景/任务会用到它」到 ${sidecarRelative(resource.path)}。`)
 			continue
 		}
-		if (resource.binary === true) continue
-		// The summary is the index line a future task sees; one that names only
-		// the artifact is not findable by the situation that needs it. Soft
-		// check: writes still succeed, the warning rides on the result.
-		const advice = descriptionAdvice(resource.summary)
-		if (advice !== '') warnings.push(`${resource.path} 的 summary ${advice}`)
+		const advice = descriptionAdvice(resource.description)
+		if (advice !== '') warnings.push(`${resource.path} 的描述 ${advice}`)
 	}
 
 	// Every `harness/...` path a document names has to exist. A workflow that
@@ -240,15 +235,22 @@ export async function validate(root, { python, runner } = {}) {
 		}
 	}
 
+	// Every tool or resource is described, so the index already says what it
+	// is for. The old evolver demanded more — a workflow document naming the
+	// file, with a representative command and a 验证 marker — because the index
+	// of that day could not describe a script at all. That demand is kept, but
+	// as a warning: a resource whose description says when it is needed is
+	// reachable, and a script that cannot be written before its document
+	// exists is a rule about order, not about correctness.
 	for (const layer of REFERENCED_LAYERS) {
 		for (const path of state.layers[layer] ?? []) {
 			const documented = await documentedBy(root, state, path)
 			if (documented === undefined) {
-				errors.push(`${path} 没有被任何 harness/{workflow,experience}/*.md 文档覆盖。`)
+				warnings.push(`${path} 没有被任何 harness/{workflow,experience}/*.md 文档覆盖；它的描述已经进索引，但一篇说明它的文档更好用。`)
 			} else if (documented.command === false) {
-				errors.push(`${path} 在文档条目里没有围栏代码块中的代表性命令。`)
+				warnings.push(`${path} 在文档条目里没有围栏代码块中的代表性命令。`)
 			} else if (documented.marker === false) {
-				errors.push(`${path} 在文档条目里没有“验证”标记。`)
+				warnings.push(`${path} 在文档条目里没有“验证”标记。`)
 			}
 		}
 	}
