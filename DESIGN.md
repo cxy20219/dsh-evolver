@@ -89,38 +89,56 @@
 
 ## 4. 数据库（SQLite，`node:sqlite`，零依赖）
 
-运行时已验证：桌面端 Electron 44.7 / Node 24.21 自带 `node:sqlite`，FTS5 可用。索引 schema 版本 2（没有 body 列）。
+运行时已验证：桌面端 Electron 44.7 / Node 24.21 自带 `node:sqlite`，FTS5 可用。**索引 schema 版本 3**（没有 body 列；版本不匹配的旧库在打开时被隔离为 `ziyan.db.corrupt-*` 并从边车重建）。
+
+核心表（完整 DDL 见 `src/db.js`）：
 
 ```sql
-PRAGMA journal_mode = WAL;
-
 CREATE TABLE files (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
   mime TEXT NOT NULL, bytes INTEGER NOT NULL, sha256 TEXT NOT NULL,
   created TEXT NOT NULL, updated TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0,
-  legacy_id TEXT
+  source TEXT NOT NULL DEFAULT '', suffix TEXT NOT NULL DEFAULT '', created_day TEXT NOT NULL DEFAULT ''
 );
+-- 热路径：默认列表 = 活跃文件按 updated 倒序，部分索引让 COUNT 与 LIMIT/OFFSET 都走索引
+CREATE INDEX files_live_updated ON files(updated DESC, id DESC) WHERE archived = 0;
+CREATE INDEX files_archived_updated ON files(updated DESC, id DESC) WHERE archived = 1;
+-- 类型矩阵 / 后缀矩阵 / 热力图：覆盖索引，聚合不碰行载荷
+CREATE INDEX files_live_mime ON files(mime) WHERE archived = 0;
+CREATE INDEX files_live_suffix ON files(suffix) WHERE archived = 0;
+CREATE INDEX files_created_day ON files(created_day);
+
 CREATE TABLE links (from_id TEXT NOT NULL, to_id TEXT NOT NULL, PRIMARY KEY (from_id, to_id));
 CREATE INDEX links_to ON links(to_id);
-CREATE TABLE tags  (file_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (file_id, tag));
-CREATE INDEX tags_tag ON tags(tag);
-CREATE VIRTUAL TABLE files_fts USING fts5(
-  id UNINDEXED, name, description, tokenize='unicode61'
-);
+
+CREATE TABLE tags (file_id TEXT NOT NULL, tag TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (file_id, tag));
+-- 两读法：某文件的标签（主键）、带某标签的文件（覆盖索引）。第三列让后者不回表。
+CREATE INDEX tags_live ON tags(archived, tag, file_id);
+
+-- 参与过至少一条链接的文件：孤立计数变成一次索引计数，不再每文件两次探测
+CREATE TABLE linked_ids (id TEXT PRIMARY KEY, archived INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX linked_archived ON linked_ids(archived);
+
+CREATE VIRTUAL TABLE files_fts USING fts5(id UNINDEXED, name, description, tokenize='unicode61');
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_version, built_at
 ```
 
 - 没有外键：`links` 要允许悬空；删除只删本体。
-- `files_fts` 只存 name + description（+ 折叠进去的 tags）的**预分词**文本，不存正文；正文在磁盘，由 agent 读。
-- 索引重建：扫 `files/*/meta.json`，重灌四张表；不读正文，所以重建与库大小基本无关。
+- `files_fts` 只存 name + description 的**预分词**文本，不存正文；正文在磁盘，由 agent 读。
+- **FTS rowid 与 `files.rowid` 对齐**：`id` 是 FTS5 的 UNINDEXED 列，按 id 删除会全表扫描（曾导致单写 O(N)、rebuild O(N²)）；写/删按 rowid 主键操作，rebuild 用一条 `INSERT ... SELECT` 批量重建。
+- **重建 = reconcile**：扫边车只 upsert 扫到的行、删除「扫描未见且 updated < 扫描起点」的行，不覆盖扫描窗口内的并发写；不读正文，所以重建成本与正文大小无关、与文件数线性。
+- DB 打开失败或 schema 不匹配时：关闭句柄 → 旧库改名 `ziyan.db.corrupt-<时间戳>`（连 -wal/-shm）→ 从边车重建索引 → 插件继续加载。
+- `tags.archived`、`suffix`、`created_day`、`linked_ids` 都是写入时维护的派生冗余（由写路径随 files 行同步），换来 100k/1M 级聚合从「全表随机回表」变成覆盖索引扫描。
 
 ## 5. 检索
 
 1. 查询分词：拉丁词小写 + 中文连续串切成 bigram（同老库 `tokenize`）。
-2. FTS：`"词1" OR "词2" ...`，`bm25(files_fts, 0, 6, 10)`（name 6、description 10）。
-3. 候选 50 条，按 `归一化 bm25 × 0.8 + 新近度 × 0.15 + 度数 × 0.05` 重排。
+2. FTS：多词先试 AND（精度），不足再回退 OR（召回），`bm25(files_fts, 0, 6, 10)`（name 6、description 10）；命中集很大时只取**最新 5000 命中窗口**再算 bm25，避免对几十万命中全量排序（可解释的取舍：新近度优先）。
+3. 过滤条件下推进 SQL：标签（EXISTS + GLOB 前缀，可走 `tags_live`）、mime、后缀、归档都在 FTS 窗口内/外由 SQL 完成，不再「先取 top-200 再内存过滤」——后者在 1M 库上会让「关键词+标签」丢结果。
 4. 返回 `id、short、name、description、mime、bytes、degree、score`。**没有 snippet**：不索引正文，片段也就没有来源；命中后由 agent `file_read` 看内容。
 5. 二进制文件与文本文件走同一条路：只能按 name/description 命中。
+6. 短 id 由增量索引维护（按当前 id 集合的 5 位后缀分组，碰撞时按需延长到 6–8 位），写入 O(1) 更新，不再每次写后重建全量 Map。
 
 为什么不用 trigram：实测 FTS5 trigram 对 2 字中文查询 0 命中（“插件”“接口”都查不到），中文必须 bigram。为什么不做正文索引/向量：用户决策——描述就是索引，其余交给 agent；这也让检索成本与文件大小脱钩，Word/PDF 不需要抽取管线。
 
@@ -222,13 +240,14 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - 日志：`system/logs/plugin.log` 尾部。
 - 安全边界：浏览器只发 id；上传/预览有字节上限；正文超过读取上限时禁用编辑，避免把截断文本写回文件。
 
-## 10. 迁移（老库 → 自衍中枢）
+## 10. 迁移（老库 → 自衍中枢，一次性完成）
 
-1. `cards.jsonl` 每张活卡 → 一个 `.md` 文件（正文做内容），description/tags/links/source 照搬；id 重新生成，`legacy_id` 保留原 `card-` id。
-2. 每个附件 → 独立文件实体；描述取卡正文引用行里的“用途…”，标签继承卡片的标签（再加一个 `类型/附件`），链接到卡文件；正文里的资源路径改写成 `file:<新id>`。
+老库已于 2026-11-14 一次性迁完（真实库结果见 §19），迁移工具与测试随后按「不为旧 evolver 兼容让路」的决策从本分支删除；需要时从 `v1.0.0` 分支或 git 历史取回。当时的迁移语义：
+
+1. 旧卡片 → 一个 `.md` 文件（正文做内容），description/tags/links/source 照搬；id 重新生成，保留原卡片 id 以便判重。
+2. 每个附件 → 独立文件实体；描述取卡正文引用行里的“用途…”，标签继承卡片的标签（再加一个 `类型/附件`），链接到卡文件；正文里的资源路径改写成新的文件路径。
 3. 链接两遍走：先建全部实体，再落 links（允许前向引用）。
-4. 脚本：`scripts/migrate-from-evolver.mjs <旧数据目录> <新数据目录>`，默认 dry-run，输出计数与冲突。
-5. 迁移后正文不进索引；老库的卡片描述本来就承担索引作用，正好对得上。
+4. 迁移后正文不进索引；老库的卡片描述本来就承担索引作用，正好对得上。
 
 ## 11. 场景验证
 
@@ -306,13 +325,13 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - `src/settings.js`、`src/logs.js`、`src/atomic.js`：设置、日志轮转、原子写在 `system/` 内；`files/` 只放文件本体。
 - 重建对“边车名与大小都对得上”的健康文件只做 `stat`，不读正文；只有名/大小不一致时才读文件修复。
 - `test/settings.test.mjs`、`test/injection.test.mjs`、`test/tools.test.mjs`、`test/plugin.test.mjs`：46 条测试全绿；插件测试断言“根目录只有 files/ 与 system/，数据目录外没有插件数据”。
-- `scripts/compare.mjs`：复制老库、迁移、分场景对比，产出 `COMPARISON.md` / `COMPARISON.json`。
+- 对比套件（已删除）：复制老库、迁移、分场景对比，产出对比报告与数据；结论留在 §17。
 
 未做：面板/HTTP 接口（P3）、迁移（P4）、会话沉淀与每日整理（P5）；插件还没装进任何 profile。
 
-## 17. 与 evolver 1.0.0 的量化对比（2026-11-13）
+## 17. 与旧 evolver 1.0.0 的量化对比（2026-11-13，历史数据）
 
-脚本：`node scripts/compare.mjs`；老库复制自 `~/.dsh/evolver`，新库在临时目录迁移后测量。样本 135 卡 / 10 附件，Node 26。
+对比套件已整体删除（不再维护老库路径与迁移后测量），下表是当时的实测记录：老库复制自旧数据目录，新库在临时目录迁移后测量。样本 135 卡 / 10 附件，Node 26。
 
 | 指标 | evolver 1.0.0 | 自衍中枢 | 解读 |
 |---|---|---|---|
@@ -358,15 +377,15 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 未做：迁移面板（P4）、系统打开/文件管理器 reveal、图谱拖拽与大库聚合、完整键盘焦点管理。
 
-## 19. P4 迁移落地记录（2026-11-14）
+## 19. P4 迁移落地记录（2026-11-14，工具已删除）
 
-已实现：
+已实现（迁移工具随后按「不兼容旧 evolver」的决策整体删除，需要时从 `v1.0.0` 分支取回）：
 
-- `src/migrate.js`：直接读老库 `cards.jsonl` 与 `knowledge/resources/`，不经过老 store，不写老库。
-- `scripts/migrate-from-evolver.mjs`：默认 dry-run；`--apply` 落盘；`--from` / `--to` / `--json`。
-- 语义：JSONL 最后一条覆盖前一条；`deleted:true` 墓碑跳过；旧 `card-` id 写进 `legacy_id`；归档标签转 `archived`；附件独立成文件并双向链接；正文的旧资源路径改写成 `files/<新id>/<name>`；死链进 warnings。
-- 幂等：已存在 `legacy_id` 跳过；重复 `--apply` 结果为 0 新建、0 更新；只有“已有卡片 + 新附件”这种半迁移状态会补链接。
-- 验证：`test/migrate.test.mjs` 覆盖最后一条覆盖、删除、归档、孤立附件、预演不写盘、真实迁移、重复执行；全量 52 条测试。
+- 迁移工具直接读老库卡片记录与旧附件目录，不经过老 store，不写老库。
+- 迁移入口默认 dry-run，`--apply` 才落盘，支持指定源/目标目录与 JSON 输出。
+- 语义：同一张卡取最后一条记录；删除墓碑跳过；旧卡片 id 保留为判重键；归档标签转 `archived`；附件独立成文件并双向链接；正文里的旧资源路径改写成新文件路径；死链进 warnings。
+- 幂等：已迁移的卡片跳过；重复执行结果为 0 新建、0 更新；只有“已有卡片 + 新附件”这种半迁移状态会补链接。
+- 验证：迁移测试覆盖最后一条覆盖、删除、归档、孤立附件、预演不写盘、真实迁移、重复执行；当时全量 52 条测试。
 
 真实库结果（`~/.dsh/evolver` → `~/.dsh/ziyan`）：
 
@@ -417,3 +436,53 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - 导出通过 base64 下载，受 32 MB 归档上限约束；更大的库后续应改成流式下载/导出到目录。
 - 导入只做“新库 + 切换”，不做合并/覆盖；旧库始终保留。
 - 指针在数据目录外，是“目录可迁移”的必要例外；备份时要一起记路径，但不要复制指针到新机器（路径会变）。
+
+## 22. 全面审计与规模化（2026-11-15）
+
+用户要求：全面审核/优化稳定性、安全性、性能；清除死代码与冗余；不为旧 evolver 兼容让路；必要时局部重构；用 10k–1M 数据验证。
+
+### 22.1 审计发现的真问题（已修）
+
+| 级别 | 问题 | 修复 |
+|---|---|---|
+| P0 | FTS5 的 `id` 是 UNINDEXED，按 id 删除 = 全表扫描 → 单写 O(N)、rebuild O(N²)（10k rebuild 19.6s，1M 外推 60h） | rowid 与 `files.rowid` 对齐，写/删按 rowid；rebuild 一条 `INSERT ... SELECT`；1M 建 FTS 61.6s |
+| P0 | `degrees()` 每次 list/search/page 全量 N×2 相关子查询（100k 274ms、1M 3.66s） | `degreesFor(ids)` 批量 GROUP BY + 页级计算 + 版本缓存（100k 0.22ms） |
+| P1 | 深翻页对被丢弃行也跑 `group_concat` 子查询（100k 尾页 2.23s、1M 35.3s） | 两段式 page + 部分索引（100k 16ms、1M 158ms） |
+| P1 | tags×files 聚合随机回表（100k 2.5–3.4s、1M 34–37s） | `tags.archived` 冗余 + `tags_live` 覆盖索引 + 版本缓存（100k 45ms、1M 923ms） |
+| P1 | 搜索+标签先取 bm25 top-200 再内存过滤 → 1M 丢结果（0 条） | 过滤条件下推进 SQL，命中窗口内排序；1M 恢复有命中 |
+| P1 | 整理作业无任何超时兜底：llm.stream 不响应 abort 时作业永久 running、自动整理停摆 | 每轮 120s / 作业 15min deadline + cancel 宽限 10s 看门狗 + 幂等终结 |
+| P1 | 插件工具无工作区边界：显式 `project` 可写任意仓库 `harness/`+`AGENTS.md` | containment：显式 project 必须是会话 cwd 祖先/后代（realpath），越界拒绝 |
+| P2 | `rebuild` 窗口内并发写会被 DELETE 全表吞掉，索引永久丢文件 | reconcile：只 upsert 扫到的行 + 删「未见且 updated<scanStartedAt」 |
+| P2 | DB 损坏/schema 不匹配 → 插件加载失败 + 句柄泄漏 | 隔离改名 `ziyan.db.corrupt-*`、关句柄、从边车重建、继续加载 |
+| P2 | 自动整理失败会烧队列（模型配错后 pending 清零且不再恢复） | 台账回滚 + 失败退避，模型修复后仍可整理 |
+| P2 | pending 只扫最近 50 会话，更早会话永久饥饿 | `listSessions({offset})` + ledger 游标分页续扫（20 页/轮） |
+| P2 | harness AGENTS.md 无锁读改写，回滚抹掉并发手改 | 单路径异步锁 + mtime/内容快照冲突重读 + 回滚前校验归属；32MB 资源 catalog 从 54ms/+192MB 降到 10ms/+0.2MB |
+| P2 | 导入归档里的 settings 可打开自动整理/覆盖模型 | 导入只采纳 limits，auto 强制关、model 用本机，写指针前落盘 |
+| P2 | `file_import` 先全量读再限大小（96MB 实测 RSS +97MB） | stat/realpath/isFile/大小预检 + TOCTOU 复查 + Windows 设备路径拒绝 |
+| P2 | meta.json 保留名静默毁载荷 | `isReservedName` 在 create/update/scan 拒绝并报 problem |
+
+已验证不是问题的项：中文/emoji/超长名、双实例并发 120 写、WAL 崩溃后删主库重建、多帧 zstd 容错、30 次 organizer 创建/关闭无定时器泄漏、100 次 open/close 无句柄泄漏、面板无 XSS、SQL 全参数化、tar 路径校验。未覆盖边界：磁盘满、只读目录、>260 路径、真实浏览器下 1M 图渲染。
+
+### 22.2 死代码与不兼容清理
+
+- 删除旧 evolver 迁移/对比整套：`src/migrate.js`、`scripts/migrate-from-evolver.mjs`、`scripts/compare.mjs`、`COMPARISON.md/json`、迁移测试（约 1500 行）；旧 `yuanshi-export` 归档清单兼容删除。
+- 删除 `legacy_id` 字段链（meta/db/store）、死导出 `newFileId`、死方法 `describeText`/`cleanDescription`；裁剪面板无消费的响应字段（overview.graph/recent/settings、digest.organize/unreadable、logs.status、file-list tag/mime、organize-status kinds/limits）与死 locale key。
+- 结果：无断链引用；面板 `overview` 端点顺带从 386ms(10k)/6.7s(100k)/102.6s(1M) 降到 1.5ms/14ms/144ms。
+
+### 22.3 局部架构重构
+
+- `src/remote.js`（387 行 switch）→ 薄 re-export + `src/remote/`：`HANDLERS` 表派生 `ENDPOINTS`，按域拆 files/panel/organize/data 四模块 + support；contract 测试从「三处一致」改为「表 ↔ client」两处。
+- `src/organize-jobs.js`（2029 行）→ 薄 re-export + `src/organize/`：budget/prompts/loop/jobs-store/scheduler/executor + 128 行组装；公开 API/落盘格式/自动调度/超时语义不变，organize.test 全过。
+- `render`/`sanitize`/`summaryOf` 收敛到 `src/json.js`（tools 与 harness/tools 共用）。
+- `client.js` 保持单文件：DSH 的 `dsh.client` 只认单个 bundle，多文件需要构建 chunk，本仓库无构建；只做内部 dead code/locale 清理，不引构建。
+- 未做：db/store 内部拆分（R5 暂缓）；`executor.js` 仍 628 行（控制面依赖私有状态，抽离会新增状态 API）。
+
+### 22.4 规模与可靠性验收
+
+- 10k / 100k 真实文件系统库 + 1M DB 级合成 + **1M 真实文件系统库**（`scripts/scale.mjs`），全部基准带断言、0 failure；单文件 get/backlinks/read 在所有档位亚毫秒。
+- 修复前后（p50）：10k 冷启动 15.4s→3.0s、rebuild 19.6s→1.7s；100k 单写 43.1ms→0.92ms、尾页 2.23s→16ms、overview 6.7s→14ms；1M 单写 436ms→3.8–11ms、搜索 5.2s→55ms、overview 102.6s→144ms、峰值 RSS 2.59GB→823MB。
+- **1M 真实 FS**（1,000,000 实体 = 2,000,000 文件；生成 31.4min 写入 + 12.4min 索引 = 43.8min；文件树逻辑 1.15GiB，NTFS 实占约 8.3GB，索引 1.61GiB）：open.warm 64ms、首页/中间/尾页 45/106/171ms、搜索 47ms、搜索+标签 227ms、标签过滤页 766ms、overview 143ms、graph 137ms、file-read 9ms、单写 3.98ms、峰值 RSS 1.19GB。
+- **1M 冷启动是已知瓶颈**：删索引后 scan ≈36.6min（1M 实体 × 2 次 IO，Windows Defender 实时扫描 + 16 路受限并发；`readdir(1M)` 本身仅 3s），随后 rebuild 分钟级，合计外推 **38–42min**；这是「2M 小文件首次读取」的代价，不是查询退化。后续优化方向：增量/离线 rebuild、可调并发与缓存、把 scan 摊到后台任务。
+- 100k 可靠性压测（`scripts/stress.mjs`）：8×300 混合面板调用 0 抛错；写者 200 次 + 4 读者 6,007 次调用，磁盘/scan/索引/stats 三方对账精确一致，rebuild 后仍一致；3 轮 SIGKILL 后 `integrity_check=ok`、已确认文件 100% 可读、无无主索引行；100k 索引损坏 E2E 隔离重建 37.5s 后全部读路径正常；5,000 次循环 RSS -0.1MB（无泄漏）；1M 上 200 次混合查询 0 抛错（首次短 id 冷建 1.8s，之后 page p50 43ms）。
+- 复现：`node scripts/scale.mjs --tier 10k --reset`、`--tier 100k --reset`、`--tier 1m --reset`、`--tier 1m --mode fs --force-fs --reset`（1M FS 需 ~44min）；压测 `node scripts/stress.mjs --tier 100k`。数据只落 `.scratch/scale-data`，拒绝与真实库重叠。
+- 剩余风险：1M 多标签页 ~3s；1M `shortIdIndex()` 首次冷建 ~2s；1M `organizeReport` ~1.1s（低频整理路径）；1M cold open 38–42min；真实宿主 + 浏览器未做 1M 渲染压测（面板 3000 节点上限）。

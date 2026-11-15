@@ -54,53 +54,46 @@ Agent 工具：`file_query`、`file_read`、`file_write`、`file_import`、`file
 
 - **复制当前库到新目录**：只复制 `files/` 与 `system/settings.json`，DB、索引、日志、回收站由下次启动重建；目标目录必须不存在。
 - **使用已有自衍中枢库**：目标必须已经有 `files/`，不复制、不覆盖。
-- **导入 `.tar.gz`**：解压到新目录，校验后切换；旧库保留。旧包名时期导出的归档也兼容。
+- **导入 `.tar.gz`**：解压到新目录，校验后切换；旧库保留。
 - **导出 `.tar.gz`**：包含 `files/` 与设置，不包含 DB、索引、日志、回收站；浏览器直接下载。
 
 目录切换都写一个指针 `~/.dsh/ziyan.home.json`，**重启后生效**；当前会话继续读旧库。指针是唯一放在数据目录外的文件，内容只有一个绝对路径；删掉它即可回到组合配置/默认目录。
 
 导出包限制：归档 ≤32 MB、解压 ≤256 MB、单文件 ≤64 MB；导入会拒绝绝对路径、`..`、反斜杠、符号链接和非普通 tar 条目。
 
-## 从 evolver 1.0 迁移
+## 性能与规模
 
-```bash
-node scripts/migrate-from-evolver.mjs                 # 预演，不写盘
-node scripts/migrate-from-evolver.mjs --apply         # 正式写入 ~/.dsh/ziyan
-node scripts/migrate-from-evolver.mjs --from ~/.dsh/evolver --to ~/.dsh/ziyan --apply
-```
+索引是派生数据，设计目标是**读路径不随库大小线性退化、重建成本与文件数线性**。实测（Ryzen 7 5800H / Windows 11 / Node 22，`node scripts/scale.mjs` 合成库，p50）：
 
-- 默认 dry-run；`--apply` 才写。源目录只读，不会改动老库。
-- 读 `cards.jsonl` 的最后一条记录，跳过删除墓碑；旧 `card-` id 存进 `legacy_id`，重复执行不会重复建卡。
-- 附件变成独立文件实体，双向链接到卡片；卡片正文里的 `knowledge/resources/...` 改写成新的 `files/<id>/<name>`。
-- 旧归档标签（`…/归档`）转成 `archived` 标志；删除标记不迁入。
-- 本次真实库结果：**136 卡（135 活跃 + 1 归档）+ 10 附件**，145 个活跃文件、128 条链接；预演/正式写入/重复执行都验证过。
+| 指标 | 10k | 100k | 1M（DB 级） |
+|---|---|---|---|
+| 列表首页 / 尾页 | 0.9 / 1.1 ms | 2.9 / 16 ms | 43 / 158 ms |
+| 搜索（关键词 / +标签） | 11 / 14 ms | 37 / 70 ms | 55 / 222 ms |
+| 标签过滤页 | 7.7 ms | 64 ms | 748 ms |
+| 概览 / 图谱端点 | 1.5 / 49 ms | 14 / 77 ms | 144 / 134 ms |
+| 单次写 | 0.7 ms | 0.92 ms | 3.8–11 ms |
+| 冷启动（scan + rebuild） | 3.0 s | 37.5 s | — |
+| 峰值 RSS | 162 MB | 503 MB | 823 MB |
 
-## 与 evolver 1.0.0 的量化对比
+- FTS 与 `files` 的 rowid 对齐、按 rowid 写/删；重建走一条 `INSERT ... SELECT`：1M 行建 FTS 约 62 s（旧实现外推 ~60 h）。
+- 10k/100k 是真实文件系统库（边车 + 载荷 + 索引）；1M 默认 DB 级合成，验证查询计划/内存/索引体积。真实 1M 文件系统库（1,000,000 实体 = 2,000,000 文件）也可用 `--tier 1m --mode fs --force-fs` 跑：生成约 44 min（文件树逻辑 1.15 GiB、NTFS 实占约 8.3 GB、索引 1.61 GiB），warm 读路径 open 64 ms / 首页 45 ms / 尾页 171 ms / 搜索 47 ms / overview 143 ms / 单写 3.98 ms。
+- 🚧 **已知瓶颈**：1M 真实库的**冷启动** scan ≈36.6 min（2M 个小文件首次 IO + 16 路并发 + Windows Defender 实时扫描；`readdir(1M)` 只需 3 s），加 rebuild 合计约 38–42 min；日常 100k 库冷启动 37.5 s。后续方向是增量/离线 rebuild 与后台扫描。
+- 复现：`node scripts/scale.mjs --tier 10k --reset`、`--tier 100k --reset`、`--tier 1m --reset`；并发/崩溃/损坏/泄漏压测 `node scripts/stress.mjs --tier 100k`；1M FS 用 `--tier 1m --mode fs --force-fs --reset`。数据只写 `.scratch/scale-data`，脚本拒绝与真实库目录重叠。
 
-```bash
-node scripts/compare.mjs       # 复制老库、迁移、分场景对比
-```
+## 安全与可靠性
 
-结果写到 [COMPARISON.md](COMPARISON.md) 和 `COMPARISON.json`。老库路径可用 `OLD_EVOLVER_ROOT` / `OLD_EVOLVER_DATA` 覆盖。最近一次（135 卡 / 10 附件，Node 26）：
-
-| 指标 | evolver 1.0.0 | 自衍中枢 |
-| --- | --- | --- |
-| 注入（静态 + 12 个候选） | 3450 B | **3041 B** |
-| 查询返回体（平均，带正文/不带正文） | 5311 B | **2890 B** |
-| 重开（索引已存在） | 7.3 ms | **0.5 ms** |
-| 写 100 次 | **12.6 ms** | 70.7 ms |
-| 存储 | **361 KB / 18 文件** | 683 KB / 292 文件 |
-| 描述基线 top5 重合 | — | 19/32（差额含排序与正文召回） |
-
-取舍很清楚：自衍中枢注入更小、返回更省、重开更快、附件成为图节点；写更慢、存储更大、正文词召回更少。分析见 [COMPARISON.md](COMPARISON.md)。
+- 面板接口只收 id/结构化参数；上传、预览、导入先 stat + realpath + 大小预检再读，拒绝目录/设备/管道/越界符号链接；归档导入拒绝绝对路径、`..`、符号链接与非普通条目。
+- 项目 harness 的显式 `project` 必须落在当前会话工作区内（cwd 的祖先/后代，realpath 判定），越界拒绝；写 `AGENTS.md` 用路径锁 + 快照冲突重读，块外内容一个字节不动。
+- 整理作业每轮/整作业都有超时与看门狗，取消或崩溃后会回收互斥锁与台账；自动整理默认关，导入归档里的 settings 不会打开自动整理、也不会覆盖本机模型。
+- 数据库损坏或 schema 不匹配时：关闭句柄 → 旧库改名 `ziyan.db.corrupt-<时间戳>` → 从边车重建索引 → 插件继续加载；写入的文件/SQL 全部参数化，文件名净化拒绝 Windows 保留名与 ADS。
 
 ## 开发
 
 ```bash
-npm test                       # 166 条
+npm test                       # 全部测试
 node scripts/bench.mjs 500     # 500 文件基准
-node scripts/compare.mjs       # 与 evolver 1.0.0 分场景对比
-node scripts/migrate-from-evolver.mjs  # 老库迁移，默认预演
+node scripts/scale.mjs --tier 10k --reset   # 规模基准（见上）
+node scripts/stress.mjs --tier 100k         # 并发/崩溃/泄漏压测
 ```
 
 安装到目标 profile（先不要动 desktop profile）：
