@@ -11,30 +11,7 @@
  */
 
 import { isFileId } from './ids.js'
-
-/**
- * Render one tool result as text.
- *
- * @param {unknown} _args - The call arguments (unused).
- * @param {unknown} value - The result.
- * @returns {object[]} The content blocks.
- */
-function render(_args, value) {
-	return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
-}
-
-/** The shared output declaration: a JSON object the model can read. */
-const OBJECT_OUTPUT = { schema: { type: 'object', additionalProperties: true }, render }
-
-/**
- * Drop members that are `undefined`, so the result stays JSON.
- *
- * @param {unknown} value - The value.
- * @returns {unknown} The sanitized value.
- */
-function sanitize(value) {
-	return JSON.parse(JSON.stringify(value ?? {}))
-}
+import { OBJECT_OUTPUT, sanitize, summaryOf } from './json.js'
 
 /**
  * Resolve a full id or a unique short id to a full id.
@@ -53,19 +30,6 @@ function resolveInput(store, value) {
 	const resolved = store.resolveId(raw)
 	if (resolved !== undefined) return resolved
 	return isFileId(raw) ? raw : ''
-}
-
-/**
- * A compact view of one file: everything except the payload text.
- *
- * @param {object} file - A file as `read()` returns it.
- * @returns {object} The summary.
- */
-function summaryOf(file) {
-	if (file === null || typeof file !== 'object') return file
-	const { text, ...rest } = file
-	void text
-	return sanitize(rest)
 }
 
 /**
@@ -182,7 +146,7 @@ export function createTools({ store }) {
 		},
 		{
 			name: 'file_import',
-			description: '把宿主机上的任意文件（Word/PDF/图片/脚本/数据）复制进库，成为独立实体；必须给 description 和至少一个 tags，可给 links。脚本会按扩展名/shebang 标成可执行。源文件保持不动。',
+			description: '把宿主机上的普通文件（Word/PDF/图片/脚本/数据）复制进库，成为独立实体；必须给 description 和至少一个 tags，可给 links。脚本会按扩展名/shebang 标成可执行。源文件保持不动。这是宿主级读能力：只接受本机普通文件，读前会校验类型与大小（目录/设备/管道一律拒绝），来源不可信时不要导入。',
 			parameters: {
 				type: 'object',
 				properties: {

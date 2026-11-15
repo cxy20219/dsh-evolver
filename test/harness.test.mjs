@@ -12,7 +12,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -20,6 +20,7 @@ import test from 'node:test'
 import {
 	BLOCK_BEGIN,
 	BLOCK_END,
+	CATALOG_LIMITS,
 	catalog,
 	ensureIndex,
 	firstHeading,
@@ -27,6 +28,7 @@ import {
 	initHarness,
 	inspectIndex,
 	isBareIndex,
+	isWithin,
 	migrateLayout,
 	parseIndexEntries,
 	projectRootOf,
@@ -37,11 +39,25 @@ import {
 	withIndexBlock,
 } from '../src/harness/store.js'
 import { createHarnessTools } from '../src/harness/tools.js'
-import { validate } from '../src/harness/validate.js'
+import { PYTHON_CONCURRENCY, validate } from '../src/harness/validate.js'
 import { slugOf, writeResource } from '../src/harness/write.js'
 import { fileId } from '../src/ids.js'
 import { FileStore } from '../src/store.js'
 import { tempDir } from './helpers.mjs'
+
+/**
+ * Wait a few milliseconds.
+ *
+ * Race tests need a real window to interleave in; a resolved promise only
+ * interleaves microtasks, which is not enough to expose a lock or a read→write
+ * gap.
+ *
+ * @param {number} ms - Milliseconds.
+ * @returns {Promise<void>} Resolves after the wait.
+ */
+function sleep(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms))
+}
 
 /**
  * A project folder with a git marker and a harness skeleton.
@@ -425,7 +441,10 @@ test('工具显式 project 有效；推断不出项目时给出可读错误', as
 	const root = await project()
 	const exec = { agent: { id: 'session-noproject' } }
 	try {
-		// 会话里拿不到 cwd 时，显式 project 仍然可用。
+		// 这里注入的是「工具层的 resolver 管道」，不是宿主策略：显式 project
+		// 会带着 exec 一起交给 resolver，取不到 cwd 的项目推断给出可读错误。
+		// 真正的 containment（显式 project 必须是会话 cwd 的祖先/后代）在
+		// index.js 的 resolveProject 里，用 apply 在 test/plugin.test.mjs 覆盖。
 		const explicit = harnessTools(async (call) => {
 			const value = String(call?.project ?? '').trim()
 			return value === '' ? undefined : projectRootOf(value)
@@ -880,5 +899,337 @@ test('title/summary 里的换行被折成一行，不会破坏 frontmatter', asy
 		assert.match(injected[0], /^- \[/)
 	} finally {
 		await rm(root, { recursive: true, force: true })
+	}
+})
+
+/**
+ * A project with `count` Python scripts, each listed by one workflow document.
+ *
+ * The fake-runner tests never execute them; they only need to satisfy the
+ * documented-tool contract `validate` enforces before it reaches Python.
+ *
+ * @param {string} root - The project root.
+ * @param {number} count - How many scripts.
+ * @returns {Promise<void>} Resolves once the index is rebuilt.
+ */
+async function pythonScripts(root, count) {
+	const commands = []
+	for (let index = 0; index < count; index += 1) {
+		const path = `harness/tool/check-${index}.py`
+		await writeFile(join(root, path), 'print(1)\n')
+		commands.push(`python3 ${path}`)
+	}
+	await writeFile(
+		join(root, 'harness/workflow/run-checks.md'),
+		`---\nsummary: 跑全部检查\n---\n# 跑全部检查\n\n\`\`\`\n${commands.join('\n')}\n\`\`\`\n\n## 验证\n\nexit 0\n`,
+	)
+	await ensureIndex(root)
+}
+
+test('AGENTS.md 读取后被手改：重新读取再合并，手改与受管块都正确', async () => {
+	const root = await project()
+	const marker = '\n## 用户手改\n\n窗口内追加的一句话。\n'
+	try {
+		let injected = false
+		const result = await writeResource({
+			root,
+			layer: 'experience',
+			slug: 'race-kept',
+			title: '竞态下写入',
+			summary: '窗口内手改不丢',
+			body: '# 竞态下写入\n\n正文。\n',
+			hooks: {
+				async beforeIndexWrite() {
+					if (injected) return
+					injected = true
+					const current = await readFile(join(root, 'AGENTS.md'), 'utf8')
+					await writeFile(join(root, 'AGENTS.md'), `${current}${marker}`)
+				},
+			},
+		})
+		assert.equal(injected, true)
+		assert.equal(result.created, true)
+		const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
+		assert.ok(agents.includes('窗口内追加的一句话。'), '窗口内手写内容必须保留')
+		assert.ok(agents.includes('(harness/experience/race-kept.md)'), '合并后的索引包含新资源')
+		const inspected = inspectIndex(agents)
+		assert.equal(inspected.mode, 'block')
+		assert.ok(inspected.inner.includes('race-kept'), '受管块是最新索引')
+		assert.equal((await validate(root)).ok, true)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('AGENTS.md 持续被改：重试上限后给可读冲突错误，不覆盖对方内容', async () => {
+	const root = await project()
+	try {
+		let attempts = 0
+		await assert.rejects(
+			() => writeResource({
+				root,
+				layer: 'experience',
+				slug: 'conflicted',
+				title: '一直冲突',
+				summary: '写入窗口内文件持续变化',
+				body: '# 一直冲突\n\n正文。\n',
+				hooks: {
+					async beforeIndexWrite() {
+						attempts += 1
+						const current = await readFile(join(root, 'AGENTS.md'), 'utf8')
+						await writeFile(join(root, 'AGENTS.md'), `${current}\n外部改动${attempts}\n`)
+					},
+				},
+			}),
+			/冲突/,
+		)
+		assert.equal(attempts, 3, '首次 + 重试 2 次')
+		const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
+		assert.ok(agents.includes('外部改动1') && agents.includes('外部改动3'), '外部改动一次都不被覆盖')
+		assert.equal(agents.includes('(harness/experience/conflicted.md)'), false, '冲突时索引没有落盘')
+		assert.equal((await catalog(root)).layers.experience.length, 0, '失败写入的目标文件已回滚')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('校验失败的回滚不覆盖窗口内手改：只在文件仍是本次写入时还原', async () => {
+	const root = await project()
+	try {
+		await assert.rejects(
+			() => writeResource({
+				root,
+				layer: 'tool',
+				slug: 'orphan-check',
+				title: '没人文档化的脚本',
+				summary: '注定校验失败',
+				body: 'print(1)\n',
+				hooks: {
+					async beforeRollback() {
+						const current = await readFile(join(root, 'AGENTS.md'), 'utf8')
+						await writeFile(join(root, 'AGENTS.md'), `${current}\n## 用户尾巴\n\n回滚窗口里写的。\n`)
+					},
+				},
+			}),
+			/校验未通过，已回滚/,
+		)
+		const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
+		assert.ok(agents.includes('回滚窗口里写的。'), '窗口内手改必须保留')
+		assert.equal((await catalog(root)).layers.tool.length, 0, '目标文件仍然回滚')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('并发写两条资源：按项目串行，索引互不丢失', async () => {
+	const root = await project()
+	const shared = { active: 0, max: 0 }
+	const hooks = {
+		async beforeIndexWrite() {
+			shared.active += 1
+			shared.max = Math.max(shared.max, shared.active)
+			await sleep(10)
+			shared.active -= 1
+		},
+	}
+	try {
+		const [first, second] = await Promise.all([
+			writeResource({
+				root, layer: 'experience', slug: 'parallel-a', title: '并发甲', summary: '并发写甲', body: '# 并发甲\n\n正文。\n', hooks,
+			}),
+			writeResource({
+				root, layer: 'experience', slug: 'parallel-b', title: '并发乙', summary: '并发写乙', body: '# 并发乙\n\n正文。\n', hooks,
+			}),
+		])
+		assert.equal(first.created, true)
+		assert.equal(second.created, true)
+		assert.equal(shared.max, 1, '同一项目的读改写必须串行，不能同时进入索引窗口')
+		const agents = await readFile(join(root, 'AGENTS.md'), 'utf8')
+		assert.ok(agents.includes('(harness/experience/parallel-a.md)'))
+		assert.ok(agents.includes('(harness/experience/parallel-b.md)'))
+		assert.equal((await validate(root)).ok, true)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('并发的一次失败写入不牵连成功写入', async () => {
+	const root = await project()
+	try {
+		const failing = writeResource({
+			root,
+			layer: 'tool',
+			slug: 'orphan-race',
+			title: '孤立脚本',
+			summary: '没有文档覆盖，注定失败',
+			body: 'print(1)\n',
+		}).then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }))
+		const good = writeResource({
+			root,
+			layer: 'experience',
+			slug: 'survivor',
+			title: '幸存者',
+			summary: '与失败写入并发也要成功',
+			body: '# 幸存者\n\n正文。\n',
+		}).then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }))
+		const [failed, succeeded] = await Promise.all([failing, good])
+		assert.equal(failed.ok, false, '注定失败的写入仍然失败')
+		assert.equal(succeeded.ok, true, `正常写入不能被牵连：${succeeded.error ?? ''}`)
+		const state = await catalog(root)
+		assert.equal(state.layers.tool.length, 0, '失败目标已回滚')
+		assert.ok(state.index.refs.includes('harness/experience/survivor.md'), '成功写入仍在索引里')
+		assert.equal((await validate(root)).ok, true)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('catalog 不读二进制大文件：32MB 资源不膨胀内存、耗时低、状态正确', async () => {
+	const root = await project()
+	try {
+		await writeFile(join(root, 'harness/resources/dataset.bin'), Buffer.alloc(32 * 1024 * 1024, 7))
+		const heapBefore = process.memoryUsage().heapUsed
+		const started = performance.now()
+		const state = await catalog(root)
+		const elapsed = performance.now() - started
+		const heapDelta = process.memoryUsage().heapUsed - heapBefore
+		const entry = state.resources.find((resource) => resource.path === 'harness/resources/dataset.bin')
+		assert.ok(entry !== undefined, '二进制资源仍按文件名进索引')
+		assert.equal(entry.title, 'dataset.bin')
+		assert.equal(entry.binary, true)
+		assert.equal(state.skipped >= 1, true, '被跳过的文件有计数')
+		assert.equal(state.truncated, 0)
+		assert.ok(elapsed < 500, `catalog 不应随文件体积线性变慢，实际 ${elapsed.toFixed(1)}ms`)
+		assert.ok(heapDelta < 24 * 1024 * 1024, `catalog 不应把 32MB 读成字符串，heap 增长 ${(heapDelta / 1024 / 1024).toFixed(1)}MB`)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('catalog 只读文档头部：超过上限标 truncated，标题与摘要仍来自头部', async () => {
+	const root = await project()
+	try {
+		const body = `---\ntitle: 大文档\nsummary: 只有头部被读取\n---\n# 大文档\n\n${'正文行。'.repeat(40 * 1024)}\n`
+		await writeFile(join(root, 'harness/experience/big.md'), body)
+		await writeFile(join(root, 'harness/experience/small.md'), '---\ntitle: 小文档\nsummary: 完整读取\n---\n# 小文档\n')
+		const state = await catalog(root)
+		const big = state.resources.find((resource) => resource.path === 'harness/experience/big.md')
+		const small = state.resources.find((resource) => resource.path === 'harness/experience/small.md')
+		assert.equal(big.truncated, true)
+		assert.equal(big.title, '大文档', 'frontmatter 在头部，仍能读到')
+		assert.equal(big.summary, '只有头部被读取')
+		assert.equal(state.truncated >= 1, true, '被截断的文件有计数')
+		assert.equal(small.truncated, undefined, '小文档不标截断')
+		assert.equal(small.title, '小文档')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('catalog 单次扫描有文件数与字节上限，超限时显式标记', async () => {
+	const root = await project()
+	try {
+		for (let index = 0; index < 6; index += 1) {
+			await writeFile(
+				join(root, `harness/experience/cap-${index}.md`),
+				`---\ntitle: 上限 ${index}\nsummary: 用于扫描上限测试\n---\n# 上限 ${index}\n`,
+			)
+		}
+		const limited = await catalog(root, { limits: { maxFiles: 3 } })
+		assert.equal(limited.limited, true, '文件数超限必须显式标记，不能静默给出不完整清单')
+		assert.ok(limited.omitted >= 1)
+		assert.equal(limited.resources.length, 3, '总览 + 顶到上限的资源')
+		const capped = await catalog(root, { limits: { maxBytes: 16 } })
+		assert.ok(capped.skipped >= 1, '总字节预算耗尽后文档只按文件名索引')
+		assert.equal(capped.limited, false)
+		// 生产默认上限必须远高于正常项目：本仓库 harness/ 只有几十个文件。
+		assert.ok(CATALOG_LIMITS.maxFiles >= 500)
+		assert.ok(CATALOG_LIMITS.maxDocBytes <= 256 * 1024)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('Python 校验并发执行且不超过并发上限，报告顺序稳定', async () => {
+	const root = await project()
+	const calls = []
+	let active = 0
+	let maxActive = 0
+	try {
+		await pythonScripts(root, 12)
+		const runner = async () => {
+			active += 1
+			maxActive = Math.max(maxActive, active)
+			calls.push(active)
+			await sleep(10)
+			active -= 1
+		}
+		const report = await validate(root, { python: 'python3', runner })
+		assert.equal(report.ok, true, report.errors.join(' / '))
+		assert.equal(calls.length, 12)
+		assert.equal(maxActive <= PYTHON_CONCURRENCY, true, `并发上限 ${PYTHON_CONCURRENCY}，实际 ${maxActive}`)
+		assert.equal(maxActive > 1, true, '应该真的并行，而不是一个个跑')
+		assert.deepEqual(report.skipped, [])
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('Python 校验超时/输出超限只标 skipped，不算失败；语法错误才算失败', async () => {
+	const root = await project()
+	try {
+		await pythonScripts(root, 1)
+		const timeout = Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' })
+		const timedOut = await validate(root, { python: 'python3', runner: async () => { throw timeout } })
+		assert.equal(timedOut.ok, true, '超时不能算语法不通过')
+		assert.equal(timedOut.skipped.length, 1)
+		assert.match(timedOut.skipped[0].reason, /超时/)
+		const overflow = new Error('Command failed')
+		overflow.code = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+		const capped = await validate(root, { python: 'python3', runner: async () => { throw overflow } })
+		assert.equal(capped.ok, true, '输出超限不能算语法不通过')
+		assert.match(capped.skipped[0].reason, /上限/)
+		const missing = new Error('spawn python3 ENOENT')
+		missing.code = 'ENOENT'
+		const gone = await validate(root, { python: 'python3', runner: async () => { throw missing } })
+		assert.equal(gone.ok, true)
+		assert.match(gone.skipped[0].reason, /不可用/)
+		const syntax = new Error('Command failed: python3 -c ...\n  File "x.py", line 1\n    def x(:\n           ^\nSyntaxError')
+		syntax.code = 1
+		const broken = await validate(root, { python: 'python3', runner: async () => { throw syntax } })
+		assert.equal(broken.ok, false, '真正的语法错误仍然失败')
+		assert.ok(broken.errors.some((error) => error.includes('Python 语法不通过')))
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('isWithin 按真实路径判断：junction 指向仓库外不算 containment', async (t) => {
+	const base = await mkdtemp(join(tmpdir(), 'harness-link-'))
+	const repo = join(base, 'repo')
+	const other = join(base, 'other')
+	const linked = join(repo, 'linked')
+	try {
+		await mkdir(join(repo, '.git'), { recursive: true })
+		await mkdir(join(other, '.git'), { recursive: true })
+		await mkdir(join(other, 'sub'), { recursive: true })
+		try {
+			await symlink(other, linked, process.platform === 'win32' ? 'junction' : 'dir')
+		} catch (error) {
+			t.skip(`无法创建 junction/软链（${error?.code ?? error?.message}），跳过真实路径测试`)
+			return
+		}
+		// 词法上 linked 在 repo 之内，真实路径上它指向另一个仓库：必须拒绝。
+		assert.equal(isWithin(repo, linked), false)
+		assert.equal(isWithin(linked, repo), false)
+		// 同一个真实目录的两种拼写仍算包含（junction 另一侧也成立）。
+		assert.equal(isWithin(linked, other), true)
+		assert.equal(isWithin(other, linked), true)
+		assert.equal(isWithin(repo, join(linked, 'sub')), false, '沿 junction 的子路径依然不算仓库内')
+		// 普通子目录、以及尚不存在的待写文件路径，仍按词法包含。
+		assert.equal(isWithin(repo, join(repo, 'src', 'new-file.md')), true)
+		assert.equal(isWithin(join(repo, 'src'), repo), false)
+	} finally {
+		await rm(base, { recursive: true, force: true })
 	}
 })

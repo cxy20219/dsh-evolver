@@ -27,7 +27,8 @@
  * what a project root is.
  */
 
-import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
+import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
 
 import { writeFileAtomic } from '../atomic.js'
@@ -46,6 +47,38 @@ export const REFERENCED_LAYERS = [TOOL_LAYER, RESOURCE_LAYER]
 
 /** Where each retired layer lived, for migration. */
 const RETIRED_LAYERS = { scripts: TOOL_LAYER, references: RESOURCE_LAYER, assets: RESOURCE_LAYER }
+
+/**
+ * The extensions a catalog will read at all.
+ *
+ * A `harness/resources/` folder is allowed to hold anything — a dataset, a
+ * video, a compiled helper — and the index only needs the name of a file like
+ * that. Reading every file as UTF-8 made a 32MB binary cost two full reads and
+ * tens of megabytes of heap per write (stability audit P2-6), so only text that
+ * could carry a title/summary frontmatter is opened, and only its head.
+ */
+const DOCUMENT_EXTENSIONS = new Set([
+	'.md', '.markdown', '.mdx', '.txt', '.rst', '.adoc',
+	'.json', '.jsonc', '.yml', '.yaml', '.toml', '.ini', '.csv',
+	'.html', '.htm', '.xml', '.py', '.sh',
+])
+
+/**
+ * How much one catalog scan may read.
+ *
+ * These are DoS bounds, not tuning knobs: a resource folder with thousands of
+ * files or a huge document must not turn one `project_harness_write` into a
+ * multi-second, hundreds-of-megabytes operation. A scan that hits `maxFiles`
+ * reports itself as `limited` and callers must not rebuild the index from a
+ * partial listing; the other two limits only cost summaries (the entry stays
+ * in the listing), which is why they are safe to degrade silently in the index.
+ */
+export const CATALOG_LIMITS = Object.freeze({
+	maxFiles: 1000,
+	maxDocBytes: 64 * 1024,
+	maxBytes: 8 * 1024 * 1024,
+})
+
 
 /** The overview file every harness folder carries. */
 export const OVERVIEW = 'harness.md'
@@ -96,27 +129,42 @@ function isNoise(entry) {
 }
 
 /**
- * The files under one folder, as relative POSIX paths.
+ * The files under one folder, as relative POSIX paths with their size.
  *
  * `readdir(..., { recursive: true })` also returns the directories it walks
  * through. Treating those as resources put folder links in the index, and a
  * migration that renamed the folder first then failed on the files inside it.
  * Only files are returned, sorted, so every caller sees the same order.
  *
+ * The size is carried along so a catalog can decide whether a document is
+ * worth opening without a second `stat`, and so an oversized one can be marked
+ * truncated rather than guessed at.
+ *
+ * `limit` bounds the per-file work a scan may do: beyond it entries are counted
+ * as omitted instead of being `stat`ed, which is what keeps a resource folder
+ * with tens of thousands of files from turning one catalog into a stall. The
+ * omitted count is a lower bound (the remaining names are not classified).
+ *
  * @param {string} dir - The folder.
- * @returns {Promise<string[]>} The relative file paths.
+ * @param {number} [limit] - The most files to describe.
+ * @returns {Promise<{files: {name: string, size: number}[], omitted: number}>} The files, and how many entries were not described.
  */
-async function listFiles(dir) {
+async function listFiles(dir, limit = Number.POSITIVE_INFINITY) {
 	const entries = await readdir(dir, { recursive: true }).catch(() => [])
 	const files = []
+	let omitted = 0
 	for (const entry of entries) {
 		const name = String(entry).split('\\').join('/')
 		if (isNoise(name)) continue
+		if (files.length >= limit) {
+			omitted += 1
+			continue
+		}
 		const info = await lstat(join(dir, name)).catch(() => undefined)
 		if (info === undefined || info.isDirectory()) continue
-		files.push(name)
+		files.push({ name, size: info.size })
 	}
-	return files.sort()
+	return { files: files.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0), omitted }
 }
 
 /**
@@ -194,20 +242,90 @@ export async function isReallyInside(root, target) {
 }
 
 /**
+ * The physical path a spelling names, resolving links and junctions.
+ *
+ * A lexical check cannot see a junction inside the session cwd that points at
+ * another repository: `C:\work\repo\linked` is a descendant by spelling and a
+ * foreign folder in fact (security audit H-6). Resolving the existing prefix to
+ * its real path and re-appending the missing tail makes both sides comparable
+ * without requiring the target itself to exist (a file about to be written, or
+ * a session cwd whose last segment was removed).
+ *
+ * @param {string} path - An absolute path.
+ * @returns {string | undefined} The physical spelling, or undefined when not even an ancestor resolves.
+ */
+function physicalPath(path) {
+	const resolved = resolve(path)
+	const tail = []
+	let current = resolved
+	for (;;) {
+		try {
+			const real = realpathSync.native(current)
+			return tail.length === 0 ? real : join(real, ...tail.reverse())
+		} catch {
+			const parent = dirname(current)
+			// Nothing on this path resolves (a nonexistent drive, a UNC root
+			// the process cannot see): the lexical spelling is all we have.
+			if (parent === current) return undefined
+			tail.push(basename(current))
+			current = parent
+		}
+	}
+}
+
+/**
+ * Whether one absolute path is the same as, or below, another.
+ *
+ * Containment is decided on the *physical* path whenever both sides resolve:
+ * a junction or symlink is followed, so a folder that only looks like a
+ * descendant is not treated as one, and two spellings of the same folder
+ * (case on Windows, a linked parent) are recognised as the same folder. When
+ * resolution fails even for the existing prefix, the lexical spelling is the
+ * only evidence there is and is used as a fallback; a caller that must not be
+ * fooled refuses in that case itself.
+ *
+ * @param {string} parent - The candidate container.
+ * @param {string} child - The candidate contained path.
+ * @returns {boolean} True when `child` is `parent` or below it.
+ */
+export function isWithin(parent, child) {
+	if (typeof parent !== 'string' || typeof child !== 'string') return false
+	if (!isAbsolute(parent) || !isAbsolute(child)) return false
+	const fold = (value) => {
+		const resolved = resolve(value)
+		const trimmed = resolved !== sep && resolved.endsWith(sep) ? resolved.slice(0, -1) : resolved
+		return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed
+	}
+	const contains = (base, probe) => probe === base || probe.startsWith(base + sep)
+	const physicalParent = physicalPath(parent)
+	const physicalChild = physicalPath(child)
+	if (physicalParent !== undefined && physicalChild !== undefined) {
+		return contains(fold(physicalParent), fold(physicalChild))
+	}
+	return contains(fold(parent), fold(child))
+}
+
+/**
  * Find the project root that owns a directory.
  *
  * A repository is identified the way the host identifies one — a `.git` — with
  * a `harness/` folder and an `AGENTS.md` accepted as equally good evidence,
  * because a harness can be set up before the repository is.
  *
+ * The start has to exist. Walking up from a path that is gone would eventually
+ * find an unrelated marker (a home directory that happens to be a repository)
+ * and point a write there; a path that names nothing is not evidence of any
+ * project, so the caller gets `undefined` and has to ask for an explicit one.
+ *
  * @param {string} start - A directory inside the project.
  * @returns {Promise<string | undefined>} The absolute root, or undefined.
  */
 export async function projectRootOf(start) {
 	if (typeof start !== 'string' || start === '' || !isAbsolute(start)) return undefined
-	let current = resolve(start)
-	const info = await lstat(current).catch(() => undefined)
-	if (info !== undefined && info.isFile()) current = dirname(current)
+	const resolved = resolve(start)
+	const info = await lstat(resolved).catch(() => undefined)
+	if (info === undefined) return undefined
+	let current = info.isDirectory() ? resolved : dirname(resolved)
 	for (;;) {
 		for (const marker of ['.git', 'harness', 'AGENTS.md']) {
 			if (await exists(join(current, marker))) return current
@@ -219,13 +337,88 @@ export async function projectRootOf(start) {
 }
 
 /**
- * Read one resource file, tolerating a missing or unreadable one.
+ * Read one text file in full, tolerating a missing or unreadable one.
+ *
+ * Only `AGENTS.md` uses this: its managed block can sit anywhere in a
+ * hand-written document, so the markers have to be found in the whole file.
+ * Resource documents go through `readHeadText` instead, which never loads more
+ * than a bounded head (stability audit P2-6).
  *
  * @param {string} path - The file.
  * @returns {Promise<string>} The text, or an empty string.
  */
 async function readText(path) {
 	return readFile(path, 'utf8').catch(() => '')
+}
+
+/**
+ * Read at most `maxBytes` from the head of a file.
+ *
+ * A resource file is indexed by its title and one-line purpose, which live in
+ * the frontmatter or the first heading; the rest of the document is never
+ * needed. Reading only the head is what keeps a 32MB `resources/dataset.bin`
+ * from being turned into a 32MB string on every catalog (stability audit P2-6).
+ *
+ * @param {string} path - The file.
+ * @param {number} maxBytes - The most bytes to read.
+ * @returns {Promise<{text: string, bytes: number}>} The head, and how much was read.
+ */
+async function readHeadText(path, maxBytes) {
+	let handle
+	try {
+		handle = await open(path, 'r')
+		const buffer = Buffer.allocUnsafe(maxBytes)
+		const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0)
+		return { text: buffer.subarray(0, bytesRead).toString('utf8'), bytes: bytesRead }
+	} catch {
+		// Missing, unreadable, or larger than the OS can hand back: the entry
+		// still exists in the listing, it just does not gain a summary.
+		return { text: '', bytes: 0 }
+	} finally {
+		if (handle !== undefined) await handle.close().catch(() => {})
+	}
+}
+
+/**
+ * Fill one catalog entry with the title and purpose a resource declares.
+ *
+ * The entry is always kept even when nothing is read: the folder is the
+ * truth, and a binary or an oversized document still belongs in the index by
+ * its file name. What is skipped or truncated is counted on the catalog, so a
+ * caller can tell "no summary yet" from "not read on purpose".
+ *
+ * @param {string} root - The project root.
+ * @param {object} resource - The entry being described.
+ * @param {{name: string, size: number}} entry - Its folder entry.
+ * @param {object} caps - The scan limits.
+ * @param {object} totals - Mutable scan counters.
+ * @returns {Promise<void>} Resolves once described.
+ */
+async function describeDocument(root, resource, entry, caps, totals) {
+	const fallback = basename(resource.path)
+	resource.title = fallback
+	resource.summary = ''
+	if (!DOCUMENT_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+		resource.binary = true
+		totals.skipped += 1
+		return
+	}
+	if (entry.size === 0) return
+	const take = Math.min(entry.size, caps.maxDocBytes)
+	if (totals.bytes + take > caps.maxBytes) {
+		resource.skipped = true
+		totals.skipped += 1
+		return
+	}
+	if (entry.size > caps.maxDocBytes) {
+		resource.truncated = true
+		totals.truncated += 1
+	}
+	const { text } = await readHeadText(join(root, resource.path), take)
+	totals.bytes += take
+	const { meta, body } = splitFrontmatter(text)
+	resource.title = meta.title ?? firstHeading(body) ?? fallback
+	resource.summary = meta.summary ?? ''
 }
 
 /**
@@ -297,12 +490,23 @@ export function firstHeading(body) {
 /**
  * Scan one harness folder.
  *
+ * The scan is bounded on purpose (stability audit P2-6): at most
+ * `CATALOG_LIMITS.maxFiles` entries, and at most `maxDocBytes` read from each
+ * document with `maxBytes` read in total. A binary resource or an oversized
+ * one is listed without being read; `skipped`/`truncated`/`omitted` on the
+ * result say so. `limited` means the listing itself was cut short, in which
+ * case nothing may rebuild the index from it (a partial listing would drop
+ * entries), and callers refuse instead.
+ *
  * @param {string} root - The project root.
+ * @param {{limits?: {maxFiles?: number, maxDocBytes?: number, maxBytes?: number}}} [options] - Override scan bounds (tests).
  * @returns {Promise<object>} The catalog.
  */
-export async function catalog(root) {
+export async function catalog(root, { limits } = {}) {
+	const caps = { ...CATALOG_LIMITS, ...(limits ?? {}) }
 	const harnessDir = join(root, 'harness')
 	const agentsPath = join(root, 'AGENTS.md')
+	const totals = { files: 0, bytes: 0, skipped: 0, truncated: 0, omitted: 0 }
 	const state = {
 		root,
 		harnessDir,
@@ -314,6 +518,10 @@ export async function catalog(root) {
 		unexpected: [],
 		missing: [],
 		index: { mode: 'absent', present: false, refs: [], stale: [], missing: [] },
+		skipped: 0,
+		truncated: 0,
+		limited: false,
+		omitted: 0,
 	}
 
 	if (!state.present) {
@@ -328,13 +536,11 @@ export async function catalog(root) {
 	state.overview = await exists(join(harnessDir, OVERVIEW))
 	if (!state.overview) state.missing.push(OVERVIEW)
 	else {
-		const { meta, body } = splitFrontmatter(await readText(join(harnessDir, OVERVIEW)))
-		state.resources.push({
-			path: `harness/${OVERVIEW}`,
-			layer: 'overview',
-			title: meta.title ?? firstHeading(body) ?? OVERVIEW,
-			summary: meta.summary ?? '',
-		})
+		const info = await lstat(join(harnessDir, OVERVIEW)).catch(() => undefined)
+		const resource = { path: `harness/${OVERVIEW}`, layer: 'overview', title: OVERVIEW, summary: '' }
+		state.resources.push(resource)
+		totals.files += 1
+		await describeDocument(root, resource, { name: OVERVIEW, size: info?.size ?? 0 }, caps, totals)
 	}
 
 	for (const layer of LAYERS) {
@@ -345,16 +551,19 @@ export async function catalog(root) {
 			state.layers[layer] = []
 			continue
 		}
-		const files = (await listFiles(dir)).map((entry) => `harness/${layer}/${entry}`)
-		state.layers[layer] = files
-		for (const path of files) {
-			const { meta, body } = splitFrontmatter(await readText(join(root, path)))
-			state.resources.push({
-				path,
-				layer,
-				title: meta.title ?? firstHeading(body) ?? basename(path),
-				summary: meta.summary ?? '',
-			})
+		const room = Math.max(0, caps.maxFiles - totals.files)
+		const listed = await listFiles(dir, room)
+		const accepted = listed.files
+		state.layers[layer] = accepted.map((entry) => `harness/${layer}/${entry.name}`)
+		if (listed.omitted > 0) {
+			state.limited = true
+			totals.omitted += listed.omitted
+		}
+		totals.files += accepted.length
+		for (const entry of accepted) {
+			const resource = { path: `harness/${layer}/${entry.name}`, layer, title: baseOf(entry.name), summary: '' }
+			state.resources.push(resource)
+			await describeDocument(root, resource, entry, caps, totals)
 		}
 	}
 
@@ -387,7 +596,21 @@ export async function catalog(root) {
 	state.index.stale = state.index.refs.filter((ref) => ref !== 'harness/harness.md' && !existing.has(ref))
 	state.index.missing = state.resources.map((item) => item.path).filter((path) => !state.index.refs.includes(path))
 	if (state.overview && !state.index.refs.includes('harness/harness.md')) state.index.stale.push('harness/harness.md')
+	state.skipped = totals.skipped
+	state.truncated = totals.truncated
+	state.omitted = totals.omitted
 	return state
+}
+
+/**
+ * The file name part of a POSIX resource path.
+ *
+ * @param {string} path - A `/`-separated path.
+ * @returns {string} The last segment.
+ */
+function baseOf(path) {
+	const parts = String(path).split('/')
+	return parts[parts.length - 1]
 }
 
 /**
@@ -552,6 +775,109 @@ export function withIndexBlock(document, indexText) {
 	return `${source}${separator}${block}\n`
 }
 
+/** How many times an index write re-reads `AGENTS.md` after an external edit. */
+const INDEX_WRITE_RETRIES = 2
+
+/** The error a half-written marker pair produces everywhere. */
+const BROKEN_INDEX_ERROR = 'AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end），拒绝猜测；请手工补全或删掉残留标记后重试。'
+
+const pathLocks = new Map()
+
+/**
+ * The read-modify-write locks this process holds, keyed by physical path.
+ *
+ * Tools run concurrently inside one host process. Two `project_harness_write`
+ * calls interleaving would each rebuild the index from their own catalog
+ * snapshot, and whichever wrote last would drop the other's entry
+ * (stability audit P2-5). The lock is keyed by the *physical* path, so two
+ * spellings of the same project serialize against each other. It is
+ * deliberately per-process: another DSH instance or a human editor is handled
+ * by the snapshot/retry in `writeAgentsIndex`, because no in-process lock can
+ * fence them out.
+ *
+ * @param {string} path - The file whose read-modify-write cycle must serialize.
+ * @param {() => Promise<unknown>} task - The cycle.
+ * @returns {Promise<unknown>} Whatever the task returns.
+ */
+export async function withPathLock(path, task) {
+	const key = await canonicalPath(path)
+	const previous = pathLocks.get(key) ?? Promise.resolve()
+	let release
+	const current = new Promise((resolve) => { release = resolve })
+	const queued = previous.then(() => current)
+	pathLocks.set(key, queued)
+	await previous
+	try {
+		return await task()
+	} finally {
+		release()
+		if (pathLocks.get(key) === queued) pathLocks.delete(key)
+	}
+}
+
+/**
+ * A file's text together with the stat signature it was read at.
+ *
+ * @param {string} path - The file.
+ * @returns {Promise<{text: string | undefined, mtimeMs: number | undefined, size: number | undefined}>} The snapshot.
+ */
+async function fileSnapshot(path) {
+	const text = await readFile(path, 'utf8').catch(() => undefined)
+	if (text === undefined) return { text: undefined, mtimeMs: undefined, size: undefined }
+	const info = await stat(path).catch(() => undefined)
+	return { text, mtimeMs: info?.mtimeMs, size: info?.size }
+}
+
+/**
+ * Whether two snapshots are the same file state.
+ *
+ * Text equality is the real check (mtime can stay the same across a fast
+ * rewrite); `mtimeMs`/`size` are carried so a caller can report *that* the file
+ * moved, and so the comparison stays cheap to explain.
+ *
+ * @param {object} left - The earlier snapshot.
+ * @param {object} right - The later snapshot.
+ * @returns {boolean} True when the file is unchanged.
+ */
+function sameSnapshot(left, right) {
+	return left.text === right.text && left.size === right.size && left.mtimeMs === right.mtimeMs
+}
+
+/**
+ * Merge the managed index block into `AGENTS.md` without losing edits made
+ * after it was read.
+ *
+ * The managed block is derived, but the document around it is not: a user (or
+ * another agent, or another DSH instance) may write `AGENTS.md` while this
+ * write is in flight. The write therefore snapshots the file, re-reads it right
+ * before renaming, and re-merges on a mismatch, so an edit outside the block
+ * survives and a concurrent write is either merged with or reported as a
+ * conflict — never silently overwritten (stability audit P2-5).
+ *
+ * @param {string} root - The project root.
+ * @param {string} indexText - The rendered index.
+ * @param {{hooks?: {beforeIndexWrite?: (event: {attempt: number, path: string}) => Promise<void> | void}}} [options] - Test seam for the read→write window.
+ * @returns {Promise<{changed: boolean, text: string, mode: string, previous: string | undefined}>} What is on disk, and the snapshot it was merged from.
+ */
+export async function writeAgentsIndex(root, indexText, { hooks } = {}) {
+	const agentsPath = join(root, 'AGENTS.md')
+	for (let attempt = 0; attempt <= INDEX_WRITE_RETRIES; attempt += 1) {
+		const before = await fileSnapshot(agentsPath)
+		if (before.text !== undefined && inspectIndex(before.text).mode === 'broken') throw new Error(BROKEN_INDEX_ERROR)
+		const next = withIndexBlock(before.text ?? '', indexText)
+		const mode = inspectIndex(next).mode
+		if (next === (before.text ?? '')) return { changed: false, text: next, mode, previous: before.text }
+		// The only way to inject an external edit into the window in a test;
+		// production callers pass no hooks and this is a no-op.
+		if (hooks?.beforeIndexWrite !== undefined) await hooks.beforeIndexWrite({ attempt, path: agentsPath })
+		const now = await fileSnapshot(agentsPath)
+		if (!sameSnapshot(before, now)) continue
+		await writeFileAtomic(agentsPath, next)
+		return { changed: true, text: next, mode, previous: before.text }
+	}
+	throw new Error('AGENTS.md 在读取后被其他写入改动（重试 2 次仍未稳定），索引合并冲突；没有覆盖对方的改动，请稍后重试。')
+}
+
 /**
  * Rebuild the managed index block of one project.
  *
@@ -563,13 +889,15 @@ export function withIndexBlock(document, indexText) {
  * @returns {Promise<{entries: number, changed: boolean, mode: string}>} What was written.
  */
 export async function ensureIndex(root) {
-	const state = await catalog(root)
 	const agentsPath = join(root, 'AGENTS.md')
-	const current = await readFile(agentsPath, 'utf8').catch(() => undefined)
-	const next = withIndexBlock(current ?? '', renderIndex(state))
-	const changed = next !== (current ?? '')
-	if (changed) await writeFileAtomic(agentsPath, next)
-	return { entries: state.resources.length, changed, mode: inspectIndex(next).mode }
+	return withPathLock(agentsPath, async () => {
+		const state = await catalog(root)
+		if (state.limited) {
+			throw new Error(`harness/ 的文件数超过单次扫描上限（${CATALOG_LIMITS.maxFiles}），catalog 清单不完整，拒绝用它重建 AGENTS.md 索引；请先精简 harness/。`)
+		}
+		const applied = await writeAgentsIndex(root, renderIndex(state))
+		return { entries: state.resources.length, changed: applied.changed, mode: applied.mode }
+	})
 }
 
 /**
@@ -581,11 +909,25 @@ export async function ensureIndex(root) {
  * after the rename, which is exactly the kind of rot this system exists to
  * prevent.
  *
+ * Runs under the same lock as a resource write: a migration moving files while
+ * a write rebuilds the index would otherwise read a half-migrated folder.
+ *
  * @param {string} root - The project root.
  * @param {{dryRun?: boolean}} [options] - Whether to only report.
  * @returns {Promise<{moved: string[], rewritten: number, renamed: string[]}>} What changed.
  */
 export async function migrateLayout(root, { dryRun = false } = {}) {
+	return withPathLock(join(root, 'AGENTS.md'), () => migrateLayoutLocked(root, { dryRun }))
+}
+
+/**
+ * The migration body, already under the project lock.
+ *
+ * @param {string} root - The project root.
+ * @param {{dryRun: boolean}} options - Whether to only report.
+ * @returns {Promise<{moved: string[], rewritten: number, renamed: string[]}>} What changed.
+ */
+async function migrateLayoutLocked(root, { dryRun = false } = {}) {
 	const harnessDir = join(root, 'harness')
 	const agentsPath = join(root, 'AGENTS.md')
 	// Check the index before moving anything: a half-written marker pair means
@@ -613,15 +955,15 @@ export async function migrateLayout(root, { dryRun = false } = {}) {
 		if (!present.includes(from)) continue
 		const source = join(harnessDir, from)
 		const target = join(harnessDir, to)
-		const items = await listFiles(source)
+		const items = (await listFiles(source)).files
 		moved.push(`${from}/ → ${to}/ (${items.length})`)
 		for (const entry of items) {
-			const destination = await freeDestination(join(target, entry), from, claimed)
+			const destination = await freeDestination(join(target, entry.name), from, claimed)
 			claimed.add(destination)
-			if (destination !== join(target, entry)) {
-				renamed.push(`${from}/${entry} → ${to}/${destination.slice(target.length + 1)}`)
+			if (destination !== join(target, entry.name)) {
+				renamed.push(`${from}/${entry.name} → ${to}/${destination.slice(target.length + 1)}`)
 			}
-			moves.push({ source: join(source, entry), destination })
+			moves.push({ source: join(source, entry.name), destination })
 		}
 	}
 	if (dryRun) {

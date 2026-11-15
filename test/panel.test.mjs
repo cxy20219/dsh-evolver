@@ -14,9 +14,10 @@
  *
  * The organize page is the old evolver's shape on purpose: three compact cards
  * (model / sessions / files) plus a compact recent-jobs list. There is no
- * manual maintenance button — the injected snapshot is rebuilt by the host
- * daily and organizing runs as a host-side agent job — so the tests assert the
- * buttons that must be gone as much as the ones that must be there.
+ * manual maintenance button — the host only injects one static discipline
+ * section (no index, no snapshot) and organizing runs as a host-side agent job
+ * outside the session — so the tests assert the buttons that must be gone as
+ * much as the ones that must be there.
  */
 
 import assert from 'node:assert/strict'
@@ -197,11 +198,18 @@ test('词典：自衍页三卡与注入页的中英键一一对应', async () =>
 	)
 })
 
-test('词典：旧注入快照键已删除，运行时提示中英同步', async () => {
+test('词典：旧注入快照键、死键已删除，运行时提示中英同步', async () => {
 	const dictionaries = await loadDictionaries()
 	for (const key of ['injection.total', 'injection.index', 'injection.meta', 'injection.never', 'injection.stale', 'injection.fresh', 'settings.injectionBudget']) {
 		assert.equal(dictionaries.zh[key], undefined, `zh 仍残留 ${key}`)
 		assert.equal(dictionaries.en[key], undefined, `en 仍残留 ${key}`)
+	}
+	// `settings.dataDir` was a locale key nothing looked up (the header reads
+	// the settings object's property), and no screen ever rendered
+	// `state.failed`.
+	for (const key of ['settings.dataDir', 'state.failed']) {
+		assert.equal(dictionaries.zh[key], undefined, `zh 仍残留死键 ${key}`)
+		assert.equal(dictionaries.en[key], undefined, `en 仍残留死键 ${key}`)
 	}
 	assertLocaleKeys(dictionaries, ['injection.runtime.removed'], '运行时提示')
 })
@@ -895,6 +903,7 @@ test('自衍页三卡渲染：模型 / 会话整理 / 文件整理，自动开�
 
 		// One compact page-level hint, then three cards, then the recent jobs.
 		assert.match(text, /整理由 agent 作业在会话外运行/)
+		assert.doesNotMatch(text, /快照/, '整理页提示不再说宿主每日重建注入快照')
 		assert.match(text, /服务商一/, '模型卡列出目录')
 		assert.match(text, /当前生效|p1 \/ m1/, '模型卡显示当前生效模型')
 

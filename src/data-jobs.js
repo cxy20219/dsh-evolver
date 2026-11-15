@@ -14,9 +14,11 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 
 import { MAX_ARCHIVE_BYTES, readArchiveFile, writeArchiveFile } from './archive.js'
+import { writeFileAtomic } from './atomic.js'
 import { readDataDirPointer, writeDataDirPointer } from './home.js'
 import { isFileId } from './ids.js'
 import { safeName } from './names.js'
+import { sanitizeImportedSettings } from './settings.js'
 
 /**
  * Whether one path is inside another.
@@ -85,6 +87,39 @@ export async function validateLibrary(root) {
  */
 export function createDataJobs({ root, pointerPath, settings, logger, version = '' }) {
 	const currentRoot = resolve(root)
+
+	/**
+	 * Replace a library's settings with the safe imported subset.
+	 *
+	 * The archive reader only proves `settings.json` is JSON; the semantic
+	 * boundary is here, before the pointer moves and before the next start can
+	 * load the file. A malformed or missing file degrades to defaults, never to
+	 * an error that would reject an otherwise valid library.
+	 *
+	 * @param {string} target - The imported or attached library root.
+	 * @returns {Promise<void>} Resolves when the safe settings are on disk.
+	 */
+	async function sanitizeSettingsOf(target) {
+		const path = join(target, 'system', 'settings.json')
+		const text = await readFile(path, 'utf8').catch(() => undefined)
+		let raw = {}
+		if (text !== undefined) {
+			try {
+				raw = JSON.parse(text)
+			} catch {
+				raw = {}
+			}
+		}
+		const local = typeof settings?.get === 'function' ? settings.get() : {}
+		const safe = sanitizeImportedSettings(raw, local)
+		const hadDangerous = raw?.organize?.auto?.sessions?.enabled === true
+			|| raw?.organize?.auto?.files?.enabled === true
+			|| (raw?.organize?.model !== undefined && raw?.organize?.model !== null)
+		await writeFileAtomic(path, `${JSON.stringify(safe, null, '\t')}\n`)
+		if (hadDangerous) {
+			logger?.warn?.(`自衍中枢：${target} 的 settings.json 含自动整理/模型选择，导入时已按本机设置净化`)
+		}
+	}
 
 	/**
 	 * Current root, pointer target and pending restart.
@@ -159,6 +194,9 @@ export function createDataJobs({ root, pointerPath, settings, logger, version = 
 			const info = await stat(target).catch(() => undefined)
 			if (info === undefined || !info.isDirectory()) throw new Error(`目标目录不存在：${target}`)
 			counts = await validateLibrary(target)
+			// Attaching is importing by another name: the library's settings
+			// travel with it and must not be able to schedule model calls here.
+			await sanitizeSettingsOf(target)
 		} else {
 			const exists = await stat(target).then(() => true, () => false)
 			if (exists) throw new Error('复制模式要求目标目录不存在；要使用已有库请选择“使用已有自衍中枢库”。')
@@ -234,6 +272,9 @@ export function createDataJobs({ root, pointerPath, settings, logger, version = 
 			const imported = await readArchiveFile(source, target)
 			await mkdir(join(target, 'files'), { recursive: true, mode: 0o700 })
 			const counts = await validateLibrary(target)
+			// Before the pointer is written: the next start loads this file, so it
+			// must already be the trusted subset.
+			await sanitizeSettingsOf(target)
 			await writeDataDirPointer(pointerPath, target)
 			logger?.info?.(`自衍中枢：已导入到 ${target}（${counts.files} 文件），下次启动切换`)
 			return {

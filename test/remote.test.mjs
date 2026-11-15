@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
@@ -80,7 +80,7 @@ async function post(routes, endpoint, payload = {}) {
 	return value
 }
 
-test('面板接口：27 个端点，一次完整读写/上传/预览/图/注入/工具/偏好/自衍/设置/日志/删除', async () => {
+test('面板接口：26 个端点，一次完整读写/上传/预览/图/注入/工具/偏好/自衍/设置/日志/删除', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-remote-'))
 	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
 	const previousHome = process.env.DSH_HOME
@@ -95,6 +95,11 @@ test('面板接口：27 个端点，一次完整读写/上传/预览/图/注入/
 		assert.equal(empty.stats.days, 0)
 		assert.deepEqual(empty.activity, [])
 		assert.equal('injection' in empty, false, '概览不再带注入字段')
+		// The overview tab only draws stats/tags/activity-year/suffixes; the
+		// graph tab asks its own endpoint and nothing read these copies.
+		assert.equal('graph' in empty, false, '概览不再白算 500 节点图')
+		assert.equal('recent' in empty, false, '概览不再带最近文件')
+		assert.equal('settings' in empty, false, '概览不再带设置副本')
 
 		const data = await post(routes, 'data-status')
 		assert.equal(data.current, dir)
@@ -147,9 +152,8 @@ test('面板接口：27 个端点，一次完整读写/上传/预览/图/注入/
 
 		const digest = await post(routes, 'digest')
 		assert.deepEqual(digest.sessions, [])
-		assert.equal(digest.organize.files.files, 0)
-		assert.ok(Array.isArray(digest.organize.orphans.sample))
-		assert.ok(Array.isArray(digest.organize.singleTags.sample))
+		assert.equal('organize' in digest, false, '问题清单已并入整理作业，digest 不再全量统计')
+		assert.equal('unreadable' in digest, false, '面板不读会话不可读计数')
 
 		const created = await post(routes, 'file-write', {
 			name: 'api.md',
@@ -189,6 +193,9 @@ test('面板接口：27 个端点，一次完整读写/上传/预览/图/注入/
 		const saved = await post(routes, 'settings-save', { descriptionMaxChars: 200, injectionBudget: 99_999 })
 		assert.equal(saved.descriptionMaxChars, 200)
 		assert.equal('injectionBudget' in saved, false, 'settings-save 白名单不再含注入预算')
+		assert.deepEqual(Object.keys(saved).sort(), ['dataDir', 'descriptionMaxChars', 'maxFileBytes', 'readTextBytes'], '面板只拿它读的四个字段')
+		const settingsView = await post(routes, 'settings')
+		assert.deepEqual(settingsView, saved, 'settings 与 settings-save 返回同一个窄视图')
 
 		const exported = await post(routes, 'data-export')
 		assert.ok(exported.base64.length > 0)
@@ -196,6 +203,7 @@ test('面板接口：27 个端点，一次完整读写/上传/预览/图/注入/
 
 		const logs = await post(routes, 'logs', { limit: 20 })
 		assert.ok(Array.isArray(logs.lines))
+		assert.equal('status' in logs, false, '面板只用 path 与 lines，不再带状态副本')
 		// The host reports a native path; normalise the separator before matching.
 		assert.match(logs.path.replaceAll('\\', '/'), /system\/logs\/plugin\.log$/)
 
@@ -250,9 +258,9 @@ test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通'
 		assert.equal(status.catalogFailed, false)
 		assert.equal(status.providers[0].id, 'fake-provider')
 		assert.deepEqual(status.providers[0].models[0].reasoning.efforts, [{ id: 'low', name: '低' }])
-		assert.deepEqual(status.kinds, ['sessions', 'files', 'all'])
+		assert.equal('kinds' in status, false, 'organize-status 不再带 kinds：面板从不读')
+		assert.equal('limits' in status, false, 'organize-status 不再带 limits：面板从不读')
 		assert.equal(status.job, null)
-		assert.equal(status.limits.maxSessions, 5)
 
 		const saved = await post(routes, 'organize-save', {
 			model: { provider: 'fake-provider', model: 'fake-model', reasoningEffort: 'low' },
@@ -310,6 +318,48 @@ test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通'
 
 		assert.deepEqual(await post(routes, 'organize-cancel', {}), { cancelled: false, job: null })
 		await assert.rejects(post(routes, 'organize-start', { kind: 'bogus' }), /整理类型/)
+	} finally {
+		if (effects[0] !== undefined) {
+			const disposer = await effects[0]()
+			await disposer()
+		}
+		if (previousHome === undefined) delete process.env.DSH_HOME
+		else process.env.DSH_HOME = previousHome
+		await rm(dir, { recursive: true, force: true })
+		await rm(home, { recursive: true, force: true })
+	}
+})
+
+test('file-preview：超大二进制只报大小不读正文；符号链接本体拒绝而不是读穿', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'ys-preview-'))
+	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
+	const previousHome = process.env.DSH_HOME
+	process.env.DSH_HOME = home
+	const { ctx, routes, effects } = fakeContext()
+	try {
+		await apply(ctx, { dataDir: dir })
+		const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+		const created = await post(routes, 'file-upload', {
+			name: 'shot.png',
+			description: '预览大小预检测试的图片文件',
+			tags: ['测试/预览'],
+			data: png.toString('base64'),
+		})
+		// 把本体换成超过 8MB 预览上限的稀疏文件：边车不变，预览应先 stat 再决定。
+		await truncate(created.path, 9 * 1024 * 1024)
+		const preview = await post(routes, 'file-preview', { id: created.id })
+		assert.deepEqual(preview, { kind: 'binary', bytes: 9 * 1024 * 1024 }, '不返回 12MB base64')
+
+		// 本体换成库外文件的符号链接：store.read 已标 missing，预览必须拒绝。
+		const outside = join(dir, 'outside.png')
+		await writeFile(outside, '库外内容')
+		await rm(created.path, { force: true })
+		try {
+			await symlink(outside, created.path)
+		} catch {
+			return // Windows 未开开发者模式时建不了软链；平台允许才测。
+		}
+		await assert.rejects(post(routes, 'file-preview', { id: created.id }), /文件本体缺失/)
 	} finally {
 		if (effects[0] !== undefined) {
 			const disposer = await effects[0]()

@@ -76,45 +76,159 @@ export function fileCreatedAt(value) {
 }
 
 /** The shortest suffix a display id may use. */
-const MIN_SHORT_ID = 5
+export const MIN_SHORT_ID = 5
 
 /** The longest suffix; beyond this the full id is safer. */
-const MAX_SHORT_ID = 8
+export const MAX_SHORT_ID = 8
 
 /**
- * The shortest suffix of each id that is still unique in the library.
+ * The length of one id's body (the part after `file-`).
  *
- * The full id is 31 characters; an injected line can carry a description
- * instead of 26 more characters of address. The tail of a ULID is the random
- * half, so a suffix is where uniqueness lives. A suffix is only chosen when it
- * is unambiguous right now; if no suffix is unique within `MAX_SHORT_ID`, the
- * full id is returned rather than a short form that would make a read fail.
- *
- * @param {string[]} ids - The ids to shorten (duplicates are fine).
- * @returns {Map<string, string>} Full id to display suffix (or the full id).
+ * @param {string} id - A file id.
+ * @returns {string} The body.
  */
-export function shortIds(ids) {
-	const bodies = [...new Set((ids ?? []).filter((id) => isFileId(id)).map((id) => id.slice(5)))]
-	const counts = new Map()
-	for (let length = MIN_SHORT_ID; length <= MAX_SHORT_ID; length += 1) {
-		const table = new Map()
-		for (const body of bodies) {
-			const suffix = body.slice(-length)
-			table.set(suffix, (table.get(suffix) ?? 0) + 1)
-		}
-		counts.set(length, table)
+function bodyOf(id) {
+	return id.slice(5)
+}
+
+/**
+ * Short display ids, resolved without scanning the library.
+ *
+ * A short id is the shortest suffix of the id body that is still unique in the
+ * library: the full id is 31 characters and an injected line can carry a
+ * description instead of the address. The tail of a ULID is the random half,
+ * so a suffix is where uniqueness lives.
+ *
+ * The obvious implementation is "a map from every full id to its suffix,
+ * rebuilt after each write", and at a hundred thousand files that rebuild is
+ * hundreds of milliseconds per write. This index instead keeps a map from the
+ * five-character suffix to the id (or the ids that share it) and derives both
+ * the display suffix and the resolution *on demand* from that map:
+ *
+ *   - five-way suffix groups are tiny (a collision of five Crockford digits is
+ *     rare until tens of thousands of ids), so extending a colliding group to
+ *     six, seven or eight characters only compares a handful of ids;
+ *   - adding or removing one id touches one map entry, which makes a write
+ *     O(1) instead of O(N);
+ *   - a suffix longer than five characters always shares its last five, so the
+ *     lookup starts from the same map entry and filters the small group.
+ *
+ * `shortOf` therefore returns the same value a full-library batch pass would,
+ * and `resolve` accepts exactly the suffixes that identify one id.
+ */
+export class ShortIdIndex {
+	/**
+	 * @param {string[]} [ids] - The library's ids, in any order.
+	 */
+	constructor(ids = []) {
+		/** @type {Map<string, string | string[]>} Five-character suffix to id(s). */
+		this.bySuffix = new Map()
+		/** @type {number} A cached population count. */
+		this.count = 0
+		for (const id of ids ?? []) this.add(id)
 	}
-	const result = new Map()
-	for (const body of bodies) {
-		let chosen = `file-${body}`
-		for (let length = MIN_SHORT_ID; length <= MAX_SHORT_ID; length += 1) {
+
+	/**
+	 * Add one id.
+	 *
+	 * @param {unknown} id - The id; anything that is not a file id is ignored.
+	 * @returns {void}
+	 */
+	add(id) {
+		if (!isFileId(id)) return
+		const suffix = id.slice(-MIN_SHORT_ID)
+		const group = this.bySuffix.get(suffix)
+		if (group === undefined) {
+			this.bySuffix.set(suffix, id)
+			this.count += 1
+			return
+		}
+		if (typeof group === 'string') {
+			if (group === id) return
+			this.bySuffix.set(suffix, [group, id])
+			this.count += 1
+			return
+		}
+		if (group.includes(id)) return
+		group.push(id)
+		this.count += 1
+	}
+
+	/**
+	 * Remove one id.
+	 *
+	 * @param {unknown} id - The id; unknown ids are ignored.
+	 * @returns {void}
+	 */
+	remove(id) {
+		if (!isFileId(id)) return
+		const suffix = id.slice(-MIN_SHORT_ID)
+		const group = this.bySuffix.get(suffix)
+		if (group === undefined) return
+		if (typeof group === 'string') {
+			if (group !== id) return
+			this.bySuffix.delete(suffix)
+			this.count -= 1
+			return
+		}
+		const index = group.indexOf(id)
+		if (index < 0) return
+		group.splice(index, 1)
+		this.count -= 1
+		if (group.length === 1) this.bySuffix.set(suffix, group[0])
+	}
+
+	/**
+	 * The ids that share one id's five-character suffix.
+	 *
+	 * @param {string} id - A full file id.
+	 * @returns {string[]} The group; always contains `id` when it was added.
+	 */
+	groupOf(id) {
+		const group = this.bySuffix.get(id.slice(-MIN_SHORT_ID))
+		if (group === undefined) return [id]
+		return typeof group === 'string' ? [group] : group
+	}
+
+	/**
+	 * The display suffix of one id, or the id itself when no suffix is unique.
+	 *
+	 * @param {unknown} id - The full id.
+	 * @returns {string} The short id.
+	 */
+	shortOf(id) {
+		if (!isFileId(id)) return String(id ?? '')
+		const body = bodyOf(id)
+		const group = this.groupOf(id)
+		if (group.length === 1) return body.slice(-MIN_SHORT_ID)
+		for (let length = MIN_SHORT_ID + 1; length <= MAX_SHORT_ID; length += 1) {
 			const suffix = body.slice(-length)
-			if (counts.get(length).get(suffix) === 1) {
-				chosen = suffix
-				break
+			let matches = 0
+			for (const member of group) {
+				if (bodyOf(member).endsWith(suffix)) matches += 1
 			}
+			if (matches === 1) return suffix
 		}
-		result.set(`file-${body}`, chosen)
+		// Eight characters are not enough to separate this id: address it in full
+		// rather than with a short form that would be ambiguous.
+		return id
 	}
-	return result
+
+	/**
+	 * Resolve one suffix to a full id when exactly one id ends with it.
+	 *
+	 * @param {unknown} value - The suffix (five to eight characters in practice; anything at least five is accepted).
+	 * @returns {string | undefined} The full id, or undefined when absent or ambiguous.
+	 */
+	resolve(value) {
+		const raw = String(value ?? '').trim()
+		if (raw.length < MIN_SHORT_ID) return undefined
+		const group = this.bySuffix.get(raw.slice(-MIN_SHORT_ID))
+		if (group === undefined) return undefined
+		const members = typeof group === 'string' ? [group] : group
+		const matches = raw.length === MIN_SHORT_ID
+			? members
+			: members.filter((id) => id.endsWith(raw))
+		return matches.length === 1 ? matches[0] : undefined
+	}
 }

@@ -229,11 +229,16 @@ async function readOne(entry) {
 /**
  * The newest sessions, newest first.
  *
- * @param {{root: string, limit?: number}} options - Where the logs live and how many to read.
+ * `offset` exists for the organizer's paged pending scan: the newest page is
+ * always read first, and older pages can be walked without re-reading the
+ * whole listing. The default call is unchanged.
+ *
+ * @param {{root: string, limit?: number, offset?: number}} options - Where the logs live, how many to read and where to start.
  * @returns {Promise<{sessions: object[], total: number, unreadable: number}>} The listing.
  */
-export async function listSessions({ root, limit = DEFAULT_LIMIT }) {
+export async function listSessions({ root, limit = DEFAULT_LIMIT, offset = 0 }) {
 	const capped = Math.max(1, Math.min(50, Math.round(Number(limit) || DEFAULT_LIMIT)))
+	const start = Math.max(0, Math.round(Number(offset) || 0))
 	const entries = []
 	const workspaces = await readdir(root, { withFileTypes: true }).catch(() => [])
 	for (const workspace of workspaces) {
@@ -251,7 +256,7 @@ export async function listSessions({ root, limit = DEFAULT_LIMIT }) {
 	entries.sort((left, right) => right.mtime - left.mtime)
 	const sessions = []
 	let unreadable = 0
-	for (const entry of entries.slice(0, capped)) {
+	for (const entry of entries.slice(start, start + capped)) {
 		if (entry.size > MAX_LOG_BYTES) {
 			unreadable += 1
 			continue

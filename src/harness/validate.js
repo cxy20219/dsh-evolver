@@ -34,8 +34,25 @@ const PYTHON_CANDIDATES = process.platform === 'win32'
 /** Compile in memory: `-m py_compile` would write a `__pycache__` folder. */
 const PYTHON_COMPILE = 'import sys; compile(open(sys.argv[1], "rb").read(), sys.argv[1], "exec")'
 
-/** How long one Python probe may take. */
-const PYTHON_TIMEOUT_MS = 20_000
+/** How long probing for an interpreter may take. */
+const PYTHON_PROBE_TIMEOUT_MS = 20_000
+
+/**
+ * How long one file's syntax check may take.
+ *
+ * A syntax check is a compile in memory: it either finishes in tens of
+ * milliseconds or the interpreter is wedged. Waiting the probe's 20s for every
+ * file turns one stuck interpreter into a minute-long `project_harness_write`
+ * (stability audit P3), so a per-file check gets a much shorter deadline and
+ * reports itself as skipped instead of failing the write.
+ */
+export const PYTHON_CHECK_TIMEOUT_MS = 5_000
+
+/** How many Python checks may run at once. */
+export const PYTHON_CONCURRENCY = 4
+
+/** How much a single check's stderr/stdout may hold before it is dropped. */
+export const PYTHON_MAX_OUTPUT_BYTES = 64 * 1024
 
 /** A document entry that names the script, quotes a command and says 验证. */
 const VALIDATION_MARKER = /(?:^|\n)\s*(?:#{1,6}\s*)?验证(?:\s|$|[:：])/
@@ -54,7 +71,7 @@ async function detectPython() {
 	detectedPython = null
 	for (const candidate of PYTHON_CANDIDATES) {
 		try {
-			await run(candidate, ['-c', 'pass'], { timeout: PYTHON_TIMEOUT_MS, windowsHide: true })
+			await run(candidate, ['-c', 'pass'], { timeout: PYTHON_PROBE_TIMEOUT_MS, windowsHide: true })
 			detectedPython = candidate
 			break
 		} catch {
@@ -65,13 +82,88 @@ async function detectPython() {
 }
 
 /**
+ * Run async workers over a list with a concurrency ceiling.
+ *
+ * Results are written by index, so callers keep a deterministic report order
+ * even though the work runs in parallel.
+ *
+ * @template T, R
+ * @param {T[]} items - The work items.
+ * @param {number} limit - The most workers allowed at once.
+ * @param {(item: T, index: number) => Promise<R>} worker - The work.
+ * @returns {Promise<R[]>} Results in input order.
+ */
+async function pooled(items, limit, worker) {
+	const results = new Array(items.length)
+	let cursor = 0
+	const lanes = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+		for (;;) {
+			const index = cursor
+			cursor += 1
+			if (index >= items.length) return
+			results[index] = await worker(items[index], index)
+		}
+	})
+	await Promise.all(lanes)
+	return results
+}
+
+/**
+ * Whether a child-process failure is a deadline, not a result.
+ *
+ * `execFile` reports a timeout by killing the child: the error carries
+ * `killed`/`signal` and no usable exit code, which must not be read as "the
+ * syntax is wrong".
+ *
+ * @param {unknown} error - The thrown value.
+ * @returns {boolean} True when the check ran out of time.
+ */
+function isTimeout(error) {
+	// A normal non-zero exit also carries `signal: null`, so only a real
+	// signal name counts; a deadline kills the child, which is `killed`.
+	return error?.killed === true || typeof error?.signal === 'string' || error?.code === 'ETIMEDOUT'
+}
+
+/**
+ * Check one Python file's syntax without letting the failure mode be silent.
+ *
+ * @param {(command: string, args: string[], options: object) => Promise<unknown>} runner - The child-process runner.
+ * @param {string} interpreter - The interpreter command.
+ * @param {string} relative - The project-relative path (for the report).
+ * @param {string} absolute - The absolute path to compile.
+ * @returns {Promise<{skipped?: string, error?: string}>} What to report.
+ */
+async function checkPython(runner, interpreter, relative, absolute) {
+	try {
+		await runner(interpreter, ['-c', PYTHON_COMPILE, absolute], {
+			timeout: PYTHON_CHECK_TIMEOUT_MS,
+			windowsHide: true,
+			maxBuffer: PYTHON_MAX_OUTPUT_BYTES,
+		})
+		return {}
+	} catch (error) {
+		if (error?.code === 'ENOENT') {
+			return { skipped: `Python 解释器 ${interpreter} 不可用，已跳过语法校验。` }
+		}
+		if (error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+			return { skipped: `Python 语法校验输出超过 ${PYTHON_MAX_OUTPUT_BYTES} 字节上限，已跳过。` }
+		}
+		if (isTimeout(error)) {
+			return { skipped: `Python 语法校验超时（${PYTHON_CHECK_TIMEOUT_MS}ms），已跳过。` }
+		}
+		const message = error instanceof Error ? error.message : String(error)
+		return { error: `${relative} 的 Python 语法不通过：${message.split('\n').slice(0, 3).join(' ')}` }
+	}
+}
+
+/**
  * Check one harness folder.
  *
  * @param {string} root - The project root.
- * @param {{python?: string | null}} [options] - `python` overrides interpreter detection (`null` forces skip; for tests).
+ * @param {{python?: string | null, runner?: (command: string, args: string[], options: object) => Promise<unknown>}} [options] - `python` overrides interpreter detection (`null` forces skip; for tests); `runner` replaces the child-process call (for tests).
  * @returns {Promise<{ok: boolean, errors: string[], warnings: string[], checked: number, skipped: {path: string, reason: string}[]}>} The report.
  */
-export async function validate(root, { python } = {}) {
+export async function validate(root, { python, runner } = {}) {
 	const errors = []
 	const warnings = []
 	const skipped = []
@@ -119,7 +211,10 @@ export async function validate(root, { python } = {}) {
 	}
 
 	for (const resource of state.resources) {
-		if (resource.summary === '') {
+		// A binary resource has no frontmatter to miss; it is indexed by name on
+		// purpose (a catalog never reads it), so warning about a summary would
+		// just train the reader to ignore warnings.
+		if (resource.summary === '' && resource.binary !== true) {
 			warnings.push(`${resource.path} 缺少 summary: frontmatter，索引里会显示占位符。`)
 		}
 	}
@@ -150,22 +245,26 @@ export async function validate(root, { python } = {}) {
 		}
 	}
 
+	// Python syntax is the only check that needs a child process. It runs as a
+	// bounded pool: a project with many scripts would otherwise pay one
+	// sequential process per file (10 scripts ≈ 1.3s on Windows; stability
+	// audit P3), and one wedged interpreter must not be able to hold the whole
+	// write past its deadline.
 	const interpreter = python === undefined ? await detectPython() : python
-	for (const path of state.layers[TOOL_LAYER] ?? []) {
-		if (!path.endsWith('.py')) continue
-		if (interpreter === null || interpreter === '') {
+	const pythonFiles = (state.layers[TOOL_LAYER] ?? []).filter((path) => path.endsWith('.py'))
+	if (interpreter === null || interpreter === '') {
+		for (const path of pythonFiles) {
 			skipped.push({ path, reason: '找不到可用的 Python 解释器（python3/python/py），已跳过语法校验。' })
-			continue
 		}
-		try {
-			await run(interpreter, ['-c', PYTHON_COMPILE, join(root, path)], { timeout: PYTHON_TIMEOUT_MS, windowsHide: true })
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error)
-			if (error?.code === 'ENOENT') {
-				skipped.push({ path, reason: `Python 解释器 ${interpreter} 不可用，已跳过语法校验。` })
-				continue
-			}
-			errors.push(`${path} 的 Python 语法不通过：${message.split('\n').slice(0, 3).join(' ')}`)
+	} else {
+		const runPython = runner ?? run
+		const outcomes = await pooled(pythonFiles, PYTHON_CONCURRENCY, (path) => (
+			checkPython(runPython, interpreter, path, join(root, path))
+		))
+		for (const [index, outcome] of outcomes.entries()) {
+			const path = pythonFiles[index]
+			if (outcome.skipped !== undefined) skipped.push({ path, reason: outcome.skipped })
+			else if (outcome.error !== undefined) errors.push(outcome.error)
 		}
 	}
 

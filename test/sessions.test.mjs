@@ -8,7 +8,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
@@ -91,6 +91,36 @@ test('会话列表：按修改时间倒序，缺日志的目录被跳过', async
 		const first = await listSessions({ root, limit: 1 })
 		assert.equal(first.sessions.length, 1)
 		assert.equal(first.sessions[0].id, 'session-new')
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
+test('会话列表分页：offset 只改起点，total 与排序不变', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'ziyan-sessions-page-'))
+	try {
+		const base = Date.parse('2026-11-10T00:00:00Z')
+		for (let index = 0; index < 3; index += 1) {
+			const id = `session-page-${index}`
+			const path = await seed(root, '--E-AI-work-page--', id, logOf([
+				{ type: 'session', id, createdAt: base + index * 60_000 },
+				{ type: 'session/title', time: base + index * 60_000, data: { title: `会话 ${index}` } },
+			]))
+			const seconds = (base + index * 60_000) / 1000
+			await utimes(path, seconds, seconds)
+		}
+
+		const first = await listSessions({ root, limit: 2 })
+		assert.equal(first.total, 3)
+		assert.deepEqual(first.sessions.map((session) => session.id), ['session-page-2', 'session-page-1'])
+
+		const second = await listSessions({ root, limit: 2, offset: 2 })
+		assert.equal(second.total, 3)
+		assert.deepEqual(second.sessions.map((session) => session.id), ['session-page-0'])
+
+		const beyond = await listSessions({ root, limit: 2, offset: 10 })
+		assert.equal(beyond.total, 3)
+		assert.deepEqual(beyond.sessions, [])
 	} finally {
 		await rm(root, { recursive: true, force: true })
 	}

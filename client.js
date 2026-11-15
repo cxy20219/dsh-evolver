@@ -63,7 +63,7 @@ window.__ModuleLoader__.load({
 			'injection.tools.noParams': '无参数',
 			'injection.tools.required': '必填',
 			'injection.tools.retry': '重试',
-			'organize.hint': '整理由 agent 作业在会话外运行：作业读会话或库，自己决定写什么。这里只负责选模型、开关自动整理、看结果；注入快照由宿主每天自动重建。',
+			'organize.hint': '整理由 agent 作业在会话外运行：作业读会话或库，自己决定写什么。这里只负责选模型、开关自动整理、看结果；注入只有一段静态纪律，不再注入文件索引。',
 			'organize.enabled': '开',
 			'organize.disabled': '关',
 			'organize.model': '整理模型',
@@ -184,7 +184,6 @@ window.__ModuleLoader__.load({
 			'graph.counts': '节点 {nodes} · 边 {edges}',
 			'graph.hidden': '还有 {n} 个文件未画出',
 			'graph.empty': '还没有文件。',
-			'settings.dataDir': '数据目录',
 			'settings.descriptionMaxChars': '描述上限（字）',
 			'settings.maxFileMb': '单文件上限（MB）',
 			'settings.readTextKb': '单次读取上限（KB）',
@@ -215,7 +214,6 @@ window.__ModuleLoader__.load({
 			'form.links': '关联文件 id（逗号或换行分隔）',
 			'form.content': '正文',
 			'state.loading': '加载中…',
-			'state.failed': '加载失败',
 			'msg.saved': '已保存',
 			'msg.deleted': '已删除',
 			'msg.archived': '已归档',
@@ -256,7 +254,7 @@ window.__ModuleLoader__.load({
 			'injection.tools.noParams': 'No parameters',
 			'injection.tools.required': 'required',
 			'injection.tools.retry': 'Retry',
-			'organize.hint': 'Organize jobs run outside the chat: the agent reads sessions or the library and decides what to write. This page only picks the model, toggles the schedule and shows results; the host rebuilds the injected snapshot daily.',
+			'organize.hint': 'Organize jobs run outside the chat: the agent reads sessions or the library and decides what to write. This page only picks the model, toggles the schedule and shows results; injection is just the static discipline section, with no file index.',
 			'organize.enabled': 'On',
 			'organize.disabled': 'Off',
 			'organize.model': 'Organize model',
@@ -377,7 +375,6 @@ window.__ModuleLoader__.load({
 			'graph.counts': '{nodes} nodes · {edges} links',
 			'graph.hidden': '{n} more files are not drawn',
 			'graph.empty': 'No files yet.',
-			'settings.dataDir': 'Data directory',
 			'settings.descriptionMaxChars': 'Description cap',
 			'settings.maxFileMb': 'File cap (MB)',
 			'settings.readTextKb': 'Read cap (KB)',
@@ -408,7 +405,6 @@ window.__ModuleLoader__.load({
 			'form.links': 'Linked ids (comma or newline)',
 			'form.content': 'Content',
 			'state.loading': 'Loading…',
-			'state.failed': 'Failed to load',
 			'msg.saved': 'Saved',
 			'msg.deleted': 'Deleted',
 			'msg.archived': 'Archived',
@@ -3163,9 +3159,9 @@ window.__ModuleLoader__.load({
 		 * 自衍页：整理台。
 		 *
 		 * 和旧 evolver 的整理页同一个形态：一张模型卡、会话整理 / 文件整理两张
-		 * 作业卡，下面是最近作业。页面不做任何维护动作——注入快照由宿主跨日
-		 * 自动重建，整理由宿主里的 agent 作业在会话外跑；这里只负责选模型、
-		 * 开关自动整理、看结果。
+		 * 作业卡，下面是最近作业。页面不做任何维护动作——注入只有一段静态纪律
+		 * （没有索引/快照），整理由宿主里的 agent 作业在会话外跑；这里只负责
+		 * 选模型、开关自动整理、看结果。
 		 */
 		function OrganizeTab(props) {
 			var t = props.t;

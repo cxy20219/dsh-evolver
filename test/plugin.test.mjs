@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -135,13 +135,17 @@ test('apply 拒绝相对路径的 dataDir', async () => {
 test('apply：harness 工具用 sessionQuery 的 cwd 推断项目根，按 agent id 缓存', async () => {
 	const projectRoot = await mkdtemp(join(tmpdir(), 'ys-project-'))
 	await mkdir(join(projectRoot, '.git'), { recursive: true })
+	// The session header carries a real working directory; the resolver only
+	// walks up from a path that exists.
+	const sessionCwd = join(projectRoot, 'src', 'deep')
+	await mkdir(sessionCwd, { recursive: true })
 	try {
 		await withHome(async () => {
 			const queries = []
 			const sessionQuery = {
 				async filterSessions(filters) {
 					queries.push(filters)
-					return [{ header: { cwd: join(projectRoot, 'src', 'deep') } }]
+					return [{ header: { cwd: sessionCwd } }]
 				},
 			}
 			const { ctx, tools, effects } = fakeContext({ sessionQuery })
@@ -176,7 +180,7 @@ test('apply：harness 工具用 sessionQuery 的 cwd 推断项目根，按 agent
 	}
 })
 
-test('apply：没有 sessionQuery 时 harness 工具要求显式 project', async () => {
+test('apply：没有 sessionQuery 时显式 project 也拒绝——无法证明它在会话工作区内', async () => {
 	const projectRoot = await mkdtemp(join(tmpdir(), 'ys-project-'))
 	await mkdir(join(projectRoot, '.git'), { recursive: true })
 	try {
@@ -185,12 +189,17 @@ test('apply：没有 sessionQuery 时 harness 工具要求显式 project', async
 			await apply(ctx, {})
 			try {
 				const catalogTool = tools.find((tool) => tool.name === 'project_harness_catalog')
+				const exec = { agent: { id: 'agent-x' } }
 				await assert.rejects(
-					() => catalogTool.execute({}, { agent: { id: 'agent-x' } }),
+					() => catalogTool.execute({}, exec),
 					/无法推断项目目录/,
 				)
-				const listed = await catalogTool.execute({ project: projectRoot }, { agent: { id: 'agent-x' } })
-				assert.equal(listed.project, projectRoot)
+				// 旧行为是「显式 project 在无 sessionQuery 下仍可用」，那正是
+				// 越界写别的仓库的入口：无法证明 cwd 就只能拒绝。
+				await assert.rejects(
+					() => catalogTool.execute({ project: projectRoot }, exec),
+					/无法确定当前会话工作目录/,
+				)
 			} finally {
 				const dispose = await effects[0]()
 				await dispose()
@@ -198,5 +207,76 @@ test('apply：没有 sessionQuery 时 harness 工具要求显式 project', async
 		})
 	} finally {
 		await rm(projectRoot, { recursive: true, force: true })
+	}
+})
+
+test('apply：坏 DB 不让插件加载失败——隔离坏库、从边车重建、工具可用', async () => {
+	await withHome(async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'ys-baddb-'))
+		try {
+			await mkdir(join(dir, 'system'), { recursive: true })
+			await writeFile(join(dir, 'system', 'ziyan.db'), 'not a sqlite database')
+			const { ctx, tools, sections, effects } = fakeContext()
+			await apply(ctx, { dataDir: dir })
+			// 12 个工具、注入段照常注册，插件没有因为索引坏掉而拒绝加载。
+			assert.equal(tools.length, 12)
+			assert.equal(sections.length, 1)
+			const written = await tools.find((tool) => tool.name === 'file_write').execute({
+				name: 'after-corrupt.md',
+				description: '坏库恢复后仍能写入的文件',
+				content: 'ok',
+				tags: ['测试/坏库'],
+			})
+			assert.match(written.id, /^file-/)
+			const system = await readdir(join(dir, 'system'))
+			assert.ok(system.some((name) => name.startsWith('ziyan.db.corrupt-')), '坏库以新名保留')
+			const dispose = await effects[0]()
+			await dispose()
+		} finally {
+			await rm(dir, { recursive: true, force: true })
+		}
+	})
+})
+
+test('apply：显式 project 只收 cwd 的祖先/后代（同一项目根），仓库外项目拒绝', async () => {
+	const projectRoot = await mkdtemp(join(tmpdir(), 'ys-project-'))
+	const otherRoot = await mkdtemp(join(tmpdir(), 'ys-other-'))
+	await mkdir(join(projectRoot, '.git'), { recursive: true })
+	const sessionCwd = join(projectRoot, 'src', 'deep')
+	await mkdir(sessionCwd, { recursive: true })
+	await mkdir(join(sessionCwd, 'nested', '.git'), { recursive: true })
+	await mkdir(join(otherRoot, '.git'), { recursive: true })
+	try {
+		await withHome(async () => {
+			const sessionQuery = { async filterSessions() { return [{ header: { cwd: sessionCwd } }] } }
+			const { ctx, tools, effects } = fakeContext({ sessionQuery })
+			await apply(ctx, {})
+			try {
+				const catalogTool = tools.find((tool) => tool.name === 'project_harness_catalog')
+				const exec = { agent: { id: 'agent-boundary' } }
+				// 仓库根（cwd 的祖先）通过。
+				assert.equal((await catalogTool.execute({ project: projectRoot }, exec)).project, projectRoot)
+				// cwd 自己与 cwd 的后代仓库通过。
+				assert.equal((await catalogTool.execute({ project: sessionCwd }, exec)).project, projectRoot, 'cwd 自己在同一项目根')
+				const nested = await catalogTool.execute({ project: join(sessionCwd, 'nested') }, exec)
+				assert.equal(nested.project, join(sessionCwd, 'nested'), '后代仓库是它自己的项目根')
+				// 仓库外另一项目：拒绝，且错误说清原因。
+				await assert.rejects(
+					() => catalogTool.execute({ project: otherRoot }, exec),
+					/不在当前会话工作区/,
+				)
+				// 不存在的路径不会被向上猜成某个祖先仓库（稳定性 P3 的硬边界）。
+				await assert.rejects(
+					() => catalogTool.execute({ project: join(sessionCwd, 'missing-dir') }, exec),
+					/找不到这个项目/,
+				)
+			} finally {
+				const dispose = await effects[0]()
+				await dispose()
+			}
+		})
+	} finally {
+		await rm(projectRoot, { recursive: true, force: true })
+		await rm(otherRoot, { recursive: true, force: true })
 	}
 })

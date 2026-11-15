@@ -10,7 +10,7 @@
  */
 
 import { fileCreatedAt, fileId, isFileId } from './ids.js'
-import { safeName } from './names.js'
+import { assertNotReservedName, safeName } from './names.js'
 
 /** The sidecar schema version. */
 export const META_SCHEMA = 1
@@ -65,30 +65,6 @@ export function normalizeDescription(value) {
 		.replace(CONTROL, ' ')
 		.replace(/\s+/g, ' ')
 		.trim()
-}
-
-/**
- * Cut a sentence down to a description, on a boundary and with an ellipsis.
- *
- * Used when a description is derived from existing text (a migration, a
- * generated note). Cutting mid-word is what makes an index read as broken
- * text, so the cut prefers punctuation in the back half.
- *
- * @param {unknown} value - The text.
- * @param {number} [maxChars] - The cap.
- * @returns {string} A description no longer than the cap.
- */
-export function clipDescription(value, maxChars = DEFAULT_DESCRIPTION_CHARS) {
-	const clean = normalizeDescription(value)
-	const limit = Math.max(MIN_DESCRIPTION_CHARS, Math.min(MAX_DESCRIPTION_CHARS, Math.round(Number(maxChars) || DEFAULT_DESCRIPTION_CHARS)))
-	const chars = [...clean]
-	if (chars.length <= limit) return clean
-	const head = chars.slice(0, limit - 1)
-	const breakAt = /[，。；：、！？,;]/
-	for (let index = head.length - 1; index >= Math.floor(limit * 0.4); index -= 1) {
-		if (breakAt.test(head[index])) return head.slice(0, index + 1).join('') + '…'
-	}
-	return head.join('') + '…'
 }
 
 /**
@@ -229,7 +205,7 @@ export function normalizeSource(value) {
 export function buildMeta(input, { descriptionMaxChars = DEFAULT_DESCRIPTION_CHARS } = {}) {
 	const id = input?.id
 	if (!isFileId(id)) throw new Error('文件 id 不合法。')
-	const name = safeName(input.name)
+	const name = assertNotReservedName(safeName(input.name))
 	if (name === '') throw new Error('文件名不合法。')
 	const description = assertDescription(input.description, descriptionMaxChars)
 	const mime = String(input.mime ?? '').trim()
@@ -243,7 +219,6 @@ export function buildMeta(input, { descriptionMaxChars = DEFAULT_DESCRIPTION_CHA
 	if (!Number.isFinite(Date.parse(created)) || !Number.isFinite(Date.parse(updated))) {
 		throw new Error('文件时间戳不合法。')
 	}
-	const legacyId = typeof input.legacyId === 'string' && input.legacyId !== '' ? input.legacyId : undefined
 	const source = normalizeSource(input.source)
 	return {
 		schema: META_SCHEMA,
@@ -259,7 +234,6 @@ export function buildMeta(input, { descriptionMaxChars = DEFAULT_DESCRIPTION_CHA
 		bytes,
 		sha256,
 		archived: input.archived === true,
-		...(legacyId === undefined ? {} : { legacyId }),
 	}
 }
 
@@ -294,7 +268,6 @@ export function normalizeMeta(raw, options = {}) {
 		bytes: raw.bytes,
 		sha256: raw.sha256,
 		archived: raw.archived,
-		legacyId: raw.legacyId,
 	}, options)
 	// `buildMeta` recalculates nothing about the bytes; a sidecar that claims a
 	// different size than the file on disk is caught by the store's rebuild,
@@ -311,14 +284,4 @@ export function normalizeMeta(raw, options = {}) {
  */
 export function serializeMeta(meta) {
 	return `${JSON.stringify(meta, null, '\t')}\n`
-}
-
-/**
- * Create a fresh id for a file being written now.
- *
- * @param {number} [now] - Millisecond timestamp.
- * @returns {string} The id.
- */
-export function newFileId(now = Date.now()) {
-	return fileId(now)
 }

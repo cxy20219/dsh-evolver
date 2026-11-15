@@ -10,7 +10,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
 import test from 'node:test'
@@ -125,11 +125,12 @@ async function setup({ organize, now } = {}) {
  *
  * @param {object} fixture - `setup()` output.
  * @param {object} llm - The fake service.
+ * @param {{timeouts?: object, store?: object}} [options] - Watchdog timings and a store override.
  * @returns {object} The organizer.
  */
-function makeOrganizer(fixture, llm) {
+function makeOrganizer(fixture, llm, options = {}) {
 	return createOrganizer({
-		store: fixture.store,
+		store: options.store ?? fixture.store,
 		settings: fixture.settings,
 		llm,
 		modelSelection: undefined,
@@ -137,6 +138,7 @@ function makeOrganizer(fixture, llm) {
 		root: fixture.dir,
 		sessionsRoot: fixture.sessionsRoot,
 		now: fixture.now,
+		...(options.timeouts === undefined ? {} : { timeouts: options.timeouts }),
 	})
 }
 
@@ -188,13 +190,19 @@ async function readLedger(dir) {
  * @param {string} root - The sessions root.
  * @param {string} id - The session id.
  * @param {object[]} entries - The log lines.
+ * @param {number} [mtime] - The file's modification time, epoch milliseconds.
  * @returns {Promise<void>} Resolves when written.
  */
-async function seedSession(root, id, entries) {
+async function seedSession(root, id, entries, mtime) {
 	const folder = join(root, '--E-AI-work-demo--', id)
 	await mkdir(folder, { recursive: true })
 	const log = Buffer.concat(entries.map((entry) => zstdCompressSync(Buffer.from(`${JSON.stringify(entry)}\n`))))
-	await writeFile(join(folder, 'session.v4.jsonl.zstd'), log)
+	const path = join(folder, 'session.v4.jsonl.zstd')
+	await writeFile(path, log)
+	if (Number.isFinite(mtime)) {
+		const seconds = mtime / 1000
+		await utimes(path, seconds, seconds)
+	}
 }
 
 /**
@@ -238,6 +246,132 @@ async function until(check, timeoutMs = 3_000) {
 	while (!check()) {
 		if (Date.now() - started > timeoutMs) throw new Error('等待条件超时')
 		await new Promise((resolve) => setTimeout(resolve, 5))
+	}
+}
+
+/**
+ * Poll an async condition until it holds.
+ *
+ * @param {() => Promise<boolean>} check - The condition.
+ * @param {number} [timeoutMs] - How long to wait.
+ * @returns {Promise<void>} Resolves when it holds.
+ */
+async function untilAsync(check, timeoutMs = 3_000) {
+	const started = Date.now()
+	for (;;) {
+		if (await check()) return
+		if (Date.now() - started > timeoutMs) throw new Error('等待条件超时')
+		await new Promise((resolve) => setTimeout(resolve, 5))
+	}
+}
+
+/**
+ * Await a promise but fail the test if it does not settle in time.
+ *
+ * @param {Promise<any>} promise - What to await.
+ * @param {number} timeoutMs - The budget.
+ * @returns {Promise<any>} The promise value.
+ */
+async function bounded(promise, timeoutMs) {
+	let timer
+	try {
+		return await Promise.race([
+			promise,
+			new Promise((resolve, reject) => {
+				timer = setTimeout(() => reject(new Error(`操作没有在 ${timeoutMs}ms 内结束`)), timeoutMs)
+			}),
+		])
+	} finally {
+		clearTimeout(timer)
+	}
+}
+
+/**
+ * How long anything that must eventually happen may take while the machine is
+ * saturated (the scale/stress suites deliberately run beside these tests).
+ *
+ * The point of a bound here is only to fail a real hang; a loaded box makes a
+ * few file writes take hundreds of milliseconds, which is not a hang.
+ */
+const SETTLE_TIMEOUT_MS = 20_000
+
+/**
+ * Deadlines for a job that must be allowed to finish on a loaded machine.
+ *
+ * A healthy run on a saturated box can take far longer than this module's
+ * short "watchdog fires" deadlines (which exist to end a *stuck* run quickly);
+ * recovering tests therefore use their own instance with these instead of
+ * reusing the timed-out organizer's tight budget.
+ */
+const RELAXED_TIMEOUTS = { turn: 60_000, job: 60_000, grace: 10_000 }
+
+/**
+ * The single-job gate of a timed-out organizer was released: a fresh start is
+ * accepted instead of refused with "已有整理作业在运行".
+ *
+ * The probe job is cancelled immediately and its own outcome is not asserted:
+ * it runs under the same tight deadlines that made the first job time out, so
+ * on a loaded box it may or may not finish before being cancelled. Only the
+ * acceptance (the gate) is the contract under test here.
+ *
+ * @param {object} organizer - The organizer whose job timed out.
+ * @returns {Promise<void>} Resolves when the gate is confirmed free again.
+ */
+async function assertGateReleased(organizer) {
+	const accepted = await bounded(organizer.start({ kind: 'files' }), SETTLE_TIMEOUT_MS)
+	assert.equal(accepted.job.status, 'queued', '超时后互斥闸必须已释放')
+	await organizer.cancel({ id: accepted.job.id }).catch(() => {})
+	await bounded(organizer.waitForIdle(), SETTLE_TIMEOUT_MS)
+}
+
+/**
+ * A normal job still runs to completion after a timeout.
+ *
+ * It uses a fresh organizer with `RELAXED_TIMEOUTS` over the same data
+ * directory: the failed record and the released gate came from the timed-out
+ * instance, while the recovery run must not be limited by that instance's
+ * short watchdog window — otherwise a busy machine would make healthy work
+ * look like another timeout.
+ *
+ * @param {object} fixture - `setup()` output.
+ * @returns {Promise<void>} Resolves when the recovery job is done.
+ */
+async function expectNextJobSucceeds(fixture) {
+	const recovery = makeOrganizer(fixture, fakeLlm([textTurn('恢复后正常完成。')]), { timeouts: RELAXED_TIMEOUTS })
+	await bounded(recovery.start({ kind: 'files' }), SETTLE_TIMEOUT_MS)
+	await bounded(recovery.waitForIdle(), SETTLE_TIMEOUT_MS)
+	const [job] = (await recovery.jobs()).jobs
+	assert.equal(job.status, 'done', '超时释放后，下一次作业应能正常完成')
+}
+
+/**
+ * A fake `llm` whose first stream hangs for ever (ignoring the abort signal)
+ * and whose later streams answer normally.
+ *
+ * @param {() => void} onEntered - Called when the first stream is requested.
+ * @param {object[]} [later] - Chunks for every later turn.
+ * @returns {object} The service.
+ */
+function hangingThenHealthyLlm(onEntered, later = textTurn('恢复后完成。')) {
+	let calls = 0
+	return {
+		listProviders: async () => [{ id: PROVIDER, name: 'Fake 提供者' }],
+		listModels: async () => [{ provider: PROVIDER, id: MODEL, name: 'Fake 模型' }],
+		resolveModelInfo: async () => ({ provider: PROVIDER, id: MODEL, name: 'Fake 模型' }),
+		stream() {
+			calls += 1
+			if (calls === 1) {
+				onEntered()
+				// Never settles and never looks at the signal: the adapter is stuck
+				// at the transport layer, which is exactly the P1 scenario.
+				return (async function* stuck() {
+					await new Promise(() => {})
+				})()
+			}
+			return (async function* healthy() {
+				for (const chunk of later) yield chunk
+			})()
+		},
 	}
 }
 
@@ -415,8 +549,8 @@ test('作业生命周期：sessions 走工具循环写文件，计数/落盘/日
 		assert.equal(raw.jobs[0].result.created, 1)
 
 		const status = await organizer.status()
-		assert.deepEqual(status.kinds, ['sessions', 'files', 'all'])
-		assert.equal(status.limits.maxSessions, MAX_SESSIONS)
+		assert.equal('kinds' in status, false, 'organize-status 不再带 kinds：面板从不读')
+		assert.equal('limits' in status, false, 'organize-status 不再带 limits：面板从不读')
 		assert.equal(status.job.id, job.id)
 		assert.equal(status.followsChat, false)
 	} finally {
@@ -956,6 +1090,275 @@ test('organize-save：模型与自动开关各自部分保存，非法值归一'
 		await reread.load()
 		assert.deepEqual(reread.get().organize.auto.sessions, { enabled: false, idleMinutes: 240 })
 		assert.equal(reread.get().organize.model, null)
+	} finally {
+		await fixture.cleanup()
+	}
+})
+
+test('P1 挂起模型：cancel 后有界终结、闸释放、tick 不永久 running、新作业可再起', async () => {
+	const clock = fakeClock(Date.parse('2026-11-10T09:00:00Z'))
+	const fixture = await setup({ organize: autoOrganize({ sessions: { enabled: true, idleMinutes: 30 } }), now: clock.now })
+	try {
+		await seedSession(fixture.sessionsRoot, 'session-hang-1', sessionLog('挂起测试'))
+		let announce
+		const entered = new Promise((resolve) => { announce = resolve })
+		const llm = hangingThenHealthyLlm(announce)
+		// Cancel ends this job by abort (not by the watchdog), so the deadlines
+		// only have to be long enough not to interfere with the recovery run.
+		const organizer = makeOrganizer(fixture, llm, { timeouts: RELAXED_TIMEOUTS })
+
+		const firstTick = organizer.tick()
+		await entered
+		await untilAsync(async () => (await organizer.jobs()).running !== '', SETTLE_TIMEOUT_MS)
+
+		const cancelled = await organizer.cancel({})
+		assert.equal(cancelled.cancelled, true)
+		await bounded(organizer.waitForIdle(), SETTLE_TIMEOUT_MS)
+		let listing = await organizer.jobs()
+		assert.equal(listing.jobs[0].status, 'cancelled')
+		assert.equal(listing.running, '', '取消后单人闸必须释放')
+		assert.match(listing.jobs[0].message, /已取消/)
+
+		// The automatic pass that was awaiting the hung job still returns, and
+		// the next pass is not stuck on reason:"running" for ever.
+		const finishedTick = await bounded(firstTick, SETTLE_TIMEOUT_MS)
+		assert.equal(finishedTick.reason, 'sessions')
+
+		// The failed/cancelled batch was rolled back: the session is pending again.
+		assert.equal((await organizer.status()).scheduler.pendingSessions, 1)
+
+		// A new job can start; this time the fake adapter answers.
+		const second = await bounded(organizer.tick(), SETTLE_TIMEOUT_MS)
+		assert.equal(second.reason, 'sessions')
+		listing = await organizer.jobs()
+		assert.equal(listing.jobs[0].status, 'done')
+		assert.deepEqual(listing.jobs[0].sessionIds, ['session-hang-1'])
+		const ledger = await readLedger(fixture.dir)
+		assert.equal(ledger.sessions['session-hang-1'], Date.parse('2026-11-10T08:02:00Z'))
+	} finally {
+		await fixture.cleanup()
+	}
+})
+
+test('P1 模型轮次超时：永不 settle 的流在 turn deadline 内 failed，互斥释放后可再起', async () => {
+	const fixture = await setup({ organize: { model: { provider: PROVIDER, model: MODEL } } })
+	try {
+		let announce
+		const entered = new Promise((resolve) => { announce = resolve })
+		// The turn deadline ends the stuck stream; the job deadline stays out of
+		// the way so only the turn budget can explain the failure.
+		const llm = hangingThenHealthyLlm(announce)
+		const organizer = makeOrganizer(fixture, llm, { timeouts: { turn: 300, job: 60_000, grace: 1_000 } })
+		await organizer.start({ kind: 'files' })
+		await entered
+		// The bound is the assertion: a real hang would keep the job running.
+		await bounded(organizer.waitForIdle(), SETTLE_TIMEOUT_MS)
+		let listing = await organizer.jobs()
+		assert.equal(listing.jobs[0].status, 'failed')
+		assert.match(listing.jobs[0].error, /模型轮次超过/)
+		assert.equal(listing.running, '')
+
+		// The single-job gate is free again on the same instance.
+		await assertGateReleased(organizer)
+		// A normal job completes: the failure was a per-turn deadline, not a hang.
+		await expectNextJobSucceeds(fixture)
+	} finally {
+		await fixture.cleanup()
+	}
+})
+
+test('P1 整作业超时：job deadline 终止长跑作业、失败原因可读、互斥释放', async () => {
+	const fixture = await setup({ organize: { model: { provider: PROVIDER, model: MODEL } } })
+	try {
+		let announce
+		const entered = new Promise((resolve) => { announce = resolve })
+		const llm = hangingThenHealthyLlm(announce)
+		// The turn deadline is far away and the job deadline is generous enough
+		// that reaching the model call is never the thing under test on a loaded
+		// box; only the whole-job watchdog ends the hanging call.
+		const organizer = makeOrganizer(fixture, llm, { timeouts: { turn: 60_000, job: 1_500, grace: 1_000 } })
+		await organizer.start({ kind: 'files' })
+		await entered
+		await bounded(organizer.waitForIdle(), SETTLE_TIMEOUT_MS)
+		const listing = await organizer.jobs()
+		const [job] = listing.jobs
+		assert.equal(job.status, 'failed')
+		assert.match(job.error, /整理作业超过/)
+		assert.equal(job.message, job.error)
+		assert.equal(listing.running, '')
+
+		// Same instance: the gate is free, so a new job is accepted.
+		await assertGateReleased(organizer)
+		// A normal job still completes; the timeout was the watchdog, not a hang.
+		await expectNextJobSucceeds(fixture)
+	} finally {
+		await fixture.cleanup()
+	}
+})
+
+test('P1 不理会取消的步骤：cancel 在 GRACE 内强制终结作业并释放互斥', async () => {
+	const fixture = await setup({ organize: { model: { provider: PROVIDER, model: MODEL } } })
+	try {
+		let announce
+		const toolEntered = new Promise((resolve) => { announce = resolve })
+		// A tool step that never settles: the abort signal is not consulted while
+		// the loop is awaiting a tool execution, so only the grace watchdog can
+		// end this job.
+		const stuckStore = new Proxy(fixture.store, {
+			get(target, property) {
+				if (property === 'create') {
+					return () => {
+						announce()
+						return new Promise(() => {})
+					}
+				}
+				const value = Reflect.get(target, property, target)
+				return typeof value === 'function' ? value.bind(target) : value
+			},
+		})
+		const llm = fakeLlm([
+			toolTurn([{
+				id: 'call-stuck',
+				name: 'file_write',
+				arguments: JSON.stringify({
+					name: '卡住.md',
+					description: '这次写入永远不会返回，用来验证取消宽限期后的强制终结。',
+					tags: ['测试/整理'],
+					content: '永不落盘',
+				}),
+			}]),
+			textTurn('第二次正常完成。'),
+		])
+		const organizer = makeOrganizer(fixture, llm, {
+			store: stuckStore,
+			// Only the grace watchdog is short under test; the job/turn deadlines
+			// must not compete with it for attention on a loaded machine.
+			timeouts: { turn: 60_000, job: 60_000, grace: 80 },
+		})
+		await organizer.start({ kind: 'files' })
+		await toolEntered
+		const cancelled = await organizer.cancel({})
+		assert.equal(cancelled.cancelled, true)
+		// Without the watchdog this would wait for the stream deadline (60s).
+		await bounded(organizer.waitForIdle(), SETTLE_TIMEOUT_MS)
+		const [job] = (await organizer.jobs()).jobs
+		assert.equal(job.status, 'cancelled')
+		assert.match(job.message, /强制终止/)
+		assert.match(job.log.join('\n'), /强制结束作业/)
+		assert.equal((await organizer.jobs()).running, '')
+
+		// The gate is free: the next job starts and finishes normally.
+		await bounded(organizer.start({ kind: 'files' }), SETTLE_TIMEOUT_MS)
+		await bounded(organizer.waitForIdle(), SETTLE_TIMEOUT_MS)
+		assert.equal((await organizer.jobs()).jobs[0].status, 'done')
+	} finally {
+		await fixture.cleanup()
+	}
+})
+
+test('P1 close：卸载时挂起作业立即终结，waitForIdle 有界', async () => {
+	const fixture = await setup({ organize: { model: { provider: PROVIDER, model: MODEL } } })
+	try {
+		let announce
+		const entered = new Promise((resolve) => { announce = resolve })
+		const llm = hangingThenHealthyLlm(announce)
+		const organizer = makeOrganizer(fixture, llm, { timeouts: RELAXED_TIMEOUTS })
+		await organizer.start({ kind: 'files' })
+		await entered
+		organizer.close()
+		await bounded(organizer.waitForIdle(), SETTLE_TIMEOUT_MS)
+		const listing = await organizer.jobs()
+		assert.equal(listing.running, '')
+		assert.equal(listing.jobs[0].status, 'cancelled')
+		assert.match(listing.jobs[0].message, /宿主关闭/)
+	} finally {
+		await fixture.cleanup()
+	}
+})
+
+test('P2 自动整理失败不烧队列：连续失败后模型恢复，同一批会话仍会被整理', async () => {
+	const clock = fakeClock(Date.parse('2026-11-10T09:00:00Z'))
+	const fixture = await setup({ organize: autoOrganize({ sessions: { enabled: true, idleMinutes: 30 } }), now: clock.now })
+	try {
+		await seedSession(fixture.sessionsRoot, 'session-retry-1', sessionLog('失败重试'))
+		const llm = fakeLlm([textTurn('已沉淀。')])
+		const healthy = llm.stream.bind(llm)
+		let broken = true
+		let failures = 0
+		llm.stream = (...args) => {
+			if (broken) {
+				failures += 1
+				throw new Error('模型路由挂了')
+			}
+			return healthy(...args)
+		}
+		const organizer = makeOrganizer(fixture, llm)
+
+		for (let round = 1; round <= 3; round += 1) {
+			const tick = await bounded(organizer.tick(), SETTLE_TIMEOUT_MS)
+			assert.equal(tick.reason, 'sessions', `第 ${round} 次 tick 仍应尝试，而不是被台账挡住`)
+			assert.notEqual(tick.started, null)
+			const [job] = (await organizer.jobs()).jobs
+			assert.equal(job.status, 'failed')
+			// The attempt must not be recorded as done: the session stays pending.
+			const ledger = await readLedger(fixture.dir)
+			assert.deepEqual(Object.keys(ledger.sessions), [], `第 ${round} 次失败后台账不能被写成已整理`)
+			assert.equal((await organizer.status()).scheduler.pendingSessions, 1, `第 ${round} 次失败后会话仍待整理`)
+		}
+		assert.equal(failures, 3)
+
+		broken = false
+		const tick = await bounded(organizer.tick(), SETTLE_TIMEOUT_MS)
+		assert.equal(tick.reason, 'sessions')
+		const [job] = (await organizer.jobs()).jobs
+		assert.equal(job.status, 'done')
+		assert.deepEqual(job.sessionIds, ['session-retry-1'])
+		const ledger = await readLedger(fixture.dir)
+		assert.equal(ledger.sessions['session-retry-1'], Date.parse('2026-11-10T08:02:00Z'))
+		// And a following pass has nothing left to do.
+		assert.deepEqual(await bounded(organizer.tick(), SETTLE_TIMEOUT_MS), { started: null, reason: 'idle' })
+	} finally {
+		await fixture.cleanup()
+	}
+})
+
+test('P2 待整理会话分页：最近 50 个都已整理时，更早的会话仍会被选中', async () => {
+	const clock = fakeClock(Date.parse('2026-11-10T09:00:00Z'))
+	const fixture = await setup({ organize: autoOrganize({ sessions: { enabled: true, idleMinutes: 30 } }), now: clock.now })
+	try {
+		const base = Date.parse('2026-11-10T07:00:00Z')
+		const ids = []
+		const updatedAt = new Map()
+		for (let index = 0; index < 55; index += 1) {
+			const id = `session-page-${String(index).padStart(3, '0')}`
+			const time = base + index * 60_000
+			ids.push(id)
+			await seedSession(fixture.sessionsRoot, id, sessionLog(`会话 ${index}`, time), time)
+			updatedAt.set(id, Date.parse(new Date(time).toISOString()))
+		}
+		// Simulate a previous instance that already organized the newest 50.
+		const recorded = {}
+		for (let index = 5; index < 55; index += 1) recorded[ids[index]] = updatedAt.get(ids[index])
+		await writeFile(join(fixture.dir, 'system', 'organize-ledger.json'), JSON.stringify({
+			sessions: recorded,
+			files: { lastDay: '' },
+		}))
+
+		const organizer = makeOrganizer(fixture, fakeLlm([textTurn('已沉淀。')]))
+		assert.equal((await organizer.status()).scheduler.pendingSessions, 5)
+		const tick = await bounded(organizer.tick(), SETTLE_TIMEOUT_MS)
+		assert.equal(tick.reason, 'sessions')
+		const [job] = (await organizer.jobs()).jobs
+		assert.deepEqual(job.sessionIds, ids.slice(0, 5), '更早的 5 个会话被选中')
+		assert.equal(job.status, 'done')
+
+		// All pending sessions are drained now.
+		let ledger = await readLedger(fixture.dir)
+		for (const id of ids.slice(0, 5)) assert.equal(ledger.sessions[id], updatedAt.get(id))
+		// The cursor wrapped back; nothing is pending and the next pass is idle.
+		assert.deepEqual(await bounded(organizer.tick(), SETTLE_TIMEOUT_MS), { started: null, reason: 'idle' })
+		ledger = await readLedger(fixture.dir)
+		assert.deepEqual(ledger.sessionsScan, { offset: 0 })
 	} finally {
 		await fixture.cleanup()
 	}

@@ -16,33 +16,127 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { chmod, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 
 import { dayKey } from './day.js'
 import { IndexDatabase } from './db.js'
-import { fileId, isFileId, shortIds } from './ids.js'
+import { fileId, isFileId } from './ids.js'
 import {
 	DEFAULT_DESCRIPTION_CHARS,
 	META_FILE,
 	assertDescription,
 	assertTags,
 	buildMeta,
-	clipDescription,
-	normalizeDescription,
 	normalizeLinks,
 	normalizeMeta,
 	normalizeSource,
 	normalizeTag,
 	serializeMeta,
 } from './meta.js'
-import { contentTypeOf, extensionOf, isExecutablePayload, isScriptName, isTextMime, isTextual, safeName } from './names.js'
+import { assertNotReservedName, contentTypeOf, extensionOf, isExecutablePayload, isScriptName, isTextMime, isTextual, safeName } from './names.js'
 
 /** One file may not exceed this many bytes by default. */
 export const DEFAULT_MAX_BYTES = 25 * 1024 * 1024
 
 /** How much of a text file `read()` returns by default. */
 export const DEFAULT_READ_TEXT_BYTES = 256 * 1024
+
+/** How many bytes of an old payload are enough to sniff its MIME type. */
+const MIME_SNIFF_BYTES = 8192
+
+/**
+ * How many entity folders one scan reads in parallel.
+ *
+ * A cold start walks the whole library; sixteen lanes turn three or four serial
+ * system calls per folder into a mostly-waiting pool without swamping old disks.
+ */
+const SCAN_CONCURRENCY = 16
+
+/** The Windows namespaces that name devices and pipes rather than files. */
+const WINDOWS_NAMESPACE = /^[\\/]{2}[.?][\\/]/
+
+/** Windows resolves these names to hardware even with an extension. */
+const WINDOWS_DEVICE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+
+/**
+ * Whether a path names a Windows device or pipe rather than a file.
+ *
+ * `file_import` reads whatever host path it is given, so the one class of
+ * "path" that must never reach `readFile` is the class where open has side
+ * effects or never returns: `\\.\pipe\...` blocks until a peer appears, and
+ * `CON`/`NUL` are consoles and sinks, not files. Node can often make a scratch
+ * file with such a literal name, but a caller cannot tell the two apart here,
+ * so the path is refused instead of opened.
+ *
+ * @param {string} path - The caller-supplied source path.
+ * @returns {boolean} True when the path is a device namespace or name.
+ */
+function isWindowsSpecialPath(path) {
+	if (WINDOWS_NAMESPACE.test(path)) return true
+	const segments = path.split(/[\\/]+/).filter((segment) => segment !== '')
+	const last = segments.at(-1) ?? ''
+	return WINDOWS_DEVICE_NAME.test(last.replace(/[. ]+$/, ''))
+}
+
+/**
+ * Read a payload source: verify it is a regular file with a known size first.
+ *
+ * `file_import` deliberately reads files outside the library, so the size and
+ * type check must happen *before* the bytes are read. A 96 MiB sparse file used
+ * to be read whole and only then rejected by the size limit, which turns one
+ * tool call into a host-memory spike. A symlink is resolved first (reading
+ * through a link is part of the documented capability) and the resolved target
+ * is what gets checked, so a link can only ever widen the check, never skip it;
+ * directories, devices and pipes are not regular files and are refused.
+ *
+ * @param {string} sourcePath - The host path the caller asked for.
+ * @param {number} maxBytes - The store's payload limit.
+ * @param {{readBytes?: (path: string) => Promise<Buffer>}} [options] - The body reader; injectable for tests.
+ * @returns {Promise<Buffer>} The payload bytes.
+ */
+export async function readPayloadSource(sourcePath, maxBytes, { readBytes = readFile } = {}) {
+	const raw = typeof sourcePath === 'string' ? sourcePath : ''
+	if (raw === '') throw new Error('sourcePath 不能为空。')
+	if (process.platform === 'win32' && isWindowsSpecialPath(raw)) {
+		throw new Error(`不支持设备/管道路径：${raw}`)
+	}
+	// Resolve the link first so the size/type check sees the file that would
+	// actually be read; a dangling link falls through to "not found".
+	const canonical = await realpath(raw).catch(() => undefined)
+	const info = await stat(canonical ?? raw).catch(() => undefined)
+	if (info === undefined) throw new Error(`文件不存在或不可读：${raw}`)
+	if (!info.isFile()) throw new Error(`不是普通文件（目录/设备/管道不导入）：${raw}`)
+	const limit = Number.isFinite(Number(maxBytes)) && Number(maxBytes) > 0 ? Number(maxBytes) : DEFAULT_MAX_BYTES
+	if (info.size > limit) throw new Error(`文件超过 ${Math.max(1, Math.round(limit / 1024 / 1024))} MB 上限。`)
+	const buffer = await readBytes(canonical ?? raw)
+	// The size can change between the stat and the read (TOCTOU); the second
+	// check keeps the memory bound even when it does.
+	if (buffer.length > limit) throw new Error(`文件超过 ${Math.max(1, Math.round(limit / 1024 / 1024))} MB 上限。`)
+	return buffer
+}
+
+/**
+ * Drop a trailing incomplete UTF-8 sequence from a byte prefix.
+ *
+ * The MIME sniff reads only the head of the payload, but `isTextual` decodes
+ * the bytes it is given strictly: a multi-byte character cut in half at the
+ * boundary would make a text file look binary and change its stored MIME type
+ * on a rename. Trimming the partial sequence keeps the prefix decodable.
+ *
+ * @param {Buffer} buffer - The head bytes.
+ * @returns {Buffer} A prefix that ends on a character boundary.
+ */
+function trimIncompleteUtf8(buffer) {
+	for (let length = 1; length <= 4 && length <= buffer.length; length += 1) {
+		const byte = buffer[buffer.length - length]
+		if ((byte & 0x80) === 0) return buffer
+		if ((byte & 0xc0) === 0x80) continue
+		const expected = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : 2
+		return length < expected ? buffer.subarray(0, buffer.length - length) : buffer
+	}
+	return buffer
+}
 
 /** The filesystem timestamp format used for trash folders. */
 function stamp(now = new Date()) {
@@ -84,28 +178,34 @@ export class FileStore {
 		this.readTextBytes = Math.max(1, Math.round(Number(readTextBytes) || DEFAULT_READ_TEXT_BYTES))
 		this.descriptionMaxChars = Math.min(200, Math.max(20, Math.round(Number(descriptionMaxChars) || DEFAULT_DESCRIPTION_CHARS)))
 		this.db = new IndexDatabase({ path: this.dbPath, logger })
-		this.shortCache = { version: -1, map: new Map() }
+		// Aggregates the overview asks for are computed from index scans; cache
+		// them against the index version so a panel refresh is free until the
+		// library changes.
+		this.statsCache = { version: -1, value: null }
+		this.tagCache = { version: -1, byLimit: new Map() }
 	}
 
 	/**
-	 * The short-id map, cached against the index version.
+	 * The short-id index, maintained incrementally by the database.
 	 *
-	 * `create()` returns `read()`, so computing this per call would turn a
-	 * thousand writes into a quadratic scan of the whole library. The map is
-	 * derived data: one version check decides whether it can be reused.
+	 * A short id is a display handle; the database owns the map so a write only
+	 * has to add or remove one entry instead of rebuilding the whole library's
+	 * suffix table.
 	 *
-	 * @returns {Map<string, string>} Full id to display suffix.
+	 * @returns {import('./ids.js').ShortIdIndex} The index.
 	 */
-	shortMap() {
-		const version = this.db.version
-		if (this.shortCache.version !== version) {
-			this.shortCache = { version, map: shortIds(this.db.ids()) }
-		}
-		return this.shortCache.map
+	shortIndex() {
+		return this.db.shortIdIndex()
 	}
 
 	/**
 	 * Open the store and, when the index is missing, rebuild it from sidecars.
+	 *
+	 * A corrupt or version-mismatched database is quarantined and rebuilt
+	 * rather than surfaced as a load failure: the sidecars are the truth and
+	 * the index is deliberately disposable, so "one bad file in system/"
+	 * must not cost the host its tools and panel. The bad file is kept under a
+	 * `.corrupt-<timestamp>` name for diagnosis; it is never deleted here.
 	 *
 	 * @returns {Promise<void>} Resolves when ready.
 	 */
@@ -113,15 +213,57 @@ export class FileStore {
 		await mkdir(this.filesDir, { recursive: true, mode: 0o700 })
 		await mkdir(this.systemDir, { recursive: true, mode: 0o700 })
 		await mkdir(this.trashDir, { recursive: true, mode: 0o700 })
-		const existed = await stat(this.dbPath).then(() => true, () => false)
-		this.db.open()
+		let existed = await stat(this.dbPath).then(() => true, () => false)
+		try {
+			this.db.open()
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error)
+			// `db.open()` closes its own handle; close again is a no-op for the
+			// double-failure case and documents the ordering requirement.
+			this.db.close()
+			const quarantined = await this.quarantineDatabase().catch((failure) => {
+				const detail = failure instanceof Error ? failure.message : String(failure)
+				throw new Error(`自衍中枢：索引不可用（${reason}），且无法隔离 ${this.dbPath}：${detail}`)
+			})
+			this.logger?.warn?.(`自衍中枢：索引不可用（${reason}），已移到 ${quarantined}，从边车重建。`)
+			this.db.open()
+			existed = false
+		}
 		if (!existed || this.db.total() === 0) {
+			// The timestamp is taken before the walk starts: a create() that
+			// happens while the walk is in flight is newer than this and must
+			// survive the reconciliation.
+			const scanStartedAt = new Date().toISOString()
 			const scanned = await this.scan()
-			if (scanned.entries.length > 0) this.db.rebuild(scanned.entries)
+			if (scanned.entries.length > 0) this.db.rebuild(scanned.entries, { scanStartedAt })
 			if (scanned.problems.length > 0) {
 				this.logger?.warn?.(`自衍中枢：重建索引时跳过 ${scanned.problems.length} 个问题文件`)
 			}
 		}
+	}
+
+	/**
+	 * Rename an unusable index aside so a fresh one can be built at its path.
+	 *
+	 * The rename preserves whatever the broken file contains for diagnosis and
+	 * moves it out of SQLite's way in one step. The `-wal`/`-shm` companions go
+	 * with it: a stale write-ahead log next to a freshly created database is
+	 * one way a "recovered" index comes back corrupt. A companion that cannot
+	 * be renamed is removed instead — it is derived data, and the main file has
+	 * already been preserved.
+	 *
+	 * @returns {Promise<string>} The new path of the quarantined database.
+	 */
+	async quarantineDatabase() {
+		const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+		const target = `${this.dbPath}.corrupt-${stamp}`
+		await rename(this.dbPath, target)
+		for (const suffix of ['-wal', '-shm']) {
+			const from = `${this.dbPath}${suffix}`
+			const moved = await rename(from, `${target}${suffix}`).then(() => true, () => false)
+			if (!moved) await rm(from, { force: true }).catch(() => {})
+		}
+		return target
 	}
 
 	/** Close the index. */
@@ -220,10 +362,36 @@ export class FileStore {
 		if (Buffer.isBuffer(input.content)) return { buffer: Buffer.from(input.content), sourceName: '' }
 		if (typeof input.content === 'string') return { buffer: Buffer.from(input.content, 'utf8'), sourceName: '' }
 		if (typeof input.sourcePath === 'string' && input.sourcePath !== '') {
-			const buffer = await readFile(input.sourcePath)
+			// Check type and size before reading anything: `file_import` accepts
+			// arbitrary host paths, and a 100 MB file must be refused, not loaded
+			// and then refused.
+			const buffer = await readPayloadSource(input.sourcePath, this.maxBytes)
 			return { buffer, sourceName: basename(input.sourcePath) }
 		}
 		throw new Error('新建文件需要 content（字符串/Buffer）或 sourcePath。')
+	}
+
+	/**
+	 * Read the head of a payload, for a MIME sniff that must not read it whole.
+	 *
+	 * Renaming a file to an extension the store does not know needs a look at
+	 * the bytes to tell text from binary; the first few kilobytes are enough,
+	 * and reading the whole old payload just to classify it was an unbounded
+	 * read.
+	 *
+	 * @param {string} path - The payload path.
+	 * @returns {Promise<Buffer>} At most {@link MIME_SNIFF_BYTES} bytes.
+	 */
+	async readHead(path) {
+		const handle = await open(path, 'r').catch(() => undefined)
+		if (handle === undefined) return Buffer.alloc(0)
+		try {
+			const buffer = Buffer.alloc(MIME_SNIFF_BYTES)
+			const { bytesRead } = await handle.read(buffer, 0, MIME_SNIFF_BYTES, 0)
+			return trimIncompleteUtf8(buffer.subarray(0, bytesRead))
+		} finally {
+			await handle.close().catch(() => {})
+		}
 	}
 
 	/**
@@ -277,7 +445,6 @@ export class FileStore {
 			bytes: buffer.length,
 			sha256: this.hashOf(buffer),
 			archived: input.archived === true,
-			legacyId: input.legacyId,
 		}, { descriptionMaxChars: this.descriptionMaxChars })
 		const dir = this.entityDir(id)
 		await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -310,13 +477,13 @@ export class FileStore {
 			throw new Error(`文件超过 ${Math.round(this.maxBytes / 1024 / 1024)} MB 上限。`)
 		}
 		const rawName = typeof patch.name === 'string' && patch.name !== '' ? patch.name : (hasContent ? sourceName : current.name)
-		const name = rawName === '' ? current.name : safeName(rawName)
+		const name = rawName === '' ? current.name : assertNotReservedName(safeName(rawName))
 		if (name === '') throw new Error(`文件名不合法：${String(rawName)}`)
 		const mime = buffer !== undefined
 			? contentTypeOf(name, buffer)
 			: extensionOf(name) === extensionOf(current.name)
 				? current.mime
-				: contentTypeOf(name, await readFile(this.entityPath(current)).catch(() => Buffer.alloc(0)))
+				: contentTypeOf(name, await this.readHead(this.entityPath(current)))
 		const oldPath = this.entityPath(current)
 		const nextPath = join(this.entityDir(id), name)
 		let bytes = current.bytes
@@ -343,7 +510,6 @@ export class FileStore {
 			bytes,
 			sha256,
 			archived: patch.archived === undefined ? current.archived : patch.archived === true,
-			legacyId: current.legacyId,
 		}, { descriptionMaxChars: this.descriptionMaxChars })
 		await this.writeMeta(meta)
 		if (buffer !== undefined && oldPath !== nextPath) await rm(oldPath, { force: true }).catch(() => {})
@@ -389,8 +555,8 @@ export class FileStore {
 				out.truncated = truncated
 			}
 		}
-		out.short = this.shortMap().get(id) ?? id
-		out.degree = { in: this.db.backlinks(id).length, out: (meta.links ?? []).length }
+		out.short = this.db.shortFor(id)
+		out.degree = this.db.degreesFor([id]).get(id) ?? { in: 0, out: 0 }
 		if (neighbors) {
 			const outgoing = []
 			for (const target of meta.links ?? []) {
@@ -505,52 +671,68 @@ export class FileStore {
 		// is a real bucket in the type matrix.
 		const suffix = typeof options.suffix === 'string' ? options.suffix : null
 		const query = typeof options.query === 'string' ? options.query.trim() : ''
-		const degrees = this.db.degrees()
-		const shortMap = this.shortMap()
-		const decorate = (meta, extra = {}) => ({
-			...meta,
-			short: shortMap.get(meta.id) ?? meta.id,
-			degree: degrees.get(meta.id) ?? { in: 0, out: 0 },
-			...extra,
-		})
-		const keep = (meta) => {
-			for (const prefix of wanted) {
-				const found = (meta.tags ?? []).some((tag) => tag === prefix || tag.startsWith(`${prefix}/`))
-				if (!found) return false
-			}
-			if (mime !== '' && !(meta.mime === mime || (mime.endsWith('/') && meta.mime.startsWith(mime)))) return false
-			if (suffix !== null && extensionOf(meta.name) !== suffix) return false
-			return true
-		}
 
 		if (query === '') {
 			// Paging and filtering happen in SQL: the total has to be the real
 			// total, or the panel's "load more" stops at whatever window the
 			// index happened to fetch.
 			const page = this.db.page({ limit, offset, archived, mime, tags: wanted, suffix })
-			return { total: page.total, files: page.rows.map((meta) => decorate(meta)) }
+			const degrees = this.db.degreesFor(page.rows.map((meta) => meta.id))
+			return {
+				total: page.total,
+				files: page.rows.map((meta) => this.decorate(meta, degrees.get(meta.id), {})),
+			}
 		}
 
-		const hits = this.db.search(query, { limit: 200, includeArchived: archived })
+		// Search candidates come from the index with the same tag/mime/suffix
+		// filters applied before the candidate window: filtering a ranked window
+		// in memory is how a tagged document's length penalty used to hide every
+		// hit of "keyword + tag".
+		const hits = this.db.search(query, {
+			limit: 200,
+			includeArchived: archived,
+			tags: wanted,
+			mime,
+			suffix,
+		})
 		const now = Date.now()
 		const maxRank = Math.max(...hits.map((hit) => -hit.rank), Number.EPSILON)
+		const degrees = this.db.degreesFor(hits.map((hit) => hit.id))
 		const scored = []
 		for (const hit of hits) {
 			const meta = this.db.get(hit.id)
-			if (meta === undefined || !keep(meta)) continue
+			if (meta === undefined) continue
 			const degree = degrees.get(meta.id) ?? { in: 0, out: 0 }
 			const score = (Math.max(0, -hit.rank) / maxRank) * 0.8
 				+ recency(meta.updated, now) * 0.15
 				+ Math.min(1, (degree.in + degree.out) / 20) * 0.05
-			scored.push({ meta, score })
+			scored.push({ meta, degree, score })
 		}
 		scored.sort((left, right) => right.score - left.score
 			|| right.meta.updated.localeCompare(left.meta.updated)
 			|| left.meta.id.localeCompare(right.meta.id))
 		const page = scored.slice(offset, offset + limit)
-		const files = page.map((item) => decorate(item.meta, { score: Number(item.score.toFixed(4)) }))
+		const files = page.map((item) => this.decorate(item.meta, item.degree, { score: Number(item.score.toFixed(4)) }))
 		return { total: scored.length, files }
 	}
+
+	/**
+	 * Add the derived display fields to one file row.
+	 *
+	 * @param {object} meta - The metadata.
+	 * @param {{in: number, out: number}} [degree] - The already-fetched degree.
+	 * @param {object} [extra] - Extra fields (e.g. a search score).
+	 * @returns {object} The decorated file.
+	 */
+	decorate(meta, degree = { in: 0, out: 0 }, extra = {}) {
+		return {
+			...meta,
+			short: this.db.shortFor(meta.id),
+			degree,
+			...extra,
+		}
+	}
+
 
 	/**
 	 * Walk the link graph from one or more seeds.
@@ -573,21 +755,18 @@ export class FileStore {
 		const nodes = new Map()
 		const edges = []
 		const edgeKeys = new Set()
-		const degree = this.db.degrees()
-		const short = this.shortMap()
 		const addNode = (id) => {
 			if (nodes.has(id)) return false
 			const meta = this.db.get(id)
 			nodes.set(id, meta === undefined
-				? { id, short: short.get(id) ?? id, missing: true }
+				? { id, short: this.db.shortFor(id), missing: true }
 				: {
 					id,
-					short: short.get(id) ?? id,
+					short: this.db.shortFor(id),
 					name: meta.name,
 					description: meta.description,
 					mime: meta.mime,
 					tags: meta.tags ?? [],
-					degree: degree.get(id) ?? { in: 0, out: 0 },
 				})
 			return true
 		}
@@ -622,6 +801,13 @@ export class FileStore {
 			}
 			frontier = next
 		}
+		// Degrees are fetched once for the final node set: one grouped index scan
+		// instead of a full-library degree map (which every read used to pay).
+		const degrees = this.db.degreesFor([...nodes.keys()])
+		for (const [id, node] of nodes) {
+			if (node.missing === true) continue
+			node.degree = degrees.get(id) ?? { in: 0, out: 0 }
+		}
 		return { nodes: [...nodes.values()], edges }
 	}
 
@@ -639,20 +825,17 @@ export class FileStore {
 	 */
 	libraryGraph({ limit = 3000 } = {}) {
 		const snapshot = this.db.snapshot({ limit })
-		const degree = this.db.degrees()
-		const short = this.shortMap()
+		const degrees = this.db.degreesFor(snapshot.rows.map((meta) => meta.id))
 		const nodes = snapshot.rows.map((meta) => ({
 			id: meta.id,
-			short: short.get(meta.id) ?? meta.id,
+			short: this.db.shortFor(meta.id),
 			name: meta.name,
 			description: meta.description,
 			mime: meta.mime,
 			tags: meta.tags ?? [],
-			degree: degree.get(meta.id) ?? { in: 0, out: 0 },
+			degree: degrees.get(meta.id) ?? { in: 0, out: 0 },
 		}))
-		const ids = new Set(nodes.map((node) => node.id))
-		const edges = snapshot.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to))
-		return { nodes, edges }
+		return { nodes, edges: snapshot.edges }
 	}
 
 	/**
@@ -712,11 +895,20 @@ export class FileStore {
 	/**
 	 * The most-used tags.
 	 *
+	 * Cached against the index version: the tag tree is drawn on every overview
+	 * and only changes when the library does.
+	 *
 	 * @param {number} [limit] - Maximum tags.
 	 * @returns {Array<{tag: string, count: number}>} The counts.
 	 */
 	tagCounts(limit = 200) {
-		return this.db.tagCounts(limit)
+		if (this.tagCache.version !== this.db.version) this.tagCache = { version: this.db.version, byLimit: new Map() }
+		const key = Math.max(1, Math.min(1000, Math.round(Number(limit) || 200)))
+		const cached = this.tagCache.byLimit.get(key)
+		if (cached !== undefined) return cached
+		const rows = this.db.tagCounts(key)
+		this.tagCache.byLimit.set(key, rows)
+		return rows
 	}
 
 
@@ -730,16 +922,7 @@ export class FileStore {
 	 * @returns {Array<{suffix: string, count: number}>} Counts, busiest first.
 	 */
 	suffixCounts() {
-		const counts = new Map()
-		for (const name of this.db.liveNames()) {
-			const value = String(name)
-			const index = value.lastIndexOf('.')
-			const suffix = index <= 0 || index === value.length - 1 ? '' : value.slice(index + 1).toLowerCase()
-			counts.set(suffix, (counts.get(suffix) ?? 0) + 1)
-		}
-		return [...counts.entries()]
-			.map(([suffix, count]) => ({ suffix, count }))
-			.sort((left, right) => right.count - left.count || left.suffix.localeCompare(right.suffix))
+		return this.db.suffixCounts()
 	}
 
 	/**
@@ -747,24 +930,18 @@ export class FileStore {
 	 *
 	 * Files, including archived ones, stay on the day they were created: the
 	 * heatmap is a record of writing history, not of the current live count.
-	 * The day key is local, matching the daily injection snapshot.
+	 * The day key is local, matching the daily injection snapshot; the counts
+	 * come from an index scan over the precomputed day column.
 	 *
 	 * @param {{days?: number, now?: Date}} [options] - Window length and clock.
 	 * @returns {{activity: Array<{date: string, count: number}>, days: number, activeDays: number, notes: number}} The activity.
 	 */
 	activity({ days = 365, now = new Date() } = {}) {
-		const dates = this.db.createdDates()
-		if (dates.length === 0) return { activity: [], days: 0, activeDays: 0, notes: 0 }
-		const counts = new Map()
-		let first = null
-		for (const iso of dates) {
-			const date = new Date(iso)
-			if (!Number.isFinite(date.getTime())) continue
-			const key = dayKey(date)
-			counts.set(key, (counts.get(key) ?? 0) + 1)
-			const midnight = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
-			if (first === null || midnight < first) first = midnight
-		}
+		const rows = this.db.activityDays()
+		if (rows.length === 0) return { activity: [], days: 0, activeDays: 0, notes: 0 }
+		const counts = new Map(rows.map((row) => [row.day, row.count]))
+		const firstParts = rows[0].day.split('-').map(Number)
+		const first = new Date(firstParts[0], firstParts[1] - 1, firstParts[2]).getTime()
 		const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
 		const activity = []
 		for (let offset = Math.max(1, days) - 1; offset >= 0; offset -= 1) {
@@ -776,7 +953,7 @@ export class FileStore {
 		const notes = activity.reduce((sum, item) => sum + item.count, 0)
 		return {
 			activity,
-			days: first === null ? 0 : Math.max(1, Math.floor((today - first) / 86_400_000) + 1),
+			days: Number.isFinite(first) ? Math.max(1, Math.floor((today - first) / 86_400_000) + 1) : activity.length,
 			activeDays: activity.filter((item) => item.count > 0).length,
 			notes,
 		}
@@ -785,15 +962,18 @@ export class FileStore {
 	/**
 	 * Counts for the overview and the injected summary.
 	 *
+	 * Cached against the index version; a write invalidates it. The orphan
+	 * count is arithmetic over two index counts instead of a per-file probe.
+	 *
 	 * @returns {{files: number, archived: number, links: number, tags: number, tagAssignments: number, orphans: number, mimes: Array<{mime: string, count: number}>}} The stats.
 	 */
 	stats() {
+		if (this.statsCache.version === this.db.version) return this.statsCache.value
 		const base = this.db.stats()
-		let orphans = 0
-		for (const degree of this.db.degrees().values()) {
-			if (degree.in + degree.out === 0) orphans += 1
-		}
-		return { ...base, orphans }
+		const orphans = base.files + base.archived - this.db.linkedCount()
+		const value = { ...base, orphans }
+		this.statsCache = { version: this.db.version, value }
+		return value
 	}
 
 	/**
@@ -806,8 +986,9 @@ export class FileStore {
 	 * @returns {Promise<{files: number, links: number, tags: number, problems: Array<{id: string, reason: string}>}>} A report.
 	 */
 	async rebuild() {
+		const scanStartedAt = new Date().toISOString()
 		const scanned = await this.scan()
-		this.db.rebuild(scanned.entries)
+		this.db.rebuild(scanned.entries, { scanStartedAt })
 		return {
 			files: scanned.entries.length,
 			links: scanned.entries.reduce((sum, entry) => sum + (entry.meta.links?.length ?? 0), 0),
@@ -819,47 +1000,88 @@ export class FileStore {
 	/**
 	 * Scan every entity folder.
 	 *
+	 * Each folder is a handful of independent file-system reads (sidecar,
+	 * directory listing, stat, maybe the payload for a repair), so the walk runs
+	 * a bounded pool of lanes instead of one `await` at a time — the serial loop
+	 * spent most of a cold start waiting on the file system. Results are
+	 * collected by position, so the output keeps the directory order and stays
+	 * deterministic however the lanes interleave.
+	 *
 	 * @returns {Promise<{entries: Array<{meta: object}>, problems: Array<{id: string, reason: string}>}>} The scan.
 	 */
 	async scan() {
 		const names = await readdir(this.filesDir, { withFileTypes: true }).catch(() => [])
+		const ids = names.filter((entry) => entry.isDirectory() && isFileId(entry.name)).map((entry) => entry.name)
+		const outcomes = new Array(ids.length)
+		let cursor = 0
+		const lanes = Math.min(SCAN_CONCURRENCY, ids.length)
+		const worker = async () => {
+			for (;;) {
+				const index = cursor
+				cursor += 1
+				if (index >= ids.length) return
+				outcomes[index] = await this.scanEntity(ids[index])
+			}
+		}
+		await Promise.all(Array.from({ length: lanes }, worker))
 		const entries = []
 		const problems = []
-		for (const entry of names) {
-			if (!entry.isDirectory() || !isFileId(entry.name)) continue
-			const id = entry.name
-			try {
-				const meta = await this.readMeta(id)
-				if (meta === undefined) {
-					problems.push({ id, reason: '缺少 meta.json' })
-					continue
-				}
-				const dir = this.entityDir(id)
-				const files = (await readdir(dir)).filter((name) => name !== META_FILE && !name.startsWith('.tmp-'))
-				if (files.length === 0) {
-					problems.push({ id, reason: '没有文件本体' })
-					continue
-				}
-				const payloadName = files.includes(meta.name) ? meta.name : files[0]
-				if (payloadName !== meta.name) {
-					problems.push({ id, reason: `meta 名与实际文件不一致：${meta.name} vs ${payloadName}` })
-				}
-				const path = join(dir, payloadName)
-				const info = await lstat(path)
-				if (info.isSymbolicLink()) {
-					problems.push({ id, reason: '拒绝符号链接（可能指向库外）' })
-					continue
-				}
-				// The index no longer holds body text, so a healthy sidecar and a
-				// payload of the recorded size need no read at all: rebuilding a
-				// library is a stat pass, not a full-file copy into memory.
-				if (payloadName === meta.name && info.size === meta.bytes) {
-					entries.push({ meta })
-					continue
-				}
-				const buffer = await readFile(path)
-				let repaired = meta
-				if (payloadName !== meta.name || buffer.length !== meta.bytes) {
+		for (const outcome of outcomes) {
+			if (outcome.entry !== undefined) entries.push(outcome.entry)
+			if (outcome.problem !== undefined) problems.push(outcome.problem)
+		}
+		return { entries, problems }
+	}
+
+	/**
+	 * Read one entity folder during a scan.
+	 *
+	 * @param {string} id - The folder name (a file id).
+	 * @returns {Promise<{entry?: {meta: object}, problem?: {id: string, reason: string}}>} What the folder yielded.
+	 */
+	async scanEntity(id) {
+		try {
+			const meta = await this.readMeta(id)
+			if (meta === undefined) return { problem: { id, reason: '缺少 meta.json' } }
+			const dir = this.entityDir(id)
+			const dataDir = join(dir, meta.name)
+			// Fast path: the sidecar names the payload and a stat confirms its
+			// size, which is the healthy case for every file. A cold start is
+			// three system calls per file instead of four; the directory listing
+			// is only needed to diagnose a missing, renamed or resized payload.
+			const direct = await lstat(dataDir).catch(() => undefined)
+			if (direct !== undefined && !direct.isSymbolicLink() && direct.isFile() && direct.size === meta.bytes) {
+				return { entry: { meta } }
+			}
+			const files = (await readdir(dir)).filter((name) => name !== META_FILE && !name.startsWith('.tmp-'))
+			if (files.length === 0) return { problem: { id, reason: '没有文件本体' } }
+			const payloadName = files.includes(meta.name) ? meta.name : files[0]
+			const mismatch = payloadName !== meta.name
+				? { id, reason: `meta 名与实际文件不一致：${meta.name} vs ${payloadName}` }
+				: undefined
+			const path = join(dir, payloadName)
+			const info = await lstat(path)
+			if (info.isSymbolicLink()) {
+				return { problem: { id, reason: '拒绝符号链接（可能指向库外）' } }
+			}
+			// The index no longer holds body text, so a healthy sidecar and a
+			// payload of the recorded size need no read at all: rebuilding a
+			// library is a stat pass, not a full-file copy into memory.
+			if (payloadName === meta.name && info.size === meta.bytes) {
+				return { entry: { meta }, problem: mismatch }
+			}
+			const buffer = await readFile(path)
+			let repaired = meta
+			if (payloadName !== meta.name || buffer.length !== meta.bytes) {
+				// A concurrent update may have landed between our sidecar
+				// read and this repair. Its record is the newer truth (the
+				// write order is bytes → sidecar → index), so the scan
+				// reports it instead of writing the stale snapshot back
+				// over it.
+				const latest = await this.readMeta(id).catch(() => undefined)
+				if (latest !== undefined && latest.updated !== meta.updated) {
+					repaired = latest
+				} else {
 					repaired = buildMeta({
 						...meta,
 						name: payloadName,
@@ -869,12 +1091,11 @@ export class FileStore {
 					}, { descriptionMaxChars: this.descriptionMaxChars })
 					await this.writeMeta(repaired)
 				}
-				entries.push({ meta: repaired })
-			} catch (error) {
-				problems.push({ id, reason: error instanceof Error ? error.message : String(error) })
 			}
+			return { entry: { meta: repaired }, problem: mismatch }
+		} catch (error) {
+			return { problem: { id, reason: error instanceof Error ? error.message : String(error) } }
 		}
-		return { entries, problems }
 	}
 
 	/**
@@ -915,12 +1136,7 @@ export class FileStore {
 	 * @returns {string | undefined} The full id.
 	 */
 	resolveId(value) {
-		const raw = String(value ?? '').trim()
-		if (raw === '') return undefined
-		if (isFileId(raw)) return this.db.get(raw) === undefined ? undefined : raw
-		if (raw.length < 5) return undefined
-		const matches = this.db.ids().filter((id) => id.endsWith(raw))
-		return matches.length === 1 ? matches[0] : undefined
+		return this.db.resolveId(value)
 	}
 
 	/**
@@ -931,26 +1147,5 @@ export class FileStore {
 	 */
 	hashOf(buffer) {
 		return createHash('sha256').update(buffer).digest('hex')
-	}
-
-	/**
-	 * A description derived from a text, for imports that have none.
-	 *
-	 * @param {string} text - The text.
-	 * @param {number} [maxChars] - The cap.
-	 * @returns {string} The description.
-	 */
-	describeText(text, maxChars = 160) {
-		return clipDescription(text, maxChars)
-	}
-
-	/**
-	 * A normalised description, for callers that need the rule without writing.
-	 *
-	 * @param {unknown} value - The raw description.
-	 * @returns {string} The clean description.
-	 */
-	cleanDescription(value) {
-		return normalizeDescription(value)
 	}
 }

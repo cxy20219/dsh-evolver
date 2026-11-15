@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { SettingsStore } from '../src/settings.js'
+import { sanitizeImportedSettings, SettingsStore } from '../src/settings.js'
 import { tempDir } from './helpers.mjs'
 
 test('设置文件在数据目录内，默认值可读', async () => {
@@ -82,4 +82,42 @@ test('settings.json 损坏时回退默认并告警，文件保留', async () => 
 	} finally {
 		await rm(dir, { recursive: true, force: true })
 	}
+})
+
+test('导入设置净化：只采纳被夹紧的 limits，自动整理强制关，模型用本机', async () => {
+	const local = {
+		organize: {
+			model: { provider: 'local-provider', model: 'local-model' },
+			auto: { sessions: { enabled: true, idleMinutes: 45 }, files: { enabled: false, hour: 5 } },
+		},
+	}
+	const safe = sanitizeImportedSettings({
+		descriptionMaxChars: 9_999,
+		maxFileBytes: 1,
+		readTextBytes: 999 * 1024 * 1024,
+		organize: {
+			model: { provider: 'evil', model: 'evil-model' },
+			auto: { sessions: { enabled: true, idleMinutes: 5 }, files: { enabled: true, hour: 0 } },
+		},
+	}, local)
+	assert.equal(safe.schema, 1)
+	assert.equal(safe.descriptionMaxChars, 200, '归档 limits 被采纳并夹到上限')
+	assert.equal(safe.maxFileBytes, 1024 * 1024, '归档 limits 被采纳并夹到下限')
+	assert.equal(safe.readTextBytes, 4 * 1024 * 1024, '归档 limits 被采纳并夹到上限')
+	assert.deepEqual(safe.organize.model, { provider: 'local-provider', model: 'local-model' })
+	assert.equal(safe.organize.auto.sessions.enabled, false)
+	assert.equal(safe.organize.auto.files.enabled, false)
+	assert.equal(safe.organize.auto.sessions.idleMinutes, 45, '本机空闲窗口保留')
+	assert.equal(safe.organize.auto.files.hour, 5, '本机每日时点保留')
+
+	// No local model: the imported route is still discarded (follow the chat).
+	const followChat = sanitizeImportedSettings(
+		{ organize: { model: { provider: 'evil', model: 'evil-model' } } },
+		{ organize: { model: null } },
+	)
+	assert.equal(followChat.organize.model, null)
+	// A malformed archive block degrades to defaults instead of throwing.
+	const malformed = sanitizeImportedSettings({ organize: 'not-an-object' }, undefined)
+	assert.equal(malformed.organize.model, null)
+	assert.equal(malformed.organize.auto.sessions.enabled, false)
 })

@@ -172,6 +172,38 @@ function normalizeSettings(raw) {
 }
 
 /**
+ * The settings an imported or attached library may keep.
+ *
+ * `settings.json` travels inside an archive, so it is untrusted input: its
+ * author could persist an enabled automatic organizer (which spends money and
+ * writes the library from then on) or point the organizer at a provider/model
+ * this machine never chose. Import is permission to read the data, not to
+ * schedule model calls, so only the three limits are adopted — and even those
+ * are clamped by `normalizeSettings`. The model route stays local and both
+ * automatic switches are forced off; the local idle window and hour are kept
+ * so a later opt-in does not lose the user's own schedule.
+ *
+ * @param {unknown} raw - The settings parsed from the archive or attached library.
+ * @param {object | undefined} local - The local settings (the ones already in use).
+ * @returns {object} The safe settings to persist.
+ */
+export function sanitizeImportedSettings(raw, local) {
+	const localAuto = local?.organize?.auto ?? {}
+	return normalizeSettings({
+		descriptionMaxChars: raw?.descriptionMaxChars,
+		maxFileBytes: raw?.maxFileBytes,
+		readTextBytes: raw?.readTextBytes,
+		organize: {
+			model: normalizeOrganizeModel(local?.organize?.model),
+			auto: {
+				sessions: { enabled: false, idleMinutes: localAuto.sessions?.idleMinutes },
+				files: { enabled: false, hour: localAuto.files?.hour },
+			},
+		},
+	})
+}
+
+/**
  * The settings store.
  */
 export class SettingsStore {

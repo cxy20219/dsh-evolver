@@ -21,6 +21,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { writeFileAtomic } from '../atomic.js'
 
 import {
+	CATALOG_LIMITS,
 	LAYERS,
 	RESOURCE_LAYER,
 	TOOL_LAYER,
@@ -29,7 +30,8 @@ import {
 	isReallyInside,
 	renderIndex,
 	withFrontmatter,
-	withIndexBlock,
+	withPathLock,
+	writeAgentsIndex,
 } from './store.js'
 import { validate } from './validate.js'
 
@@ -121,19 +123,57 @@ async function resolveTarget({ root, layer, slug, path }) {
 }
 
 /**
- * Put one file back the way it was before a failed write.
+ * Put one file back only while it still holds what this write put there.
+ *
+ * A rollback must not become a second clobber: if a user (or another process)
+ * edited the file after this write, their version wins and ours is not put
+ * back over it (stability audit P2-5).
  *
  * @param {string} path - The file.
- * @param {string | undefined} previous - Its text, or undefined when it did not exist.
- * @returns {Promise<void>} Resolves once restored.
+ * @param {string} written - The exact text this write put there.
+ * @param {string | undefined} previous - The text before the write, or undefined when the file did not exist.
+ * @returns {Promise<boolean>} True when the file was restored.
  */
-async function restore(path, previous) {
+async function restoreIfUnchanged(path, written, previous) {
+	const current = await readFile(path, 'utf8').catch(() => undefined)
+	if (current !== written) return false
 	if (previous === undefined) await rm(path, { force: true }).catch(() => {})
 	else await writeFileAtomic(path, previous).catch(() => {})
+	return true
+}
+
+/**
+ * Put the managed index back to the text it had before a failed write.
+ *
+ * The restore target is the snapshot the index write actually merged into, not
+ * the preflight read: an editor may have changed the document between the two,
+ * and their text is part of the snapshot, so restoring it keeps what they
+ * wrote. Only when the document still is exactly what this write left there is
+ * anything restored at all — an `AGENTS.md` that changed afterwards belongs to
+ * whoever changed it.
+ *
+ * @param {string} agentsPath - The document.
+ * @param {{changed: boolean, text: string, previous: string | undefined}} applied - What the index write produced.
+ * @returns {Promise<boolean>} True when it was restored.
+ */
+async function restoreAgents(agentsPath, applied) {
+	if (applied.changed !== true) return false
+	const current = await readFile(agentsPath, 'utf8').catch(() => undefined)
+	if (current !== applied.text) return false
+	if (applied.previous === undefined) await rm(agentsPath, { force: true }).catch(() => {})
+	else await writeFileAtomic(agentsPath, applied.previous).catch(() => {})
+	return true
 }
 
 /**
  * Write or update one resource and leave the folder consistent.
+ *
+ * The whole target → index → validate cycle runs under one per-project lock,
+ * because every step reads the folder and the index is rebuilt from what it
+ * read: two writes interleaving would each render an index missing the other's
+ * file (stability audit P2-5). Within the cycle, `writeAgentsIndex` re-reads
+ * `AGENTS.md` before every write and retries if it changed, so an editor
+ * outside this process is never overwritten either.
  *
  * @param {object} options - The write.
  * @param {string} options.root - The project root.
@@ -143,9 +183,10 @@ async function restore(path, previous) {
  * @param {string} [options.summary] - The one-line purpose the index shows.
  * @param {string} [options.body] - The document text.
  * @param {string} [options.path] - An existing resource to replace.
+ * @param {object} [options.hooks] - Test seam for the read→write and validate→rollback windows.
  * @returns {Promise<object>} What happened.
  */
-export async function writeResource({ root, layer, slug, title, summary, body, path }) {
+export async function writeResource({ root, layer, slug, title, summary, body, path, hooks }) {
 	const target = await resolveTarget({ root, layer, slug, path })
 	const heading = String(title ?? '').trim()
 	const text = String(body ?? '').trim()
@@ -160,8 +201,18 @@ export async function writeResource({ root, layer, slug, title, summary, body, p
 		text.startsWith('#') ? text : `# ${heading}\n\n${text}`,
 	)
 
-	const previous = await readFile(target, 'utf8').catch(() => undefined)
 	const agentsPath = join(root, 'AGENTS.md')
+	return withPathLock(agentsPath, () => writeResourceLocked({ root, agentsPath, target, document, hooks }))
+}
+
+/**
+ * The write cycle, already under the project lock.
+ *
+ * @param {{root: string, agentsPath: string, target: string, document: string, hooks?: object}} options - The write.
+ * @returns {Promise<object>} What happened.
+ */
+async function writeResourceLocked({ root, agentsPath, target, document, hooks }) {
+	const previous = await readFile(target, 'utf8').catch(() => undefined)
 	const agentsPrevious = await readFile(agentsPath, 'utf8').catch(() => undefined)
 	// Preflight the index before anything is written. Only a broken marker pair
 	// is refused: hand-written prose is normal, and the block is appended after
@@ -170,30 +221,36 @@ export async function writeResource({ root, layer, slug, title, summary, body, p
 		throw new Error('AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end），没有写入；请手工补全或删掉残留标记后重试。')
 	}
 
+	const writtenTarget = `${document.trimEnd()}\n`
 	await mkdir(dirname(target), { recursive: true, mode: 0o700 })
-	await writeFileAtomic(target, `${document.trimEnd()}\n`)
+	await writeFileAtomic(target, writtenTarget)
 
-	// The index is rebuilt from the folder, never edited by hand: that is what
-	// makes "every resource is indexed" a property instead of a hope. Read the
-	// file again just before patching so prose appended by another writer is
-	// kept, not overwritten from a stale copy.
-	const state = await catalog(root)
-	const agentsNow = await readFile(agentsPath, 'utf8').catch(() => undefined)
-	if (agentsNow !== undefined && inspectIndex(agentsNow).mode === 'broken') {
-		// Another writer left a half block between our checks. Nothing is kept:
-		// guessing where the index ends could delete their content.
-		await restore(target, previous)
-		throw new Error('AGENTS.md 的 harness 受管块标记不完整（缺 begin 或 end），没有写入；请手工补全或删掉残留标记后重试。')
+	let state
+	let applied
+	try {
+		// The index is rebuilt from the folder, never edited by hand: that is
+		// what makes "every resource is indexed" a property instead of a hope.
+		state = await catalog(root)
+		if (state.limited === true) {
+			throw new Error(`harness/ 的文件数超过单次扫描上限（${CATALOG_LIMITS.maxFiles}），catalog 清单不完整，拒绝写入并重建索引；请先精简 harness/。`)
+		}
+		applied = await writeAgentsIndex(root, renderIndex(state), { hooks })
+	} catch (error) {
+		// Either the index was never touched (broken markers, conflict, limited
+		// scan) or it belongs to someone else now. The target is ours to remove
+		// only while it still holds what this write put there.
+		await restoreIfUnchanged(target, writtenTarget, previous)
+		throw error
 	}
-	await writeFileAtomic(agentsPath, withIndexBlock(agentsNow ?? '', renderIndex(state)))
 
 	const report = await validate(root)
 	if (!report.ok) {
-		await restore(target, previous)
-		// Restore the index byte-for-byte too: a failed write must leave the
-		// document exactly as it was, prose included.
-		if (agentsPrevious === undefined) await rm(agentsPath, { force: true }).catch(() => {})
-		else await restore(agentsPath, agentsPrevious)
+		await restoreIfUnchanged(target, writtenTarget, previous)
+		// The rollback of the document happens only when it is still ours; an
+		// edit made in the window is kept, and the next write/tool run will
+		// rebuild a consistent index around it.
+		if (hooks?.beforeRollback !== undefined) await hooks.beforeRollback({ path: agentsPath })
+		await restoreAgents(agentsPath, applied)
 		throw new Error(`校验未通过，已回滚：${report.errors.slice(0, 3).join('；')}`)
 	}
 
@@ -203,6 +260,6 @@ export async function writeResource({ root, layer, slug, title, summary, body, p
 		errors: report.errors,
 		warnings: report.warnings,
 		skipped: report.skipped,
-		indexed: (await catalog(root)).resources.length,
+		indexed: state.resources.length,
 	}
 }

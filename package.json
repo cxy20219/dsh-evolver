@@ -18,8 +18,6 @@
 		"cordis.patch.yml",
 		"DESIGN.md",
 		"README.md",
-		"COMPARISON.md",
-		"COMPARISON.json",
 		"package.json",
 		"client.js",
 		"icon.svg"

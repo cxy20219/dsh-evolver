@@ -16,46 +16,10 @@
  * file library, where retrieval is description-first and not repository-bound.
  */
 
+import { OBJECT_OUTPUT, sanitize, summaryOf } from '../json.js'
 import { catalog, ensureIndex, initHarness, migrateLayout, renderIndex } from './store.js'
 import { validate } from './validate.js'
 import { resolveResourcePath, writeResource } from './write.js'
-
-/**
- * Render one tool result as text.
- *
- * @param {unknown} _args - The call arguments.
- * @param {unknown} value - The canonical value.
- * @returns {object[]} The content blocks.
- */
-function render(_args, value) {
-	return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
-}
-
-/** The shared output declaration: a JSON object the model can read. */
-const OBJECT_OUTPUT = { schema: { type: 'object', additionalProperties: true }, render }
-
-/**
- * Drop members that are `undefined`, so the result stays JSON.
- *
- * @param {unknown} value - The value.
- * @returns {unknown} The sanitized value.
- */
-function sanitize(value) {
-	return JSON.parse(JSON.stringify(value ?? {}))
-}
-
-/**
- * A compact view of one library file: everything except the payload text.
- *
- * @param {object} file - A file as the store returns it.
- * @returns {object} The summary.
- */
-function summaryOf(file) {
-	if (file === null || typeof file !== 'object') return file
-	const { text, ...rest } = file
-	void text
-	return sanitize(rest)
-}
 
 /**
  * A compact copy of a catalog, small enough to read in one look.
@@ -115,14 +79,20 @@ export function createHarnessTools({ resolveProject, store }) {
 	/**
 	 * Resolve the project a call belongs to.
 	 *
+	 * The explicit path is handed back to the caller's resolver together with
+	 * the run context: the resolver needs the session cwd to check that the
+	 * requested project is the current one, and dropping the context here used
+	 * to make every explicit call look like "no session at all".
+	 *
 	 * @param {object} exec - The tool run context.
 	 * @param {unknown} explicit - An explicit `project` argument.
 	 * @returns {Promise<string>} The absolute project root.
 	 */
 	async function rootFor(exec, explicit) {
 		if (typeof explicit === 'string' && explicit.trim() !== '') {
-			const resolved = await resolveProject({ project: explicit.trim() })
-			if (resolved === undefined) throw new Error(`找不到这个项目：${explicit}`)
+			const requested = explicit.trim()
+			const resolved = await resolveProject({ ...(exec ?? {}), project: requested })
+			if (resolved === undefined) throw new Error(`找不到这个项目：${requested}（需要项目根绝对路径，且目录存在）。`)
 			return resolved
 		}
 		const resolved = await resolveProject(exec ?? {})

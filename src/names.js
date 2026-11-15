@@ -19,6 +19,38 @@ import { basename } from 'node:path'
 /** The longest name a store will accept, in UTF-8 bytes. */
 export const MAX_NAME_BYTES = 88
 
+/** The sidecar file name inside one entity folder. Kept in sync with `meta.js`. */
+const SIDECAR_NAME = 'meta.json'
+
+/**
+ * Whether a payload name would collide with the sidecar of the same folder.
+ *
+ * Every entity folder holds `<name>` and the sidecar `meta.json`; a payload
+ * named `meta.json` is written to the same path, so the sidecar silently
+ * replaces the body (and a later rebuild cannot tell the two apart). The check
+ * normalises the way Windows itself resolves a name — case and a trailing dot
+ * or space are ignored — so `META.JSON` and `meta.json.` are refused as the
+ * same collision, not left to the file system's platform-specific behaviour.
+ *
+ * @param {unknown} value - The proposed payload name.
+ * @returns {boolean} True when the name is the sidecar name.
+ */
+export function isReservedName(value) {
+	const normalized = String(value ?? '').replace(/[. ]+$/g, '').toLowerCase()
+	return normalized === SIDECAR_NAME
+}
+
+/**
+ * Refuse a payload name that would overwrite the sidecar.
+ *
+ * @param {string} name - The stored name.
+ * @returns {string} The same name, when it is safe to write.
+ */
+export function assertNotReservedName(name) {
+	if (!isReservedName(name)) return name
+	throw new Error('文件名 meta.json 是边车保留名，请改名（例如 meta-note.json）。')
+}
+
 /** Extensions longer than this are treated as unknown. */
 const MAX_EXTENSION = 10
 

@@ -8,12 +8,19 @@ import { ENDPOINTS } from '../src/remote.js'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
-test('接口三处对齐：ENDPOINTS、switch、client 调用同集合', async () => {
-	const remote = await readFile(join(ROOT, 'src', 'remote.js'), 'utf8')
+/** The domain modules whose `Record<endpoint, handler>` tables make up the API. */
+const DOMAIN_MODULES = ['files.js', 'panel.js', 'organize.js', 'data.js']
+
+test('接口两处对齐：handler 表派生的 ENDPOINTS 与 client 调用同集合', async () => {
+	const keys = []
+	for (const name of DOMAIN_MODULES) {
+		const source = await readFile(join(ROOT, 'src', 'remote', name), 'utf8')
+		for (const match of source.matchAll(/^\t'?([a-z][a-z-]*)'?: async \(/gm)) keys.push(match[1])
+	}
+	assert.equal(keys.length, new Set(keys).size, '接口表里没有重复端点')
 	const client = await readFile(join(ROOT, 'client.js'), 'utf8')
-	const cases = [...remote.matchAll(/case '([a-z-]+)':/g)].map((match) => match[1])
 	const calls = [...client.matchAll(/\bcall\(\s*'([a-z-]+)'/g)].map((match) => match[1])
-	assert.deepEqual([...new Set(cases)].sort(), [...ENDPOINTS].sort(), 'switch 与 ENDPOINTS')
+	assert.deepEqual([...new Set(keys)].sort(), [...ENDPOINTS].sort(), 'handler 表与 ENDPOINTS')
 	assert.deepEqual([...new Set(calls)].sort(), [...ENDPOINTS].sort(), 'client 调用与 ENDPOINTS')
 })
 

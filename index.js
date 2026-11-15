@@ -23,7 +23,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
 import { createDataJobs } from './src/data-jobs.js'
-import { projectRootOf } from './src/harness/store.js'
+import { isWithin, projectRootOf } from './src/harness/store.js'
 import { createHarnessTools } from './src/harness/tools.js'
 import { dataDirPointerPath, readDataDirPointer } from './src/home.js'
 import { createLogSink } from './src/logs.js'
@@ -138,6 +138,16 @@ export async function apply(ctx, config) {
 	 * records when the session starts. `sessionQuery` is optional: a host
 	 * without it still loads, and the tools ask for an explicit `project`.
 	 *
+	 * An explicit `project` is not a free pass: a call may only name the
+	 * session's own project — the cwd itself, one of its ancestors (a
+	 * repository or monorepo root above the subdirectory the session opened
+	 * in), or a descendant (a nested repository below it). Anything else is
+	 * refused, because the tool writes `harness/**` and the managed block of
+	 * `AGENTS.md`, and those are instructions for every future session in that
+	 * repository: one injected conversation must not be able to edit another
+	 * project's prompt. A host that cannot prove the cwd must refuse explicit
+	 * projects rather than trust them.
+	 *
 	 * @param {{project?: string, agent?: {id?: string}}} exec - The call context.
 	 * @returns {Promise<string | undefined>} The project root.
 	 */
@@ -145,20 +155,42 @@ export async function apply(ctx, config) {
 	// it has ever seen. Small enough to make the lookup still worth it.
 	const projectCache = new Map()
 	const PROJECT_CACHE_MAX = 64
-	async function resolveProject(exec) {
-		const explicit = String(exec?.project ?? '').trim()
-		if (explicit !== '') return projectRootOf(explicit)
+	async function cwdFor(exec) {
 		const id = String(exec?.agent?.id ?? '')
 		if (id === '') return undefined
 		if (projectCache.has(id)) return projectCache.get(id)
+		let resolved
 		const query = ctx.get('sessionQuery')
-		if (query === undefined || typeof query.filterSessions !== 'function') return undefined
-		const records = await query.filterSessions([{ kind: 'id', values: [id] }]).catch(() => [])
-		const cwd = records?.[0]?.header?.cwd
-		const resolved = typeof cwd === 'string' ? await projectRootOf(cwd) : undefined
+		if (query !== undefined && typeof query.filterSessions === 'function') {
+			const records = await query.filterSessions([{ kind: 'id', values: [id] }]).catch(() => [])
+			const cwd = records?.[0]?.header?.cwd
+			resolved = typeof cwd === 'string' && cwd !== '' && isAbsolute(cwd) ? resolve(cwd) : undefined
+		}
+		// A "looked, no cwd" result is cached too: the host header does not
+		// change under a live session, and without the cache every call would
+		// query the session table again.
 		if (projectCache.size >= PROJECT_CACHE_MAX) projectCache.delete(projectCache.keys().next().value)
 		projectCache.set(id, resolved)
 		return resolved
+	}
+	async function resolveProject(exec) {
+		const explicit = String(exec?.project ?? '').trim()
+		const cwd = await cwdFor(exec)
+		if (explicit !== '') {
+			const root = await projectRootOf(explicit)
+			if (root === undefined) return undefined
+			if (cwd === undefined) {
+				throw new Error('无法确定当前会话工作目录，不能使用显式 project；请在会话内调用（或让宿主挂载 sessionQuery）。')
+			}
+			const cwdRoot = await projectRootOf(cwd)
+			const sameProject = cwdRoot !== undefined && isWithin(cwdRoot, root) && isWithin(root, cwdRoot)
+			if (!(isWithin(cwd, root) || isWithin(root, cwd) || sameProject)) {
+				throw new Error(`显式 project 不在当前会话工作区内：${root}（cwd ${cwd}）。跨项目写入被拒绝。`)
+			}
+			return root
+		}
+		if (cwd === undefined) return undefined
+		return projectRootOf(cwd)
 	}
 
 	const disposers = []
