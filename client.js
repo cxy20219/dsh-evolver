@@ -139,6 +139,9 @@ window.__ModuleLoader__.load({
 			'action.copied': '已复制',
 			'files.search': '搜索描述 / 名字 / 标签…',
 			'files.tag': '标签前缀',
+			'files.tags': '标签',
+			'files.tagClear': '清除',
+			'files.tagEmpty': '还没有标签。',
 			'files.mime': '全部类型',
 			'files.archived': '显示归档',
 			'files.empty': '还没有文件。',
@@ -343,6 +346,9 @@ window.__ModuleLoader__.load({
 			'action.copied': 'Copied',
 			'files.search': 'Search description / name / tags…',
 			'files.tag': 'Tag prefix',
+			'files.tags': 'Tags',
+			'files.tagClear': 'Clear',
+			'files.tagEmpty': 'No tags yet.',
 			'files.mime': 'All types',
 			'files.archived': 'Show archived',
 			'files.empty': 'No files yet.',
@@ -483,6 +489,30 @@ window.__ModuleLoader__.load({
 			'.ysButtonDanger{color:var(--dsw-alias-state-error-primary,#c45a5a)}',
 			'.ysCheck{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
 			'.ysFiles{display:flex;flex-direction:column;height:100%;min-height:0}',
+			// Two columns, always the same height: the grid row is as tall as the
+			// taller side, so collapsing or expanding the tag tree moves the
+			// right column with it instead of leaving one side hanging. The
+			// 100% floor keeps a short tree from leaving a band of empty space
+			// under the list.
+			// Only the tag column is in the grid flow, so only it decides how tall
+			// the row is; the right column is absolutely placed against that row and
+			// therefore follows the tree without ever pushing it. With both columns
+			// in flow they inflate each other: the height of the list itself would
+			// set the row and the tree could never make it shorter.
+			'.ysFilesLayout{position:relative;display:grid;grid-template-columns:190px minmax(0,1fr);gap:18px;align-items:start;min-height:100%}',
+			'.ysFilesTree{display:flex;flex-direction:column;gap:2px;min-width:0}',
+			'.ysFilesMain{position:absolute;left:208px;right:0;top:0;bottom:0;display:flex;flex-direction:column;min-width:0}',
+			'.ysFilesTreeHead{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 4px 6px;font-size:11px;color:var(--dsw-alias-label-tertiary)}',
+			'.ysFileTagNode{display:flex;align-items:center;gap:2px;border-radius:var(--dsw-radius-sm)}',
+			'.ysFileTagToggle{width:16px;height:24px;padding:0;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1;cursor:pointer;flex:none;display:flex;align-items:center;justify-content:center}',
+			'.ysFileTagToggle:hover{color:var(--dsw-alias-label-primary)}',
+			'.ysFileTagToggleSpacer{cursor:default;visibility:hidden}',
+			'.ysFileTagBtn{display:flex;align-items:center;justify-content:space-between;gap:6px;flex:1;min-width:0;padding:5px 4px;border:none;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;cursor:pointer;text-align:left}',
+			'.ysFileTagBtn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+			'.ysFileTagBtnActive{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary)}',
+			'.ysFileTagName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}',
+			'.ysFileTagCount{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}',
+			'@media(max-width:900px){.ysFilesLayout{grid-template-columns:150px minmax(0,1fr);gap:12px}.ysFilesMain{left:162px}}',
 			'.ysListWrap{flex:1;min-height:0}',
 			'.ysPager{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:10px;font-size:11.5px;color:var(--dsw-alias-label-tertiary)}',
 			'.ysSheetMask{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(0,0,0,.26);z-index:55;display:flex;justify-content:flex-end}',
@@ -2294,6 +2324,74 @@ window.__ModuleLoader__.load({
 			return roots;
 		}
 
+		/**
+		 * A clickable hierarchical tag tree with per-branch collapse.
+		 *
+		 * Every node that has children gets its own toggle, so a deep branch can
+		 * be folded away without touching its siblings. Clicking a name filters
+		 * the file list by that path (a prefix filter: `复盘` also matches
+		 * `复盘/踩坑`). The counts are the ones `buildTagTree` aggregated, so a
+		 * parent shows everything live underneath it.
+		 *
+		 * @param {object} props - `t`, `nodes`, `activePath`, `onSelect`.
+		 * @returns {object} The element tree.
+		 */
+		function TagTree(props) {
+			var nodes = Array.isArray(props.nodes) ? props.nodes : [];
+			var activePath = props.activePath ?? '';
+			var onSelect = props.onSelect;
+			var [collapsed, setCollapsed] = useState({});
+
+			function toggle(path) {
+				setCollapsed(function (current) {
+					var next = { ...current };
+					if (next[path] === true) delete next[path];
+					else next[path] = true;
+					return next;
+				});
+			}
+
+			function rows(list, depth) {
+				var result = [];
+				(list ?? []).forEach(function (node) {
+					var children = node.children ?? [];
+					var hasChildren = children.length > 0;
+					var isCollapsed = collapsed[node.path] === true;
+					var active = activePath === node.path;
+					result.push(h('div', {
+						key: node.path,
+						className: 'ysFileTagNode',
+						style: { paddingLeft: (depth * 12) + 'px' }
+					},
+						hasChildren
+							? h('button', {
+								type: 'button',
+								className: 'ysFileTagToggle',
+								'aria-label': (isCollapsed ? '展开 ' : '收起 ') + node.path,
+								'aria-expanded': isCollapsed ? 'false' : 'true',
+								onClick: function (event) {
+									if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+									toggle(node.path);
+								}
+							}, isCollapsed ? '▸' : '▾')
+							: h('span', { className: 'ysFileTagToggle ysFileTagToggleSpacer' }),
+						h('button', {
+							type: 'button',
+							className: 'ysFileTagBtn' + (active ? ' ysFileTagBtnActive' : ''),
+							title: node.path,
+							onClick: function () { onSelect(node.path); }
+						},
+							h('span', { className: 'ysFileTagName' }, '#' + node.name),
+							h('span', { className: 'ysFileTagCount' }, String(node.count)))));
+					if (hasChildren && !isCollapsed) result = result.concat(rows(children, depth + 1));
+				});
+				return result;
+			}
+
+			if (nodes.length === 0) return h('div', { className: 'ysHint' }, props.t('files.tagEmpty'));
+			return h('div', null, rows(nodes, 0));
+		}
+
 		function Heatmap(props) {
 			var t = props.t;
 			var activity = Array.isArray(props.activity) ? props.activity : [];
@@ -2808,55 +2906,72 @@ window.__ModuleLoader__.load({
 			var suffixValue = props.suffix === null || props.suffix === undefined
 				? ''
 				: (props.suffix === '' ? '-' : props.suffix);
-			return h('div', { className: 'ysFiles' },
-				h('div', { className: 'ysToolbar' },
-					h('input', {
-						className: 'ysInput',
-						type: 'search',
-						placeholder: t('files.search'),
-						value: props.query,
-						onChange: function (event) { props.setQuery(event.target.value); }
-					}),
-					h('input', {
-						className: 'ysInput',
-						style: { flex: '0 0 150px' },
-						placeholder: t('files.tag'),
-						value: props.tag,
-						onChange: function (event) { props.setTag(event.target.value); }
-					}),
-					// The type filter is the same list the overview's matrix draws:
-					// one extension per row. `-` is the "no extension" bucket.
-					h('select', {
-						className: 'ysSelect',
-						value: suffixValue,
-						onChange: function (event) {
-							var value = event.target.value;
-							props.setSuffix(value === '' ? null : (value === '-' ? '' : value));
-						}
-					},
-						h('option', { value: '' }, t('files.mime')),
-						typeOptions.map(function (row) {
-							var label = row.suffix === '' ? t('overview.types.none') : '.' + row.suffix;
-							return h('option', { key: row.suffix === '' ? '-' : row.suffix, value: row.suffix === '' ? '-' : row.suffix },
-								row.count > 0 ? label + ' · ' + row.count : label);
-						})),
-					h('label', { className: 'ysCheck' },
-						h('input', { type: 'checkbox', checked: props.archived, onChange: function (event) { props.setArchived(event.target.checked); } }),
-						t('files.archived')),
-					h('button', { className: 'ysButton', onClick: function () { uploadRef.current?.click(); } }, t('action.upload')),
-					h('input', { ref: uploadRef, type: 'file', style: { display: 'none' }, onChange: props.onPickFile }),
-					h('button', { className: 'ysButton ysButtonPrimary', onClick: props.onNew }, t('action.create')),
-					files !== null && files !== undefined
-						? h('span', { className: 'ysHint' }, t('files.total').replace('{n}', String(files.total)))
-						: null),
-				h('div', { className: 'ysListWrap', ref: listRef },
-					h('div', { className: 'ysList' }, rows)),
-				h('div', { className: 'ysPager' },
-					files === null || files === undefined
-						? null
-						: h('span', null, t('files.page').replace('{a}', String(page + 1)).replace('{b}', String(pages))),
-					h('button', { className: 'ysButton', disabled: page <= 0, onClick: function () { props.onPage(page - 1); } }, t('files.prev')),
-					h('button', { className: 'ysButton', disabled: page >= pages - 1, onClick: function () { props.onPage(page + 1); } }, t('files.next'))),
+			return h('div', { className: 'ysFilesLayout' },
+				h('div', { className: 'ysFilesTree' },
+					h('div', { className: 'ysFilesTreeHead' },
+						h('span', null, t('files.tags')),
+						props.tag === ''
+							? null
+							: h('button', {
+								className: 'ysButton',
+								style: { height: '20px', padding: '0 6px', fontSize: '11px' },
+								onClick: function () { props.setTag(''); }
+							}, t('files.tagClear'))),
+					h(TagTree, {
+						t: t,
+						nodes: props.tags,
+						activePath: props.tag,
+						onSelect: props.setTag
+					})),
+				h('div', { className: 'ysFilesMain' },
+					h('div', { className: 'ysToolbar' },
+						h('input', {
+							className: 'ysInput',
+							type: 'search',
+							placeholder: t('files.search'),
+							value: props.query,
+							onChange: function (event) { props.setQuery(event.target.value); }
+						}),
+						h('input', {
+							className: 'ysInput',
+							style: { flex: '0 0 150px' },
+							placeholder: t('files.tag'),
+							value: props.tag,
+							onChange: function (event) { props.setTag(event.target.value); }
+						}),
+						// The type filter is the same list the overview's matrix draws:
+						// one extension per row. `-` is the "no extension" bucket.
+						h('select', {
+							className: 'ysSelect',
+							value: suffixValue,
+							onChange: function (event) {
+								var value = event.target.value;
+								props.setSuffix(value === '' ? null : (value === '-' ? '' : value));
+							}
+						},
+							h('option', { value: '' }, t('files.mime')),
+							typeOptions.map(function (row) {
+								var label = row.suffix === '' ? t('overview.types.none') : '.' + row.suffix;
+								return h('option', { key: row.suffix === '' ? '-' : row.suffix, value: row.suffix === '' ? '-' : row.suffix },
+									row.count > 0 ? label + ' · ' + row.count : label);
+							})),
+						h('label', { className: 'ysCheck' },
+							h('input', { type: 'checkbox', checked: props.archived, onChange: function (event) { props.setArchived(event.target.checked); } }),
+							t('files.archived')),
+						h('button', { className: 'ysButton', onClick: function () { uploadRef.current?.click(); } }, t('action.upload')),
+						h('input', { ref: uploadRef, type: 'file', style: { display: 'none' }, onChange: props.onPickFile }),
+						h('button', { className: 'ysButton ysButtonPrimary', onClick: props.onNew }, t('action.create')),
+						files !== null && files !== undefined
+							? h('span', { className: 'ysHint' }, t('files.total').replace('{n}', String(files.total)))
+							: null),
+					h('div', { className: 'ysListWrap', ref: listRef },
+						h('div', { className: 'ysList' }, rows)),
+					h('div', { className: 'ysPager' },
+						files === null || files === undefined
+							? null
+							: h('span', null, t('files.page').replace('{a}', String(page + 1)).replace('{b}', String(pages))),
+						h('button', { className: 'ysButton', disabled: page <= 0, onClick: function () { props.onPage(page - 1); } }, t('files.prev')),
+						h('button', { className: 'ysButton', disabled: page >= pages - 1, onClick: function () { props.onPage(page + 1); } }, t('files.next')))),
 				detailOpen
 					? h('div', { className: 'ysSheetMask', role: 'presentation', onClick: props.onCloseDetail },
 						h('div', {
@@ -4245,6 +4360,9 @@ window.__ModuleLoader__.load({
 							? h(FilesTab, {
 								t: t,
 								files: files,
+								// Same aggregated tree the overview and graph draw: one
+								// source, so the count next to a branch always matches.
+								tags: overview === null || overview === undefined ? [] : buildTagTree(overview.tags),
 								selectedId: selectedId,
 								query: query,
 								setQuery: setQuery,
