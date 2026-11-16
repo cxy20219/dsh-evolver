@@ -713,3 +713,52 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 
 - `test/tools.test.mjs` 新增：工具描述必须露出「库文件、项目文件、harness 资源都适用」（描述可见性是契约，守它才不会退回老问题）；`file_write` 覆盖已有资源时沿用边车描述与标题；新资源仍强制描述；两处报错含迁移指引。
 - `npm test` 全绿；`node harness/tool/verify-repo.mjs` 通过。宿主改动要重启 DSH 才生效。
+
+## 31. 运行审计与三处修复（2026-11-16）
+
+用户要求复盘插件安装后的全部会话：插件到底有没有把知识沉淀到项目 harness、有没有把可复用文件沉淀进自衍库。审计口径与结论见下。
+
+### 31.1 审计方法
+
+- 插件日志 `system/logs/plugin.log`（261 行 / 80 次整理作业）；
+- 71 个会话的 `session.v4.jsonl.zstd` 全量解压，按 `tool/call` 与 `tool/result` 配对，共 15,135 次工具调用（落点脚本见审计记录，不随仓库发布）；
+- 5 个项目 harness 与 151 个库文件的落盘状态。
+
+### 31.2 结论
+
+- **项目 harness 沉淀成立**：5 个项目 77 条资源、68 条边车，21 次写入 14 次成功。
+- **跨项目库沉淀基本没发生**：`来源/harness` 标签只有 1 条，库写入 7 次只成功 2 次。
+- **自主整理引擎 100% 空转**：80 次作业 70 次失败（模型额度）、10 次完成但 `writes` 全为 0。
+- 插件工具 56 次调用中 **17 次失败（30%）**，且多数失败模型无法自纠。
+
+### 31.3 修复一：参数类型写进 schema（`fix(tools)`）
+
+`meta` 是 `additionalProperties: true` 的自由对象，没声明 `tags` 是数组，于是部分路由输出自己的列表编码 `{"item": ["来源/harness"]}`，每次库写入都撞上 `Array.isArray`。同批调用里**声明了 `type: 'array'` 的 `file_search.tags` 从未出过这个错**——这就是根因证据。
+
+修法是把 6 个实际会被传的字段类型声明出来，而不是在运行时解包：解包是给「本不该发生的错误」做兼容层，而 schema 能让它不发生。`file_edit` 的字段名同理会与内置 `edit` 的 `old_string`/`new_string` 混淆，修法是让报错点名它实际发的是哪个字段（一次重试即可纠正），同样不接别名。
+
+工具 schema（`file_write` + `file_edit`）2824 B / ~840 tok → 3400 B / ~999 tok，**+159 tok**。这比一次失败调用加它的重试便宜。
+
+### 31.4 修复二：工具结果按结构裁剪（`fix(organize)`）
+
+整理器用字符切片裁剪工具结果：一次 `file_search` 返回 10,410 字符，被砍到 8,000 后成为 `{"total":28,"files":[{"schema":1,"id":"file-01M7…`——**半个对象**。模型解析不了就换词重搜，把工具预算烧在检索上，永远走不到写。日志吻合：25 次工具调用、处理 2/5 个会话、0 写入。
+
+`clipJson` 从最长的数组逐条丢弃直到装得下，并补 `truncated`/`omitted` 交代截掉了多少；标量字段（尤其 `total`）必须保留，否则模型无法判断看到的是不是全部。无可裁结构的值退回合法信封而不是半截片段。同一份真实检索：10,410 → 7,985 字符，JSON 可解析，保留 15/20 条，`total` 仍是 28。
+
+**步数与会话预算这次故意不动**：如果拒绝是截断引起的，那要改的就不是预算；下一次真实作业会说明它是否还需要动。
+
+### 31.5 修复三：顶层噪声不再阻断写入（`fix(harness)`）
+
+`isNoise` 早已用于层内扫描（跳过点开头条目、`__pycache__`、`node_modules`），但 `catalog` 的**顶层扫描没有调用它**。macOS 上在 Finder 里打开 `harness/` 就会生成 `.DS_Store`，它被当成「多余的顶层条目」→ 校验错误 → 内容、边车、索引一起回滚。当天 3 次写入因此失败。一行加上同一条规则即可，它也因此不会进索引——它不是资源。
+
+### 31.6 明确不做
+
+- **不解包 `{"item": [...]}`**：兼容层，且 schema 修好后不该再出现。
+- **不主动迁移别的项目**（如 `jubao` 9 条资源 0 边车）：插件不替用户改项目，只在清单里提示。
+- **不改注入段「跨项目」判据**：属于契约改动，按 `harness/experience/contract-change-by-options.md` 单独给候选再定。
+
+### 31.7 验证
+
+- `test/tools.test.mjs` 新增：`meta` 六个字段的类型断言、`tags` 描述点名 `{item:[...]}`、`layer` 枚举即四层；`file_edit` 传 `old_string`/`new_string`、只给一半时的报错点名；`.DS_Store` 存在时写入仍成立且不进索引。
+- `test/organize.test.mjs` 新增：超限结果裁剪后仍是合法 JSON、标量保留、`truncated`/`omitted` 正确、极小预算也不产出非法 JSON。
+- 全量：`node harness/tool/verify-repo.mjs` **218 用例 / 217 通过 / 0 失败 / 1 跳过**（Windows junction 用例），189/189 文件语法通过。宿主改动要重启 DSH 才生效。
