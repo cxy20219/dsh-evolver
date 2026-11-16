@@ -88,6 +88,10 @@ test('四个工具：名字、参数与分类', async () => {
 		assert.deepEqual(byName.file_edit.parameters.required, ['target'])
 		assert.match(byName.file_edit.description, /remove/, 'file_edit 描述说明 remove')
 		assert.match(byName.file_edit.description, /归档|删除/, 'remove 是归档后的删除动作')
+		// 描述是模型唯一能看见的能力面：harness 资源也支持 old+new，这句必须写在描述里，
+		// 否则模型会以为 harness 只能整篇重写，转而绕道 bash/python（能力在，描述没露出来等于不存在）。
+		assert.match(byName.file_edit.description, /库文件、项目文件、harness 资源都适用/, 'file_edit 描述要露出 harness 资源也支持 old+new')
+		assert.match(byName.file_write.description, /file_edit 的 old\+new/, 'file_write 描述要指向 file_edit 的增量写法')
 		// JSON 往返不丢字段；混进函数会在这一步消失。
 		assert.deepEqual(JSON.parse(JSON.stringify(catalog)), catalog)
 		// 未登记的工具默认归 write：未知工具更可能改库，误标只读比误标写入更危险。
@@ -680,6 +684,54 @@ test('file_edit：harness 改动校验不过时回滚，文件与索引都不留
 		)
 		assert.equal(await readFile(join(project, 'harness/experience/rollback.md'), 'utf8'), before, '目标文件已回滚')
 		assert.equal(await readFile(join(project, 'AGENTS.md'), 'utf8'), agentsBefore, '索引已回滚')
+	} finally {
+		await cleanup()
+	}
+})
+
+test('harness 资源：整篇重写不必重述描述与标题，非常规位置给出下一步', async () => {
+	const { tools, project, cleanup } = await fixture()
+	try {
+		await tools.get('file_write').execute({
+			target: 'harness/experience/reuse-meta.md',
+			content: '# 沿用\n\n第一版。\n',
+			meta: { title: '沿用边车', description: '整篇重写时描述与标题应当沿用边车：验证不必重述' },
+		})
+		// 不给 meta.description：边车已经是事实，重写正文不该逼人再说一遍自己写的是什么。
+		const rewritten = await tools.get('file_write').execute({
+			target: 'harness/experience/reuse-meta.md',
+			content: '# 沿用\n\n第二版。\n',
+		})
+		assert.equal(rewritten.validation.ok, true, rewritten.validation.errors.join(' / '))
+		const sidecar = JSON.parse(await readFile(join(project, 'harness/experience/reuse-meta.md.meta.json'), 'utf8'))
+		assert.equal(sidecar.title, '沿用边车', '标题沿用边车，没有被抹掉')
+		assert.match(sidecar.description, /整篇重写时描述与标题应当沿用边车/, '描述沿用边车')
+		assert.match(await readFile(join(project, 'AGENTS.md'), 'utf8'), /整篇重写时描述与标题应当沿用边车/)
+
+		// 没有边车的新资源仍然必须说清自己是什么：描述是它在索引里唯一的脸。
+		await assert.rejects(
+			() => tools.get('file_write').execute({
+				target: 'harness/experience/never-described.md',
+				content: '# 新资源\n\n正文。\n',
+			}),
+			/description/,
+		)
+
+		// harness/ 根下的文件不在四层里：报错要说清下一步，否则模型会绕道 bash/python。
+		await assert.rejects(
+			() => tools.get('file_write').execute({ target: 'harness/loose.md', content: '# 根下\n' }),
+			/移到 harness\/<层>\/ 下再写一次/,
+		)
+		// 历史上留下的根下文件也要给出路。
+		await writeFile(join(project, 'harness', 'loose.md'), '# 根下\n\n正文。\n', 'utf8')
+		try {
+			await assert.rejects(
+				() => tools.get('file_edit').execute({ target: 'harness/loose.md', old: '正文。', new: '新正文。' }),
+				/移到 harness\/<层>\/ 下再改一次/,
+			)
+		} finally {
+			await rm(join(project, 'harness', 'loose.md'), { force: true })
+		}
 	} finally {
 		await cleanup()
 	}

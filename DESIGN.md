@@ -177,8 +177,8 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 |---|---|---|
 | `file_search` | `query` / `tags` / `limit` / `graph`（全可选） | 按描述/名字/标签检索，不搜正文；空参数返回最近文件 + 规模统计（替代旧 `file_index`）；`graph` 返回命中文件的一跳 links 子图 |
 | `file_read` | `target`（必填） | 库文件 id/短 id → 元数据 + 正文（上限 256 KB）+ 邻居；`harness/` → 项目 harness 清单与索引差集；否则按会话 cwd 解析项目内路径（`harness/...` 锚项目根），越界拒绝 |
-| `file_write` | `target` / `content` / `meta` / `from` | 新建/更新库文件、用 `from` 导入宿主或项目内文件、写项目文件、写 harness 资源（缺骨架自动建、写描述边车、按目录重建 AGENTS.md 索引并校验，失败回滚） |
-| `file_edit` | `target` / `old` / `new` / `meta` | 正文精确替换（0 次或多次命中都报错）；`meta` 改描述/标签/links/archived/remove；harness 资源改描述边车（`meta.description`/`meta.title`）或删除资源，改完重建索引并校验 |
+| `file_write` | `target` / `content` / `meta` / `from` | 新建/更新库文件、用 `from` 导入宿主或项目内文件、写项目文件、写 harness 资源（缺骨架自动建、写描述边车、按目录重建 AGENTS.md 索引并校验，失败回滚）；覆盖已有 harness 资源时 `meta.description`/`meta.title` 可省，沿用边车里的原描述与标题 |
+| `file_edit` | `target` / `old` / `new` / `meta` | 正文精确替换（0 次或多次命中都报错），**库文件、项目文件、harness 资源都适用**——改一段不必重写整篇；`meta` 改描述/标签/links/archived/remove（库文件）或 description/title（harness 资源的描述边车）；harness 资源改完重建索引并校验 |
 
 旧 12 个工具的去向：`file_query`→`file_search`；`file_index`→`file_search` 空参数；`file_import`→`file_write({from})`；`file_link`→`file_edit(meta.links)`；`file_archive`/`file_remove`→`file_edit(meta.archived/remove)`；`file_read`/`file_write` 保留并统一寻址；`project_harness_catalog`→`file_read({"target":"harness/"})`；`project_harness_write`→`file_write` 到 `harness/` 路径；`project_harness_validate`→写入结果里的 `validation`；`project_harness_promote`→`file_write({from:"harness/..."})`。
 
@@ -687,3 +687,29 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - `test/tools.test.mjs` 的 harness 用例按新契约改写（描述必填、边车写入、拒绝手写 AGENTS.md、描述编辑、资源删除）。
 - `npm test` **213 条全绿**；`node --check` 全部源文件通过。
 - 宿主改动要重启 DSH 才生效。
+
+## 30. 工具描述要露出能力矩阵（2026-11-16）
+
+用户反馈：改项目 harness 里的一个文件时，「只能整体写入，不够灵活」。真实会话的工具调用链显示：模型先用 `file_write` 带整篇 content 重写手册（4835 字节），被拒后改用 `bash` + python 字符串替换绕过插件。
+
+### 30.1 根因
+
+不是能力缺失，是**能力不可见**：`file_edit` 早已支持 harness 资源的 `old`+`new` 精确替换（`src/tools.js` 的 harness 分支，测试 `test/tools.test.mjs` 早已覆盖），但工具描述把「正文替换」只说给库文件与项目文件，harness 那句写的是「*还能*用 meta.description/meta.title 改它的描述边车」。模型只能看到描述，于是推断出「harness 资源只能改描述和标题」，选错动词。
+
+第二个根因是**约束没给出路**：`harness/` 根下的文件两个动词都不接，报错只陈述限制、不说下一步，模型就绕道 bash/python——**绕道必然破坏契约**（没有描述边车、索引与目录不一致）。
+
+### 30.2 决定
+
+- **描述里给「目标 × 能力」矩阵**：`file_edit` 的 `old`+`new` 明确写清对库文件、项目文件、harness 资源**都适用**；`file_write` 补一句「要改正文用 file_edit 的 old+new，不必重写整篇」。描述是模型唯一能看见的能力面，没写出来的能力等于不存在。
+- **报错给下一步而不是只给限制**：位置不在四层时，报错写明「把它移到 `harness/<层>/` 下再写一次，插件会自动补描述边车并重建索引」。报错文案不在工具 schema 里，常驻成本为零。
+- **不放松四层契约**：`harness/` 根下的多余条目仍是校验错误（回滚），不做「降级为警告」。有了明确的下一步，根下条目一次就能清掉；放松它只会让 harness 长期停在「一半被管、一半没人管」的状态。
+- **不加新动词、不加顶层参数**：仍然四个工具、13 个顶层参数。
+
+### 30.3 顺带修掉的一处不对称
+
+`file_write` 覆盖**已有** harness 资源时，现在必须重述 `meta.description`，否则报「需要 meta.description」；而且不传 `meta.title` 会把边车里的标题写成空串。边车本来就是事实，整篇重写不该为同一句话再付一次代价——现在改为：**没有显式给描述/标题时沿用边车里的原值**；从来没有边车的新资源仍然必须说清自己是什么（描述是它在索引里唯一的脸）。
+
+### 30.4 验证
+
+- `test/tools.test.mjs` 新增：工具描述必须露出「库文件、项目文件、harness 资源都适用」（描述可见性是契约，守它才不会退回老问题）；`file_write` 覆盖已有资源时沿用边车描述与标题；新资源仍强制描述；两处报错含迁移指引。
+- `npm test` 全绿；`node harness/tool/verify-repo.mjs` 通过。宿主改动要重启 DSH 才生效。

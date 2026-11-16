@@ -420,13 +420,13 @@ export function createTools({ store, paths } = {}) {
 		},
 		{
 			name: 'file_write',
-			description: '写：无 target → 新建库文件（content + meta.description + meta.tags）；target 是库文件 id/短 id → 更新正文或元数据；from 非空 → 把宿主文件导入库（相对路径按会话 cwd，越界拒绝）；target 是项目内路径 → 写项目文件（项目根的 AGENTS.md 是生成的索引，拒绝手写）；target 在项目 harness/ 下 → 写 harness 资源（缺骨架自动建、写描述边车、按目录重建 AGENTS.md 索引并校验，校验不过回滚）。meta: {name,description,tags,links,title}；描述写清「是什么 + 以后哪些场景/任务会用到它」。',
+			description: '写：无 target → 新建库文件（content + meta.description + meta.tags）；target 是库文件 id/短 id → 更新正文或元数据；from 非空 → 把宿主文件导入库（相对路径按会话 cwd，越界拒绝）；target 是项目内路径 → 写项目文件（项目根的 AGENTS.md 是生成的索引，拒绝手写）；target 在项目 harness/ 下 → 写 harness 资源（缺骨架自动建、写描述边车、按目录重建 AGENTS.md 索引并校验，校验不过回滚）；要改正文用 file_edit 的 old+new，不必重写整篇。meta: {name,description,tags,links,title}；描述写清「是什么 + 以后哪些场景/任务会用到它」。',
 			parameters: {
 				type: 'object',
 				properties: {
 					target: { type: 'string', description: '库文件 id/短 id（更新）、项目内路径（写项目文件或 harness 资源）；新建库文件时留空' },
 					content: { type: 'string', description: '文本正文；新建库文件与项目文件必填，更新库文件时给了就替换正文' },
-					meta: { type: 'object', additionalProperties: true, description: '元数据对象：{name?,description?,tags?,links?,title?}；库文件新建/导入需要 description + tags；harness 资源需要 description（写进同名边车 <文件>.meta.json，索引按它生成），title 可选；layer 可覆盖但必须与路径层一致' },
+					meta: { type: 'object', additionalProperties: true, description: '元数据对象：{name?,description?,tags?,links?,title?}；库文件新建/导入需要 description + tags；harness 资源需要 description（写进同名边车 <文件>.meta.json，索引按它生成），已有边车的资源可省略并沿用原描述与标题，title 可选；layer 可覆盖但必须与路径层一致' },
 					from: { type: 'string', description: '导入源：宿主绝对路径，或相对会话 cwd 的项目内路径（越界拒绝）；给了 from 就不看 target' },
 				},
 			},
@@ -448,7 +448,7 @@ export function createTools({ store, paths } = {}) {
 		},
 		{
 			name: 'file_edit',
-			description: '改：库文件给 old+new 精确替换正文一处（0 次或多次都报错），meta 改 description/tags/links/archived；meta.remove:true 是归档后的物理删除（文件夹移入回收站，优先用 meta.archived 归档）。项目文件只做 old+new 文本替换（meta.remove 拒绝）；harness 资源还能用 meta.description/meta.title 改它的描述边车，改完自动按目录重建 AGENTS.md 索引并校验，失败回滚；meta.remove:true 删除 harness 资源及其边车。',
+			description: '改：old+new 精确替换正文一处（0 次或多次都报错），库文件、项目文件、harness 资源都适用——改一段不必重写整篇。meta 改元数据：库文件用 description/tags/links/archived，harness 资源用 description/title（写进描述边车），普通项目文件只做正文替换。meta.remove:true 是归档后的物理删除（文件夹移入回收站，优先用 meta.archived 归档），对 harness 资源则是删除资源与其边车。harness 资源改完自动按目录重建 AGENTS.md 索引并校验，失败回滚。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -597,7 +597,7 @@ async function writeHarnessFile(location, target, resolved, input, meta) {
 	const relativePath = resolved.relative
 	const layer = layerOf(relativePath)
 	if (relativePath === undefined || layer === undefined) {
-		throw new Error(`harness/ 下只能写 harness/harness.md 或 ${LAYERS.map((item) => `harness/${item}/...`).join(' / ')}：${target}`)
+		throw new Error(`harness/ 下只能写 harness/harness.md 或四层资源（${LAYERS.join(' / ')}）。${target} 在 harness/ 根下，工具层不接管它：把它移到 harness/<层>/ 下再写一次，插件会自动补描述边车并重建索引。`)
 	}
 	if (layer !== 'overview' && relativePath.split('/').length === 2) {
 		throw new Error(`harness/${layer}/ 是目录，target 需要具体文件名：${target}`)
@@ -625,12 +625,12 @@ async function writeHarnessFile(location, target, resolved, input, meta) {
 			throw new Error(`文件名不合法：${basename(relativePath)}（只能用小写英文、数字、. _ -，并以 .md 结尾）。`)
 		}
 	}
-	const description = harnessDescription(meta)
+	const { description, title } = await harnessMetadataFor(location.root, relativePath, meta)
 	const result = await writeHarnessResource({
 		root: location.root,
 		relative: relativePath,
 		content: input.content,
-		title: typeof meta.title === 'string' ? meta.title : undefined,
+		title,
 		description,
 	})
 	return harnessResult({
@@ -664,6 +664,27 @@ function harnessDescription(meta) {
 		throw new Error('写 harness 资源需要 meta.description：一句话说清它是什么 + 以后哪些场景/任务会用到它（它会进 AGENTS.md 索引，也是唯一的检索面）。')
 	}
 	return description
+}
+
+/**
+ * The description and title a harness resource is written with.
+ *
+ * A resource that already has a sidecar says what it is and what it is
+ * called; rewriting its body must not cost that sentence again, and must not
+ * quietly drop the title. A resource that has never been described still has
+ * to say what it is — that sentence is the only face it has in the index.
+ *
+ * @param {string} root - The project root.
+ * @param {string} relativePath - The resource's project-relative path.
+ * @param {Record<string, unknown>} meta - The meta argument.
+ * @returns {Promise<{description: string, title: string | undefined}>} The metadata.
+ */
+async function harnessMetadataFor(root, relativePath, meta) {
+	const existing = await readSidecar(root, relativePath)
+	const stated = meta.description !== undefined || meta.summary !== undefined
+	const description = stated || !existing?.description ? harnessDescription(meta) : existing.description
+	const title = typeof meta.title === 'string' ? meta.title : existing?.title
+	return { description, title }
 }
 
 /**
@@ -743,7 +764,7 @@ async function editProjectFile(location, target, resolved, input, meta, hasPatch
 	const relativePath = resolved.relative
 	const layer = layerOf(relativePath)
 	if (relativePath === undefined || layer === undefined) {
-		throw new Error(`harness/ 下只能改 harness/harness.md 或四层内的资源：${target}`)
+		throw new Error(`harness/ 下只能改 harness/harness.md 或四层资源（${LAYERS.join(' / ')}）。${target} 在 harness/ 根下，工具层不接管它：把它移到 harness/<层>/ 下再改一次，插件会自动补描述边车并重建索引。`)
 	}
 	if (meta.remove === true) {
 		const removed = await removeHarnessResource({ root: location.root, relative: relativePath })

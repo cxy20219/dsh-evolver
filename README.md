@@ -33,7 +33,7 @@
 
 ## 工具与面板
 
-Agent 工具只有 4 个：`file_search`（检索/规模统计/图）、`file_read`（库文件、项目内路径或 `harness/` 清单）、`file_write`（建/改库文件、导入、写项目文件、写 harness 资源）、`file_edit`（正文精确替换、描述/标签/links/归档/删除、harness frontmatter）。
+Agent 工具只有 4 个：`file_search`（检索/规模统计/图）、`file_read`（库文件、项目内路径或 `harness/` 清单）、`file_write`（建/改库文件、导入、写项目文件、写 harness 资源）、`file_edit`（正文精确替换——库文件、项目文件、harness 资源都适用，改一段不必重写整篇；再加描述/标签/links/归档/删除、harness 资源的描述边车）。
 
 面板通过 `/api/ziyan/*` 的 27 个接口工作：文件 7 个、概览/图谱/设置读写/日志 5 个、注入 2 个（`injection`、`tools`）、偏好 2 个（`preferences`、`preferences-save`）、自衍与整理 7 个（`digest` + `organize-*` 6 个）、数据 4 个。浏览器只发 id，不发文件路径；上传、预览和归档都有大小上限。
 
