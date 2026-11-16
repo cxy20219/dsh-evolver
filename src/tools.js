@@ -426,7 +426,28 @@ export function createTools({ store, paths } = {}) {
 				properties: {
 					target: { type: 'string', description: '库文件 id/短 id（更新）、项目内路径（写项目文件或 harness 资源）；新建库文件时留空' },
 					content: { type: 'string', description: '文本正文；新建库文件与项目文件必填，更新库文件时给了就替换正文' },
-					meta: { type: 'object', additionalProperties: true, description: '元数据对象：{name?,description?,tags?,links?,title?}；库文件新建/导入需要 description + tags；harness 资源需要 description（写进同名边车 <文件>.meta.json，索引按它生成），已有边车的资源可省略并沿用原描述与标题，title 可选；layer 可覆盖但必须与路径层一致' },
+					meta: {
+						type: 'object',
+						additionalProperties: true,
+						// The declared fields are the ones a model gets wrong when
+						// it has to guess. `tags` in particular: left undeclared,
+						// some routes emit their own list encoding
+						// (`{"item": ["来源/harness"]}`) and every write fails the
+						// array check. Declaring the type is what makes that shape
+						// never appear; unwrapping it at runtime would be a
+						// compatibility layer for a mistake nobody has to make.
+						// Descriptions stay at one clause: the outer description
+						// already carries the contract, and this rides every request.
+						properties: {
+							name: { type: 'string' },
+							description: { type: 'string', description: '一句话：是什么 + 以后哪些场景会用到' },
+							tags: { type: 'array', items: { type: 'string' }, description: '字符串数组，如 ["来源/harness","践行/约定"]；不是 {"item": [...]}；库文件必填' },
+							links: { type: 'array', items: { type: 'string' }, description: '关联文件 id 的字符串数组' },
+							title: { type: 'string', description: 'harness 资源在索引里显示的标题' },
+							layer: { type: 'string', enum: [...LAYERS] },
+						},
+						description: '元数据对象：{name?,description?,tags?,links?,title?}；库文件新建/导入需要 description + tags；harness 资源需要 description（写进同名边车 <文件>.meta.json，索引按它生成），已有边车的资源可省略并沿用原描述与标题，title 可选；layer 可覆盖但必须与路径层一致',
+					},
 					from: { type: 'string', description: '导入源：宿主绝对路径，或相对会话 cwd 的项目内路径（越界拒绝）；给了 from 就不看 target' },
 				},
 			},
@@ -469,7 +490,7 @@ export function createTools({ store, paths } = {}) {
 				const hasMeta = ['description', 'tags', 'links', 'archived', 'remove', 'title', 'summary']
 					.some((field) => meta[field] !== undefined)
 				if (!hasPatch && !hasMeta) {
-					throw new Error('file_edit 没有可执行的操作：给 old+new（正文精确替换）或 meta 的 description/tags/links/archived/remove（库文件）/ description/title（harness 资源）之一。')
+					throw new Error(`file_edit 没有可执行的操作：${patchAdvice(input)}给 old+new（正文精确替换）或 meta 的 description/tags/links/archived/remove（库文件）/ description/title（harness 资源）之一。`)
 				}
 				const id = resolveInput(store, target)
 				if (id !== '') return sanitize(await editLibraryFile(store, id, input, meta, hasPatch))
@@ -479,6 +500,33 @@ export function createTools({ store, paths } = {}) {
 			},
 		},
 	]
+}
+
+/**
+ * Why a `file_edit` call arrived with nothing to do.
+ *
+ * The neighbouring built-in tool is `edit`, whose fields are `old_string` and
+ * `new_string`; this one's are `old` and `new`. A model that mixes them up
+ * gets the generic "nothing to do" error and retries the same call forever: it
+ * has no way to tell which of the four fields was the problem. Naming the
+ * field it actually sent turns a dead end into a one-line correction.
+ *
+ * @param {Record<string, unknown>} input - The call arguments.
+ * @returns {string} A sentence naming the mistake, or an empty string.
+ */
+function patchAdvice(input) {
+	const sent = [
+		typeof input.old_string === 'string' ? 'old_string' : '',
+		typeof input.new_string === 'string' ? 'new_string' : '',
+	].filter((name) => name !== '')
+	if (sent.length > 0) {
+		return `这次收到的是 ${sent.join(' 和 ')}——那是内置 edit 的字段名；file_edit 用 old 和 new。`
+	}
+	const hasOld = typeof input.old === 'string'
+	const hasNew = typeof input.new === 'string'
+	if (hasOld && !hasNew) return '这次给了 old 但缺少 new：正文替换需要 old 与 new 两个字段。'
+	if (hasNew && !hasOld) return '这次给了 new 但缺少 old：正文替换需要 old 与 new 两个字段。'
+	return ''
 }
 
 /**

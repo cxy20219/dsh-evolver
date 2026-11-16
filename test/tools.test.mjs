@@ -92,6 +92,18 @@ test('四个工具：名字、参数与分类', async () => {
 		// 否则模型会以为 harness 只能整篇重写，转而绕道 bash/python（能力在，描述没露出来等于不存在）。
 		assert.match(byName.file_edit.description, /库文件、项目文件、harness 资源都适用/, 'file_edit 描述要露出 harness 资源也支持 old+new')
 		assert.match(byName.file_write.description, /file_edit 的 old\+new/, 'file_write 描述要指向 file_edit 的增量写法')
+		// meta 是自由对象，但它的核心字段必须声明类型：不声明 tags 是数组，
+		// 部分路由会输出自己的列表编码（{"item": ["来源/harness"]}），
+		// 每次写入都撞上 Array.isArray 检查。声明类型是治本，解包只是兼容层。
+		const metaSchema = byName.file_write.parameters.properties.meta
+		assert.equal(metaSchema.properties.tags.type, 'array', 'meta.tags 必须声明为 array')
+		assert.equal(metaSchema.properties.tags.items.type, 'string')
+		assert.equal(metaSchema.properties.links.type, 'array')
+		assert.equal(metaSchema.properties.description.type, 'string')
+		assert.equal(metaSchema.properties.title.type, 'string')
+		assert.equal(metaSchema.additionalProperties, true, '未声明字段仍然允许，保持自由对象')
+		assert.match(metaSchema.properties.tags.description, /\{"item"/, '描述里点名不要用 {item:[...]} 形态')
+		assert.deepEqual(metaSchema.properties.layer.enum, ['workflow', 'experience', 'tool', 'resources'], 'layer 枚举即四层')
 		// JSON 往返不丢字段；混进函数会在这一步消失。
 		assert.deepEqual(JSON.parse(JSON.stringify(catalog)), catalog)
 		// 未登记的工具默认归 write：未知工具更可能改库，误标只读比误标写入更危险。
@@ -614,6 +626,42 @@ test('file_edit：项目文件只做正文替换，删除与库元数据字段�
 		)
 		await assert.rejects(() => tools.get('file_edit').execute({ target: 'none.md', old: 'a', new: 'b' }), /没有这个文件/)
 		await assert.rejects(() => tools.get('file_edit').execute({ target: '../outside.md', old: 'a', new: 'b' }), /路径越界/)
+	} finally {
+		await cleanup()
+	}
+})
+
+test('file_edit：字段名传错时报错点名，模型一次重试就能自纠', async () => {
+	const { tools, project, cleanup } = await fixture()
+	try {
+		await writeFile(join(project, 'run.md'), '旧步骤\n')
+		// 内置 edit 的字段名（old_string/new_string）撞上本工具的 old/new。
+		// 报错必须说出它实际发的是哪个字段，否则模型只能原样重试。
+		await assert.rejects(
+			() => tools.get('file_edit').execute({ target: 'run.md', old_string: '旧步骤', new_string: '新步骤' }),
+			(error) => {
+				assert.match(error.message, /old_string/, '报错要点名 old_string')
+				assert.match(error.message, /new_string/, '报错要点名 new_string')
+				assert.match(error.message, /file_edit 用 old 和 new/, '报错要给出正确字段名')
+				return true
+			},
+		)
+		// 只给一半（真实会话里的形态：old 给了，new 写成了 new_string）同样点名。
+		await assert.rejects(
+			() => tools.get('file_edit').execute({ target: 'run.md', old: '旧步骤', new_string: '新步骤' }),
+			/new_string/,
+		)
+		await assert.rejects(
+			() => tools.get('file_edit').execute({ target: 'run.md', old: '旧步骤' }),
+			/缺少 new/,
+		)
+		await assert.rejects(
+			() => tools.get('file_edit').execute({ target: 'run.md', new: '新步骤' }),
+			/缺少 old/,
+		)
+		// 正常调用不受影响。
+		const ok = await tools.get('file_edit').execute({ target: 'run.md', old: '旧步骤', new: '新步骤' })
+		assert.equal(ok.changed, true)
 	} finally {
 		await cleanup()
 	}
