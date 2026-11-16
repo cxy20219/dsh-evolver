@@ -1,0 +1,5 @@
+{
+	"schema": 1,
+	"title": "写 harness 资源并验证索引",
+	"description": "往项目 harness 写资源（流程、经验、脚本、模板）的完整操作规程：参数与命名约定、插件自动做的建骨架写边车重建索引校验回滚四步、手写 AGENTS.md 被备份等四个陷阱，以及跑 node harness/tool/verify-repo.mjs 做语法加结构加测试三重验证的判读方法。"
+}
