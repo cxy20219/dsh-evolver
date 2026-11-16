@@ -22,6 +22,11 @@
  *   called as `node <file>` instead of through npm.
  * - The test runner spawns a child per test file, which the sandbox also
  *   blocks. The files are therefore run one by one, each in its own process.
+ * - The reporter is pinned to TAP because the counters below read TAP's
+ *   summary lines. Node's default reporter is `spec` on some versions and
+ *   TTY states, and its summary lines then do not parse: the counters read
+ *   zero, a red suite still prints "自检通过", and the gate becomes a green
+ *   light that means nothing.
  *
  * Two tests depend on creating a symbolic link, which a hardened Windows host
  * refuses; they guard themselves and report themselves as skipped, so a host
@@ -84,7 +89,7 @@ function runTestFile(file) {
 	const log = join(dir, 'tap.txt')
 	try {
 		const fd = openSync(log, 'w')
-		const result = spawnSync(process.execPath, [file], { cwd: root, stdio: ['ignore', fd, fd] })
+		const result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', file], { cwd: root, stdio: ['ignore', fd, fd] })
 		closeSync(fd)
 		return { status: result.status, output: readFileSync(log, 'utf8') }
 	} finally {
@@ -129,8 +134,11 @@ for (const name of testFiles) {
 	skipped += count(/^# skipped (\d+)$/m)
 	if (status === 0) continue
 	const titles = [...text.matchAll(/^not ok \d+ - (.+)$/gm)].map((match) => match[1].trim())
-	failed += bad
-	regressions.push(...titles.map((title) => `${name} — ${title}`))
+	// A file that exits non-zero has failed, whatever its summary said. Counting
+	// the parsed number alone would let an unreadable summary turn a red suite
+	// into a green gate.
+	failed += Math.max(bad, 1)
+	regressions.push(...(titles.length > 0 ? titles.map((title) => `${name} — ${title}`) : [`${name}（退出码 ${status}，摘要未解析出失败用例）`]))
 }
 console.log(`测试：${total} 个用例，${passed} 通过，${failed} 失败，${skipped} 跳过`)
 for (const line of regressions) console.error(`  失败：${line}`)
