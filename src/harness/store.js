@@ -520,6 +520,11 @@ export async function catalog(root, { limits } = {}) {
 	const top = await readdir(harnessDir).catch(() => [])
 	for (const name of top.sort()) {
 		if (isSidecarName(name)) continue
+		// `.DS_Store` and friends are not resources: opening the folder in
+		// Finder is enough to create one, and treating it as a stray entry made
+		// every harness write fail its validation and roll back on macOS. The
+		// same rule already applied inside the layers; it belongs here too.
+		if (isNoise(name)) continue
 		if (name !== OVERVIEW && !LAYERS.includes(name)) state.unexpected.push(name)
 	}
 	state.overview = await exists(join(harnessDir, OVERVIEW))

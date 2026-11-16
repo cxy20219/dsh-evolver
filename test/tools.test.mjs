@@ -858,3 +858,31 @@ test('descriptionAdvice：vague 描述给软提示，写清场景不提示，都
 		await cleanup()
 	}
 })
+
+test('harness/ 里的 .DS_Store 不阻断写入（macOS 上打开过目录就必现）', async () => {
+	const { tools, project, cleanup } = await fixture()
+	try {
+		await tools.get('file_write').execute({
+			target: 'harness/experience/base.md',
+			content: '# 基线\n\n正文。\n',
+			meta: { description: '基线资源：验证 dotfile 不打断后续写入' },
+		})
+		// Finder 打开过 harness/ 就会留下这个文件；它是构建噪声，不是资源。
+		await writeFile(join(project, 'harness', '.DS_Store'), 'Bud1\u0000\u0000\u0000\u0008', 'utf8')
+		const written = await tools.get('file_write').execute({
+			target: 'harness/experience/after-dotfile.md',
+			content: '# 后续\n\n正文。\n',
+			meta: { description: 'dotfile 存在时仍能写入：以前会以「多余的顶层条目」整体回滚' },
+		})
+		assert.equal(written.validation.ok, true, written.validation.errors.join(' / '))
+		assert.equal((await stat(join(project, 'harness/experience/after-dotfile.md'))).isFile(), true, '文件真的落盘了')
+		// 噪声不该进索引，也不该被当成资源。
+		const agents = await readFile(join(project, 'AGENTS.md'), 'utf8')
+		assert.doesNotMatch(agents, /DS_Store/)
+		const listed = await tools.get('file_read').execute({ target: 'harness/' })
+		assert.equal(listed.resources.some((item) => item.path.includes('DS_Store')), false)
+		await rm(join(project, 'harness', '.DS_Store'), { force: true })
+	} finally {
+		await cleanup()
+	}
+})
