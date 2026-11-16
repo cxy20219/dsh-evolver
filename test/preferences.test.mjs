@@ -90,6 +90,37 @@ test('偏好：迁移现有 AGENTS.md 全文，只删旧受管段标记、内容
 	}
 })
 
+test('偏好：没有软链权限时，入口文件与权威文件是同一份内容', async () => {
+	const pair = await dirs()
+	try {
+		const existing = [
+			'# 核心原则',
+			'',
+			'- 全程使用中文',
+			'',
+			LEGACY_BEGIN,
+			'- 旧的 ziyan 偏好',
+			LEGACY_END,
+			'',
+		].join('\n')
+		await writeFile(preferencesPath(pair.dshHome), existing, 'utf8')
+		const state = await readPreferences({ ...pair, allowLink: false })
+		assert.equal(state.mode, 'copy', '不能建软链时走双写')
+		assert.ok(!(await lstat(state.agentsPath)).isSymbolicLink(), '入口是普通文件')
+		const entry = await readFile(preferencesPath(pair.dshHome), 'utf8')
+		assert.equal(entry.trimEnd(), state.content, '入口就是 DSH 读到的全文')
+		assert.equal((await readFile(state.path, 'utf8')).trimEnd(), state.content, '权威文件与入口同内容')
+		assert.doesNotMatch(entry, /ziyan:preferences/, '入口也剔掉旧受管段标记')
+
+		// 保存后两边仍然一致。
+		await writePreferences({ ...pair, allowLink: false }, '# 新偏好\n\n- 先读再改')
+		assert.equal((await readFile(preferencesPath(pair.dshHome), 'utf8')).trimEnd(), '# 新偏好\n\n- 先读再改')
+		assert.equal((await readFile(state.path, 'utf8')).trimEnd(), '# 新偏好\n\n- 先读再改')
+	} finally {
+		await cleanup(pair)
+	}
+})
+
 test('偏好：保存整份内容，再读一致；DSH 的 AGENTS.md 同步可见', async () => {
 	const pair = await dirs()
 	try {

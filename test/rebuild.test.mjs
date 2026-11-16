@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
@@ -113,7 +114,32 @@ test('缺边车、缺本体的文件夹在重建时被报告而不是静默吞�
 	})
 })
 
-test('符号链接不被跟随：读取标 unsafe，重建报告问题', async () => {
+/**
+ * 这台机器能不能创建符号链接。
+ *
+ * Windows 没开开发者模式（或宿主限制）时建不出链接，而「链接不被跟随」这条
+ * 用例要的就是一个真链接——建不出来的机器上它无法成立，按环境跳过，不让
+ * 整套测试误红（与 POSIX 权限位断言加平台守卫同一条道理）。
+ *
+ * @returns {Promise<boolean>} 能不能。
+ */
+async function canCreateSymlink() {
+	const dir = await mkdtemp(join(tmpdir(), 'ziyan-symlink-probe-'))
+	try {
+		const target = join(dir, 'target.txt')
+		await writeFile(target, 'probe')
+		await symlink(target, join(dir, 'link.txt'))
+		return true
+	} catch {
+		return false
+	} finally {
+		await rm(dir, { recursive: true, force: true })
+	}
+}
+
+const symlinksAvailable = await canCreateSymlink()
+
+test('符号链接不被跟随：读取标 unsafe，重建报告问题', { skip: symlinksAvailable ? false : '本机不能创建符号链接' }, async () => {
 	await withFreshStore(async (store, dir) => {
 		const file = await store.create({ tags: ['测试'], name: 'a.md', description: '本体将被替换成符号链接', content: '真实内容' })
 		const outside = join(dir, 'outside.txt')

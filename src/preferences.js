@@ -9,6 +9,10 @@
  * 迁移：第一次接管时把现有 `~/.dsh/AGENTS.md` 的全文（可能是旧 evolver 的
  * 软链目标）复制进数据目录，剔掉旧版 ziyan 偏好段的注释标记（内容保留），
  * 再把 `AGENTS.md` 重新指向数据目录。旧文件/旧目标不删除。
+ *
+ * 双写模式：入口文件就是 DSH 每次会话开始真正读的那份文件，所以没有软链
+ * 可建时，它必须和权威文件是同一份内容——否则面板改的是一份、DSH 注入的
+ * 还是另一份。指向别处的软链会被换成普通文件，它原来指向的文件留在原地。
  */
 
 import { lstat, mkdir, readFile, readlink, rename, rm, symlink } from 'node:fs/promises'
@@ -129,21 +133,34 @@ async function writeSymlink(agentsPath, dataPath) {
 }
 
 /**
- * copy 模式下真正要写的 `AGENTS.md` 目标：软链写穿到目标，普通文件原地写。
+ * 让入口文件在没有软链时也带着权威文件的全文。
  *
- * @param {string} agentsPath - `AGENTS.md`。
- * @returns {Promise<string>} 写入目标。
+ * 入口就是 DSH 每次会话开始真正读的那份文件：没有软链可建时，它必须和权威
+ * 文件是同一份内容，否则面板编辑的是一份、DSH 注入的还是另一份。指向别处
+ * 的软链会被换成普通文件——它原来指向的文件留在原地，只有入口这个注入点被
+ * 接管，与软链模式重新指向同一件事。
+ *
+ * @param {string} agentsPath - `~/.dsh/AGENTS.md`。
+ * @param {string} content - 权威文件的全文。
+ * @returns {Promise<void>} 完成。
  */
-async function copyDestination(agentsPath) {
+async function writeEntryCopy(agentsPath, content) {
 	let info
 	try {
 		info = await lstat(agentsPath)
 	} catch (error) {
-		if (error?.code === 'ENOENT') return agentsPath
-		throw error
+		if (error?.code !== 'ENOENT') throw error
+		info = undefined
 	}
-	if (!info.isSymbolicLink()) return agentsPath
-	return resolve(dirname(agentsPath), await readlink(agentsPath))
+	if (info?.isSymbolicLink()) {
+		await rm(agentsPath, { force: true })
+		info = undefined
+	}
+	if (info !== undefined) {
+		const current = await readOptional(agentsPath)
+		if (current.exists && current.text === content) return
+	}
+	await writeFileAtomic(agentsPath, content, { mode: 0o644 })
 }
 
 /**
@@ -153,9 +170,10 @@ async function copyDestination(agentsPath) {
  *
  * @param {string} dshHome - DSH home。
  * @param {string} dataDir - 插件数据目录。
+ * @param {{allowLink?: boolean}} [options] - `allowLink:false` 表示不尝试建软链（测试用）。
  * @returns {Promise<{dataPath: string, agentsPath: string, mode: 'link' | 'copy', destination: string, content: string}>} 就绪状态。
  */
-async function prepare(dshHome, dataDir) {
+async function prepare(dshHome, dataDir, { allowLink = true } = {}) {
 	const dataPath = preferencesDataPath(dataDir)
 	const agentsPath = preferencesPath(dshHome)
 	const current = await readOptional(agentsPath)
@@ -181,14 +199,23 @@ async function prepare(dshHome, dataDir) {
 	state = await linkState(agentsPath, dataPath)
 	let mode = 'link'
 	if (state !== 'link') {
-		try {
-			await writeSymlink(agentsPath, dataPath)
-		} catch {
-			// 没有建软链的权限（Windows 未开开发者模式）：退化为「数据文件 + AGENTS.md」双写。
+		if (!allowLink) {
 			mode = 'copy'
+		} else {
+			try {
+				await writeSymlink(agentsPath, dataPath)
+			} catch {
+				// 没有建软链的权限（Windows 未开开发者模式）：退化为「数据文件 + AGENTS.md」双写。
+				mode = 'copy'
+			}
 		}
 	}
-	const destination = mode === 'link' ? dataPath : await copyDestination(agentsPath)
+	// 入口是 DSH 真正读的那份文件：没有软链时它必须和权威文件同内容，
+	// 否则面板改的是一份、DSH 注入的还是另一份。
+	if (mode === 'copy') {
+		await writeEntryCopy(agentsPath, content)
+	}
+	const destination = mode === 'link' ? dataPath : agentsPath
 	return { dataPath, agentsPath, mode, destination, content }
 }
 
@@ -198,15 +225,15 @@ async function prepare(dshHome, dataDir) {
  * “文件不存在/读不出来”和“空文件”必须分得开：前端据此决定能不能保存，否则
  * 一个读失败就会把空字符串写回去，把用户的规则清空。
  *
- * @param {{dshHome: string, dataDir: string}} options - DSH home 与插件数据目录。
+ * @param {{dshHome: string, dataDir: string, allowLink?: boolean}} options - DSH home 与插件数据目录；`allowLink:false` 表示不建软链（测试用）。
  * @returns {Promise<object>} 偏好状态。
  */
-export async function readPreferences({ dshHome, dataDir }) {
+export async function readPreferences({ dshHome, dataDir, allowLink = true }) {
 	const dataPath = preferencesDataPath(dataDir)
 	const agentsPath = preferencesPath(dshHome)
 	let prepared
 	try {
-		prepared = await prepare(dshHome, dataDir)
+		prepared = await prepare(dshHome, dataDir, { allowLink })
 	} catch {
 		return {
 			path: dataPath,
@@ -240,11 +267,11 @@ export async function readPreferences({ dshHome, dataDir }) {
 /**
  * 写入整份偏好：先写数据目录里的权威文件，copy 模式下再同步到 AGENTS.md。
  *
- * @param {{dshHome: string, dataDir: string}} options - DSH home 与插件数据目录。
+ * @param {{dshHome: string, dataDir: string, allowLink?: boolean}} options - DSH home 与插件数据目录；`allowLink:false` 表示不建软链（测试用）。
  * @param {unknown} value - 新的 AGENTS.md 全文。
  * @returns {Promise<object>} 写入后的偏好状态。
  */
-export async function writePreferences({ dshHome, dataDir }, value) {
+export async function writePreferences({ dshHome, dataDir, allowLink = true }, value) {
 	const content = withoutLegacyMarkers(String(value ?? ''))
 		.split(LEGACY_BEGIN).join('')
 		.split(LEGACY_END).join('')
@@ -252,7 +279,7 @@ export async function writePreferences({ dshHome, dataDir }, value) {
 	if (Buffer.byteLength(content, 'utf8') > MAX_PREFERENCES_BYTES) {
 		throw new Error(`偏好超过 ${MAX_PREFERENCES_BYTES} 字节，DSH 的加载器会截断，请精简。`)
 	}
-	const prepared = await prepare(dshHome, dataDir)
+	const prepared = await prepare(dshHome, dataDir, { allowLink })
 	const written = content === '' ? '' : `${content}\n`
 	await writeFileAtomic(prepared.dataPath, written, { mode: 0o644 })
 	if (prepared.mode === 'copy') {

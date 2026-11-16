@@ -24,8 +24,8 @@
  *   blocks. The files are therefore run one by one, each in its own process.
  *
  * Two tests depend on creating a symbolic link, which a hardened Windows host
- * refuses. They are reported as environment failures, not regressions, and
- * only while the host really cannot create a link.
+ * refuses; they guard themselves and report themselves as skipped, so a host
+ * limitation never turns into a red build.
  *
  * Usage:
  *   node harness/tool/verify-repo.mjs
@@ -34,7 +34,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
@@ -49,17 +49,6 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', '.scratch'])
 
 /** The extensions worth a syntax check. */
 const CHECKED_EXTENSIONS = new Set(['.js', '.mjs'])
-
-/**
- * Tests that cannot pass on a host which refuses to create symbolic links.
- *
- * The preferences migration needs one for the DSH entry file, and the rebuild
- * report needs one to notice that a link is not followed.
- */
-const LINK_DEPENDENT_TESTS = new Set([
-	'偏好：迁移现有 AGENTS.md 全文，只删旧受管段标记、内容保留',
-	'符号链接不被跟随：读取标 unsafe，重建报告问题',
-])
 
 /**
  * Every source file under a directory.
@@ -82,25 +71,6 @@ async function sourceFiles(dir, found = []) {
 		found.push(join(dir, entry.name))
 	}
 	return found
-}
-
-/**
- * Whether this host can create a symbolic link.
- *
- * @returns {boolean} True when a link can be created.
- */
-function canCreateSymlink() {
-	const dir = mkdtempSync(join(tmpdir(), 'ziyan-symlink-probe-'))
-	try {
-		const source = join(dir, 'source.txt')
-		writeFileSync(source, 'probe')
-		const result = spawnSync(process.execPath, ['-e', `require('node:fs').symlinkSync(${JSON.stringify(source)}, ${JSON.stringify(join(dir, 'link.txt'))})`], { stdio: 'ignore' })
-		return result.status === 0
-	} catch {
-		return false
-	} finally {
-		rmSync(dir, { recursive: true, force: true })
-	}
 }
 
 /**
@@ -139,9 +109,6 @@ if (!report.ok) {
 	for (const error of report.errors) console.error(`harness 校验失败：${error}`)
 }
 
-const symlinks = canCreateSymlink()
-if (!symlinks) console.log('  注意：本机不能创建软链（Windows 未开开发者模式或宿主受限），依赖软链的测试按环境失败计。')
-
 const testFiles = (await readdir(join(root, 'test'))).filter((name) => name.endsWith('.test.mjs')).sort()
 let total = 0
 let passed = 0
@@ -159,18 +126,13 @@ for (const name of testFiles) {
 	const bad = count(/^# fail (\d+)$/m)
 	total += tests
 	passed += ok
+	skipped += count(/^# skipped (\d+)$/m)
 	if (status === 0) continue
 	const titles = [...text.matchAll(/^not ok \d+ - (.+)$/gm)].map((match) => match[1].trim())
-	const environmental = !symlinks && titles.length > 0 && titles.every((title) => LINK_DEPENDENT_TESTS.has(title))
-	if (environmental) {
-		skipped += bad
-		console.log(`  环境失败：${name} — ${titles.join('；')}`)
-		continue
-	}
 	failed += bad
 	regressions.push(...titles.map((title) => `${name} — ${title}`))
 }
-console.log(`测试：${total} 个用例，${passed} 通过，${failed} 失败，${skipped} 条因环境（无软链权限）跳过`)
+console.log(`测试：${total} 个用例，${passed} 通过，${failed} 失败，${skipped} 跳过`)
 for (const line of regressions) console.error(`  失败：${line}`)
 
 const ok = broken === 0 && report.ok && failed === 0

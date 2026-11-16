@@ -61,7 +61,7 @@ dsh --profile ziyan --patch .scratch/verify-patch.yml --no-open --port 0   # std
 - **注入规模按 token 估算显示**：`src/tokens.js` 的口径是 CJK/全角约 1 字 1 tok、其余约 4 字符 1 tok（`client.js` 内有同口径 `estimateTokens` 给偏好草稿实时估算）。静态段、整理提示词、工具 schema、偏好草稿都显示 token 估算，不再回字节数；`injection` 端点返回 `staticTokens`，`organize-prompts` 每段返回 `tokens`，`describeTools` 每个工具带 `tokens`。这是预算展示，不是计费数字，不要把它当真 tokenizer。
 - **静态注入按全局 AGENTS.md 的风格写**：`src/prompt.js` 只有一段 `# 自衍中枢`，下分 `## 记忆` / `## 沉淀`，短 bullet、一条一个规则；不重复工具描述里的参数，也不重复全局 AGENTS.md 的通用原则（思考/执行/交付）。两个动作要写成**带工具名的可执行指令**：`## 记忆` 的「开工前先搜」（`file_search` → `file_read`）、`## 沉淀` 的「每轮答复前问一句…值得就用 `file_write` 沉淀」（项目内写 `harness/`、跨项目复制进库、不值得就跳过）。改静态段要同步 `test/plugin.test.mjs` 与 `test/remote.test.mjs` 的断言和 README/DESIGN 的段名引用。
 - **派生缓存要带 SQLite data_version**：`FileStore.stats()` / `tagCounts()` 的缓存 key 是 `db.version + db.dataVersion()`。`db.version` 只统计本连接写入；外部维护脚本、第二实例写同一个数据目录时，靠 `PRAGMA data_version`（别的连接提交时递增）失效。新增缓存不要只 key 在 `db.version` 上。
-- **全局偏好统一存数据目录**：`~/.dsh/AGENTS.md` 只是 DSH 的注入入口，权威文件是 `<dataDir>/system/AGENTS.md`；`readPreferences`/`writePreferences` 负责把入口软链到权威文件（无建链权限时退化为两边双写）。首次接管迁移现有全文、只删旧 ziyan 段标记行、旧目标不删；面板编辑的是**整份 AGENTS.md**，不再有受管段概念。读失败必须标 `readable:false` 并禁用保存，不能把空串写回。
+- **全局偏好统一存数据目录**：`~/.dsh/AGENTS.md` 只是 DSH 的注入入口，权威文件是 `<dataDir>/system/AGENTS.md`；`readPreferences`/`writePreferences` 负责把入口软链到权威文件（无建链权限时退化为两边双写，**双写时入口必须与权威文件同内容**——入口就是 DSH 真正注入的那份）。首次接管迁移现有全文、只删旧 ziyan 段标记行、旧目标不删；面板编辑的是**整份 AGENTS.md**，不再有受管段概念。读失败必须标 `readable:false` 并禁用保存，不能把空串写回。
 - **工具面只有四个**：`file_search` / `file_read` / `file_write` / `file_edit`，一套动词同时服务文件库与项目 harness。不要再加回分业务工具（`file_import`、`file_link`、`file_index`、`file_archive`、`file_remove`、`project_harness_*` 已并入四个动词）；新能力优先扩展现有 `target`/`meta` 语义，而不是新增工具或顶层参数。工具名保留 `file_` 前缀：DSH 内置已有 `read`/`write`/`edit`/`search`，旧 evolver 还占着 `harness_*`，DSH 工具名同层唯一。
 - **安全边界（审计后新增）**：项目路径操作只允许会话 cwd 内（`harness/...` 锚定项目根，`isWithin` realpath 判定），越界拒绝；`file_write({from})` 绝对路径导入允许读宿主文件但先 stat/realpath/isFile/大小预检，拒绝目录/设备/管道/越界符号链接（H-2 OOM 防护）；`meta.json` 保留名必须拒绝（`isReservedName`）；导入归档的 settings 只采纳 limits，`organize.auto` 强制关、`organize.model` 用本机；harness 写 AGENTS.md 走路径锁 + 快照冲突重读，回滚只在文件仍是本次写入内容时执行。
 - **清理纪律**：不为旧 evolver 兼容保留代码（迁移/对比工具已删，`legacy_id` 已删）；删死代码前用 grep/测试证据，不删 `scan`/`rebuild`（DB 可重建是核心契约）。
@@ -91,5 +91,5 @@ dsh --profile ziyan --patch .scratch/verify-patch.yml --no-open --port 0   # std
 - `harness/workflow/harness-resource-write.md`：往 harness 写资源并验证索引的完整规程与陷阱。
 - `harness/experience/parallel-sessions-one-repo.md`：同一仓库并行会话的认知分叉与隔离做法。
 - `harness/experience/contract-change-by-options.md`：契约与提示词改动先给选项再动手的协作规矩。
-- `harness/experience/preferences-copy-mode-gap.md`：偏好迁移在无软链权限下不同步入口文件的已定位缺口。
+- `harness/experience/preferences-copy-mode.md`：偏好的双写模式——入口与权威文件必须同内容，含修法与测试缝。
 - `harness/tool/verify-repo.mjs`：一条命令跑完语法、harness 结构与索引一致性、全量测试的自检闸门。
