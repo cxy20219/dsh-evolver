@@ -22,7 +22,7 @@ import {
 	MAX_WRITES,
 	TURN_TIMEOUT_MS,
 	abortError,
-	clip,
+	clipJson,
 	closeIteratorQuietly,
 	errorMessage,
 	newMessageId,
@@ -425,7 +425,9 @@ export async function runToolLoop({ job, llm, selection, system, prompt, tools, 
 			}
 			toolCalls += 1
 			const result = await executeTool(byName, call)
-			const text = clip(JSON.stringify(result.value ?? {}), MAX_TOOL_RESULT_CHARS)
+			// Structure-aware: a character slice turns this into JSON the model
+			// cannot parse, and a model that cannot parse repeats the query.
+			const text = clipJson(result.value ?? {}, MAX_TOOL_RESULT_CHARS)
 			toolChars += text.length
 			if (toolChars > MAX_TOOL_RESULT_TOTAL && !withdrawn) {
 				withdrawn = true
@@ -456,7 +458,7 @@ export async function runToolLoop({ job, llm, selection, system, prompt, tools, 
  * @returns {object} The message.
  */
 function toolResultMessage(call, value, isError, encoded) {
-	const text = typeof encoded === 'string' ? encoded : clip(JSON.stringify(value ?? {}), MAX_TOOL_RESULT_CHARS)
+	const text = typeof encoded === 'string' ? encoded : clipJson(value ?? {}, MAX_TOOL_RESULT_CHARS)
 	const id = typeof call?.id === 'string' ? call.id : newMessageId()
 	return {
 		id: newMessageId(),

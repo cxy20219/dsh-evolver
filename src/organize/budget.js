@@ -222,6 +222,58 @@ export function clip(value, max) {
 }
 
 /**
+ * Clip a tool result to a character budget without breaking its JSON.
+ *
+ * A raw slice leaves `{"total":28,"files":[{"schema":1,"id":"file-01M7…`
+ * behind. The model cannot parse half an object, so it re-runs the query with
+ * other words and spends the job's tool budget without ever reaching a write:
+ * the 2026-11-16 logs show jobs with 25 tool calls and zero writes, six of them
+ * ending on "工具结果预算用尽". Cutting on structure keeps the payload
+ * parseable, and `truncated`/`omitted` say what was dropped instead of
+ * pretending the list was whole.
+ *
+ * Scalar fields are always kept; whole list entries are dropped from the
+ * longest array first, because that is where a search result spends its
+ * characters. A value with no structure to cut (a bare string) falls back to a
+ * preview inside a valid envelope.
+ *
+ * @param {unknown} value - The tool result.
+ * @param {number} max - The cap, in characters.
+ * @returns {string} JSON the model can parse, preferably within `max`.
+ */
+export function clipJson(value, max) {
+	const full = JSON.stringify(value ?? {})
+	if (full.length <= max) return full
+	const envelope = () => JSON.stringify({ truncated: true, preview: full.slice(0, Math.max(0, max - 60)) })
+	if (value === null || typeof value !== 'object' || Array.isArray(value)) return envelope()
+	let copy
+	try {
+		copy = JSON.parse(full)
+	} catch {
+		return envelope()
+	}
+	// Room for the two flags this function adds at the end.
+	const target = max - 40
+	const lists = Object.entries(copy)
+		.filter(([, item]) => Array.isArray(item))
+		.sort((left, right) => right[1].length - left[1].length)
+	let omitted = 0
+	for (const [, list] of lists) {
+		while (list.length > 0 && JSON.stringify(copy).length > target) {
+			list.pop()
+			omitted += 1
+		}
+		if (JSON.stringify(copy).length <= target) break
+	}
+	if (omitted === 0) {
+		// Nothing left to cut: the scalars themselves overflow.
+		return envelope()
+	}
+	const encoded = JSON.stringify({ ...copy, truncated: true, omitted })
+	return encoded.length <= max ? encoded : envelope()
+}
+
+/**
  * A new job id: sortable by creation time and unique.
  *
  * @returns {string} The id.

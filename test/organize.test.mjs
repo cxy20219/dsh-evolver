@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
 import test from 'node:test'
 
+import { MAX_TOOL_RESULT_CHARS, clipJson } from '../src/organize/budget.js'
 import { createOrganizeSettings } from '../src/organize.js'
 import { createOrganizer, MAX_SESSIONS } from '../src/organize-jobs.js'
 import { SettingsStore } from '../src/settings.js'
@@ -1366,5 +1367,52 @@ test('P2 待整理会话分页：最近 50 个都已整理时，更早的会话�
 		assert.deepEqual(ledger.sessionsScan, { offset: 0 })
 	} finally {
 		await fixture.cleanup()
+	}
+})
+
+test('工具结果超限：按结构裁剪，模型拿到的一定是合法 JSON', () => {
+	// 没超限：原样返回，不能加标记。
+	const small = { total: 1, files: [{ id: 'a', description: '小结果' }] }
+	const smallText = JSON.stringify(small)
+	assert.equal(clipJson(small, smallText.length), smallText)
+
+	// 真实形态：一次 file_search 返回 20 条、上万字符，字符截断会把 JSON 砍成
+	// `{"total":28,"files":[{"schema":1,"id":"file-01M7…`，模型解析不了就只能换词
+	// 重搜，直到把作业预算烧完——2026-11-16 的作业全是 25 次工具、0 写入。
+	const big = {
+		total: 28,
+		files: Array.from({ length: 20 }, (_, i) => ({
+			schema: 1,
+			id: `file-01M7AV5RJ${i}`,
+			name: `card-${i}.md`,
+			description: '面板与标签的约定：换项目也成立，写清它是什么和以后哪些场景会用到'.repeat(15),
+			tags: ['觉察/偏好', '践行/约定'],
+			links: [],
+		})),
+	}
+	assert.ok(JSON.stringify(big).length > MAX_TOOL_RESULT_CHARS, '测试数据必须真的超限，否则测不到裁剪')
+	const clipped = clipJson(big, MAX_TOOL_RESULT_CHARS)
+	assert.ok(clipped.length <= MAX_TOOL_RESULT_CHARS, `不超过上限：${clipped.length}`)
+	const parsed = JSON.parse(clipped) // 抛错即失败：这是本修复的全部意义
+	assert.equal(parsed.total, 28, '标量字段保留，模型还知道一共有多少条')
+	assert.equal(parsed.truncated, true, '明确标记被裁剪')
+	assert.ok(parsed.omitted > 0, 'omitted 交代丢了几条')
+	assert.ok(parsed.files.length > 0, '尽量多留条目，不是整份丢掉')
+	assert.ok(parsed.files.length < big.files.length, '确实裁剪了')
+	assert.ok(parsed.files[0].description.length > 0, '保留的条目是完整的，不是残缺对象')
+
+	// 没有结构可裁的值（裸字符串）也要给合法 JSON，而不是半截字符串。
+	const bare = clipJson('x'.repeat(400), 60)
+	assert.ok(bare.length <= 60)
+	assert.equal(JSON.parse(bare).truncated, true)
+
+	// 标量本身就超限：同样退回合法信封。
+	const scalars = clipJson({ a: 'x'.repeat(200), b: 'y'.repeat(200) }, 100)
+	assert.equal(JSON.parse(scalars).truncated, true)
+	assert.ok(scalars.length <= 100)
+
+	// 预算极小也不能产出非法 JSON。
+	for (const max of [20, 40, 80, 200]) {
+		assert.doesNotThrow(() => JSON.parse(clipJson(big, max)), `max=${max} 时仍可解析`)
 	}
 })
