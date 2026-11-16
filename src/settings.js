@@ -35,6 +35,11 @@ const READ_BYTES_DEFAULT = 256 * 1024
 /** The longest provider/model id an organize run may name. */
 const MODEL_ID_MAX = 200
 
+/** Defaults and bounds for the MCP endpoint. */
+const MCP_PORT_DEFAULT = 3199
+const MCP_PORT_MIN = 1024
+const MCP_PORT_MAX = 65535
+
 /** Defaults and bounds for the automatic organizer. */
 const AUTO_IDLE_MINUTES_DEFAULT = 30
 const AUTO_IDLE_MINUTES_MIN = 5
@@ -108,6 +113,25 @@ function normalizeOrganizeAuto(raw) {
 }
 
 /**
+ * The MCP endpoint block.
+ *
+ * Off unless the person turns it on: an untouched install opens no port. The
+ * token is stored here rather than derived, because a client config file has
+ * to keep working across restarts; an empty token is filled in by the host on
+ * first start.
+ *
+ * @param {unknown} raw - The raw `mcp` block.
+ * @returns {{enabled: boolean, port: number, token: string}} The block.
+ */
+function normalizeMcp(raw) {
+	return {
+		enabled: raw?.enabled === true,
+		port: clamp(raw?.port, MCP_PORT_DEFAULT, MCP_PORT_MIN, MCP_PORT_MAX),
+		token: typeof raw?.token === 'string' ? raw.token.trim() : '',
+	}
+}
+
+/**
  * The organize defaults.
  *
  * The model is the selection every run uses ("follow the chat" is `null`); the
@@ -167,6 +191,7 @@ function normalizeSettings(raw) {
 		descriptionMaxChars: clamp(raw?.descriptionMaxChars, DESCRIPTION_DEFAULT, DESCRIPTION_MIN, DESCRIPTION_MAX),
 		maxFileBytes: clamp(raw?.maxFileBytes, MAX_BYTES_DEFAULT, MAX_BYTES_MIN, MAX_BYTES_MAX),
 		readTextBytes: clamp(raw?.readTextBytes, READ_BYTES_DEFAULT, READ_BYTES_MIN, READ_BYTES_MAX),
+		mcp: normalizeMcp(raw?.mcp),
 		organize: normalizeOrganize(raw?.organize),
 	}
 }
@@ -265,6 +290,11 @@ export class SettingsStore {
 	 */
 	async save(patch = {}) {
 		const next = { ...this.values, ...patch }
+		// A partial save (the panel sends only the keys it changed) must not drop
+		// the token, so this block merges instead of replacing.
+		if (patch !== null && typeof patch === 'object' && Object.prototype.hasOwnProperty.call(patch, 'mcp')) {
+			next.mcp = { ...this.values.mcp, ...(patch.mcp ?? {}) }
+		}
 		if (patch !== null && typeof patch === 'object' && Object.prototype.hasOwnProperty.call(patch, 'organize')) {
 			next.organize = mergeOrganize(this.values.organize, patch.organize)
 		}

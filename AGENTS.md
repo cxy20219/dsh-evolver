@@ -8,4 +8,5 @@
 - [偏好的双写模式：入口与权威文件必须同内容](harness/experience/preferences-copy-mode.md)：偏好双写模式的硬要求与修法：入口 ~/.dsh/AGENTS.md 就是 DSH 注入的那份文件，没有软链权限时它必须与权威文件逐字节一致；含曾经的迁移不同步缺陷、修法、allowLink 测试缝，以及「某台机器才有的路径必须给不依赖该机器的测试入口」这条教训。
 - [工具描述是能力的第一现场](harness/experience/tool-contract-visibility.md)：工具能力已实现但描述没露出目标×能力矩阵时，模型会退回整篇重写或用 bash/python 绕道，绕道必然破坏边车与索引契约。改工具描述、补报错文案的下一步动作、或排查 agent 为何选错动词、读会话工具调用链复盘时先看。
 - [载荷要能被对方解析：截断与类型声明](harness/experience/payload-must-stay-parseable.md)：载荷必须能被对方解析：字符截断会把 JSON 砍成半截，schema 不声明类型模型就自己发明格式。排查「整理器空转 0 写入」「工具调用反复失败不自纠」「要不要加兼容层/解包」时看，含声明类型优于运行时兜底、按结构裁断、报错点名实际字段的判断规则。
+- [给别的 agent 开 MCP 端点：协议子集与两个坑](harness/experience/mcp-endpoint-for-other-agents.md)：给别的 agent 开 MCP 端点的协议子集与两个真坑：JSON-RPC 五方法、GET 405、回显 protocolVersion、isError 承载业务错误；面板里 error 是信封保留字、listen(0) 要回报实际端口。实现或排查 MCP 服务端时看。
 - [仓库自检闸门脚本](harness/tool/verify-repo.mjs)：仓库自检闸门脚本：一条命令跑完语法检查、harness 结构与 AGENTS.md 索引一致性校验、逐文件跑全量测试并汇总通过/失败/跳过；改完宿主代码或写了 harness 资源后跑它，就能确认语法、索引与测试都没坏。测试输出固定按 TAP 解析，测试文件退出码非零一律算失败，不会出现测试红了闸门却报通过。

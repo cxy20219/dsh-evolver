@@ -26,6 +26,7 @@ import { createDataJobs } from './src/data-jobs.js'
 import { projectRootOf } from './src/harness/store.js'
 import { dataDirPointerPath, readDataDirPointer } from './src/home.js'
 import { createLogSink } from './src/logs.js'
+import { createMcpService, mintToken } from './src/mcp/server.js'
 import { createOrganizer } from './src/organize-jobs.js'
 import { staticSection } from './src/prompt.js'
 import { createZiyanHandler, ENDPOINTS } from './src/remote.js'
@@ -178,6 +179,15 @@ export async function apply(ctx, config) {
 	// (or miss one it does).
 	const tools = createTools({ store, paths: pathsOf })
 	for (const tool of tools) disposers.push(ctx.tools.register(tool))
+
+	// The MCP endpoint hands the same four verbs to other agents. It is off
+	// unless the settings say otherwise, and it only ever binds 127.0.0.1; the
+	// token is minted once and reused so a client config keeps working.
+	const mcp = createMcpService({ tools, log: logs, serverInfo: { name: 'ziyan', version } })
+	if (current.mcp.token === '') await settings.save({ mcp: { token: mintToken() } })
+	if (current.mcp.enabled) {
+		await mcp.start({ port: current.mcp.port, token: settings.get().mcp.token })
+	}
 	disposers.push(ctx.systemPrompt.section({
 		name: 'dsh-ziyan:discipline',
 		order: 900,
@@ -187,7 +197,7 @@ export async function apply(ctx, config) {
 
 	const connection = ctx.get('connection')
 	if (connection !== undefined) {
-		const handler = createZiyanHandler({ store, settings, logs, root, version, data, tools, organize: organizer })
+		const handler = createZiyanHandler({ store, settings, logs, root, version, data, tools, mcp, organize: organizer })
 		for (const endpoint of ENDPOINTS) {
 			disposers.push(connection.fetch.register({
 				path: `${API_PREFIX}/${endpoint}`,
@@ -232,6 +242,9 @@ export async function apply(ctx, config) {
 		// already on disk, and the next start reads it back as interrupted.
 		organizer.close()
 		return (async () => {
+			// Free the port before anything else: a restart that cannot rebind
+			// would leave the endpoint dead while the panel still says "on".
+			await mcp.stop().catch(() => {})
 			for (const dispose of disposers) {
 				try {
 					await dispose?.()

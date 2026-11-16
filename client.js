@@ -205,6 +205,21 @@ window.__ModuleLoader__.load({
 			'settings.readTextKb': '单次读取上限（KB）',
 			'settings.tab.general': '常规',
 			'settings.tab.data': '数据',
+			'settings.tab.service': '服务',
+			'service.hint': '给别的 agent 开一个 MCP 端点，让它们调用同一套 file_search / file_read / file_write / file_edit。默认关闭，只监听 127.0.0.1；令牌必须带上，写入能力不会裸奔。',
+			'service.enabled': '开启 MCP 服务',
+			'service.port': '端口',
+			'service.running': '运行中',
+			'service.stopped': '已停止',
+			'service.endpoint': '端点',
+			'service.token': '令牌',
+			'service.regen': '换一个令牌',
+			'service.tools': '暴露的工具',
+			'service.scope': '只暴露库能力：项目路径（harness/…）需要会话工作目录，经 MCP 调用会被拒绝。',
+			'service.prompt': '给别的 agent 的配置提示词',
+			'service.copy': '复制提示词',
+			'service.copied': '提示词已复制',
+			'service.offHint': '开启后这里会出现可直接粘贴的配置和用法说明。',
 			'settings.data.current': '当前数据目录',
 			'settings.data.pending': '下次启动将使用',
 			'settings.data.copy': '复制当前库到新目录',
@@ -412,6 +427,21 @@ window.__ModuleLoader__.load({
 			'settings.readTextKb': 'Read cap (KB)',
 			'settings.tab.general': 'General',
 			'settings.tab.data': 'Data',
+			'settings.tab.service': 'Service',
+			'service.hint': 'Expose an MCP endpoint so other agents can call the same file_search / file_read / file_write / file_edit. Off by default, loopback only; the token is required, so write access is never bare.',
+			'service.enabled': 'Enable the MCP service',
+			'service.port': 'Port',
+			'service.running': 'Running',
+			'service.stopped': 'Stopped',
+			'service.endpoint': 'Endpoint',
+			'service.token': 'Token',
+			'service.regen': 'New token',
+			'service.tools': 'Exposed tools',
+			'service.scope': 'Library verbs only: a project path (harness/…) needs a session working directory and is refused over MCP.',
+			'service.prompt': 'Config prompt for other agents',
+			'service.copy': 'Copy prompt',
+			'service.copied': 'Prompt copied',
+			'service.offHint': 'Turn the switch on and a ready-to-paste config plus usage notes appear here.',
 			'settings.data.current': 'Current data directory',
 			'settings.data.pending': 'Next start will use',
 			'settings.data.copy': 'Copy this library',
@@ -3913,6 +3943,139 @@ window.__ModuleLoader__.load({
 				h('div', { className: 'ysHint', style: { marginTop: 6 } }, t('settings.data.restart')));
 		}
 
+		/**
+		 * 给别的 agent 的 MCP 配置提示词。
+		 *
+		 * 两段都给：DSH 自己的 mcp-client 走 cordis.patch.yml，其他客户端认
+		 * `mcpServers` 那段 JSON。令牌已经拼进 URL 与 header，复制即可用。
+		 *
+		 * @param {object} status - `mcp-status` 的返回。
+		 * @returns {string} 可粘贴的文本。
+		 */
+		function servicePrompt(status) {
+			var url = status === null || status === undefined ? 'http://127.0.0.1:3199/mcp' : (status.url || ('http://127.0.0.1:' + (status.port || 3199) + '/mcp'));
+			var token = status === null || status === undefined ? '' : (status.token || '');
+			return [
+				'# 自衍中枢 MCP 端点',
+				'',
+				'这是一个本地 MCP 服务，暴露文件库的四个工具：file_search / file_read / file_write / file_edit。',
+				'工具名在客户端里会变成 mcp__ziyan__file_search 这样的前缀形式。',
+				'',
+				'用法：先 file_search 按描述或标签检索（描述是唯一检索面，不搜正文），再 file_read 取正文；',
+				'file_write 新建或整篇改写，file_edit 用 old+new 只改一段。',
+				'只支持库文件；项目路径（harness/…）需要会话工作目录，经 MCP 调用会被拒绝。',
+				'',
+				'## DSH（cordis.patch.yml）',
+				'',
+				'- insert:',
+				"    - id: ziyan-mcp",
+				"      name: '@deepseek-ai/dsh-mcp-client'",
+				'      config:',
+				'        serverName: ziyan',
+				'        transport: streamable-http',
+				'        url: ' + url,
+				token === '' ? '' : '        headers:',
+				token === '' ? '' : "          Authorization: 'Bearer " + token + "'",
+				'        failOnStartupError: true',
+				'',
+				'## 通用 MCP 客户端（Claude Desktop / Cursor 等）',
+				'',
+				'{',
+				'  "mcpServers": {',
+				'    "ziyan": {',
+				'      "type": "http",',
+				'      "url": "' + url + '"' + (token === '' ? '' : ','),
+				token === '' ? '' : '      "headers": { "Authorization": "Bearer ' + token + '" }',
+				'    }',
+				'  }',
+				'}'
+			].filter(function (line) { return line !== '' || true; }).join('\n');
+		}
+
+		/**
+		 * 设置 → 服务：MCP 开关、端点状态与可复制的配置提示词。
+		 *
+		 * @param {object} props - 面板上下文。
+		 * @returns {object} The pane.
+		 */
+		function ServiceSection(props) {
+			var t = props.t;
+			var status = props.mcpStatus;
+			var [enabled, setEnabled] = useState(null);
+			var [port, setPort] = useState(null);
+			var [busy, setBusy] = useState(false);
+			useEffect(function () {
+				if (status === null || status === undefined) return;
+				setEnabled(status.enabled === true);
+				setPort(status.port);
+			}, [status]);
+			if (status === null || status === undefined || enabled === null) {
+				return h('div', { className: 'ysEmpty' }, t('state.loading'));
+			}
+			var running = status.running === true;
+			var prompt = servicePrompt(status);
+			var runningLine = enabled
+				? (running
+					? h('span', { className: 'ysTag' }, t('service.running'))
+					: h('span', { className: 'ysTag', style: { color: 'var(--dsw-alias-label-warning, #b26b00)' } }, t('service.stopped')))
+				: h('span', { className: 'ysHint' }, t('service.offHint'));
+			function save(nextEnabled, nextPort) {
+				setBusy(true);
+				props.onSave({ mcp: { enabled: nextEnabled, port: nextPort } }).finally(function () { setBusy(false); });
+			}
+			return h('div', null,
+				h('div', { className: 'ysHint', style: { marginBottom: 14 } }, t('service.hint')),
+				h('div', { className: 'ysField' },
+					h('label', { className: 'ysCheck' },
+						h('input', {
+							type: 'checkbox',
+							checked: enabled,
+							disabled: busy,
+							onChange: function (event) { var next = event.target.checked; setEnabled(next); save(next, port); }
+						}),
+						t('service.enabled')),
+					h('span', { style: { marginLeft: 10 } }, runningLine)),
+				h('div', { className: 'ysField' },
+					h('label', { className: 'ysLabel' }, t('service.port')),
+					h('input', {
+						className: 'ysInput',
+						type: 'number',
+						min: 1024,
+						max: 65535,
+						style: { width: 140 },
+						value: port,
+						disabled: busy,
+						onChange: function (event) { setPort(Number(event.target.value)); },
+						onBlur: function () { if (Number(port) !== Number(status.port)) save(enabled, Number(port)); }
+					}),
+					h('div', { className: 'ysHint', style: { marginTop: 4 } }, t('service.scope'))),
+				status.problem === '' || status.problem === undefined ? null : h('div', { className: 'ysHint', style: { color: 'var(--dsw-alias-label-warning, #b26b00)', marginBottom: 10 } }, status.problem),
+				status.hint === '' || status.hint === undefined ? null : h('div', { className: 'ysHint', style: { marginBottom: 10 } }, status.hint),
+				enabled && running
+					? h('div', null,
+						h('div', { className: 'ysField' },
+							h('label', { className: 'ysLabel' }, t('service.endpoint')),
+							h('div', { className: 'ysMono', style: { wordBreak: 'break-all' } }, status.url || '')),
+						h('div', { className: 'ysField' },
+							h('label', { className: 'ysLabel' }, t('service.tools')),
+							h('div', null, (status.tools || []).map(function (name) {
+								return h('span', { key: name, className: 'ysTag', style: { marginRight: 6 } }, name);
+							}))),
+						h('div', { className: 'ysField' },
+							h('label', { className: 'ysLabel' }, t('service.prompt')),
+							h('div', { className: 'ysToolbar' },
+								h('button', {
+									className: 'ysButton ysButtonPrimary',
+									onClick: function () {
+										if (typeof navigator !== 'undefined' && navigator.clipboard) {
+											navigator.clipboard.writeText(prompt).then(function () { props.notify(t('service.copied')); }).catch(function () { props.notify('复制失败', true); });
+										}
+									}
+								}, t('service.copy'))),
+							h('pre', { className: 'ysPre', style: { maxHeight: 320, whiteSpace: 'pre-wrap' } }, prompt)))
+					: null);
+		}
+
 		function SettingsTab(props) {
 			var t = props.t;
 			var settings = props.settings;
@@ -3958,10 +4121,16 @@ window.__ModuleLoader__.load({
 					h('button', {
 						className: 'ysTab' + (subTab === 'data' ? ' ysTabActive' : ''),
 						onClick: function () { setSubTab('data'); }
-					}, t('settings.tab.data'))),
+					}, t('settings.tab.data')),
+					h('button', {
+						className: 'ysTab' + (subTab === 'service' ? ' ysTabActive' : ''),
+						onClick: function () { setSubTab('service'); }
+					}, t('settings.tab.service'))),
 				h('div', { style: { display: subTab === 'general' ? 'block' : 'none' } }, general),
 				h('div', { style: { display: subTab === 'data' ? 'block' : 'none' } },
-					h(DataSection, props)));
+					h(DataSection, props)),
+				h('div', { style: { display: subTab === 'service' ? 'block' : 'none' } },
+					h(ServiceSection, props)));
 		}
 
 		function LogsTab(props) {
@@ -4044,6 +4213,7 @@ window.__ModuleLoader__.load({
 			var [organizeStatus, setOrganizeStatus] = useState(null);
 			var [toolCatalog, setToolCatalog] = useState(null);
 			var [settings, setSettings] = useState(null);
+			var [mcpStatus, setMcpStatus] = useState(null);
 			var [logs, setLogs] = useState(null);
 			var [dataStatus, setDataStatus] = useState(null);
 			var [dialog, setDialog] = useState(null);
@@ -4190,6 +4360,20 @@ window.__ModuleLoader__.load({
 				call('logs', { limit: 200 }).then(setLogs).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
 				return undefined;
 			}, [tab, call, notify]);
+
+			// The endpoint state is the host's, not the library's: read it when the
+			// settings tab opens so the switch shows what is actually listening.
+			var loadMcpStatus = useCallback(function () {
+				return call('mcp-status').then(setMcpStatus).catch(function (error) {
+					setMcpStatus({ enabled: false, running: false, port: 3199, url: '', token: '', tools: [], problem: messageOf(error), hint: '' });
+				});
+			}, [call]);
+
+			useEffect(function () {
+				if (tab !== 'settings') return undefined;
+				loadMcpStatus();
+				return undefined;
+			}, [tab, loadMcpStatus]);
 
 			useEffect(function () {
 				if (tab !== 'injection') return undefined;
@@ -4411,12 +4595,14 @@ window.__ModuleLoader__.load({
 										call: call,
 										notify: notify,
 										status: dataStatus,
+										mcpStatus: mcpStatus,
 										onRefresh: loadDataStatus,
 										onSave: function (patch) {
-											call('settings-save', patch).then(function (value) {
+											return call('settings-save', patch).then(function (value) {
 												setSettings(value);
 												notify(t('msg.saved'));
 												loadOverview();
+												loadMcpStatus();
 											}).catch(function (error) { notify(messageOf(error), true); });
 										}
 									})

@@ -762,3 +762,36 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - `test/tools.test.mjs` 新增：`meta` 六个字段的类型断言、`tags` 描述点名 `{item:[...]}`、`layer` 枚举即四层；`file_edit` 传 `old_string`/`new_string`、只给一半时的报错点名；`.DS_Store` 存在时写入仍成立且不进索引。
 - `test/organize.test.mjs` 新增：超限结果裁剪后仍是合法 JSON、标量保留、`truncated`/`omitted` 正确、极小预算也不产出非法 JSON。
 - 全量：`node harness/tool/verify-repo.mjs` **218 用例 / 217 通过 / 0 失败 / 1 跳过**（Windows junction 用例），189/189 文件语法通过。宿主改动要重启 DSH 才生效。
+
+## 32. 给别的 agent 开一个 MCP 端点（2026-11-16）
+
+用户要求：设置里加一个「服务」子标签，一个默认关闭的开关，开启后别的 agent 可以通过 MCP 调用自衍中枢的能力，并给一段可一键复制的配置提示词。
+
+### 32.1 决定
+
+- **自己实现服务端，不引 SDK。** 插件零依赖、profile 里也没有 `@modelcontextprotocol/sdk`，而协议的有用子集很小：`initialize` / `notifications/initialized` / `ping` / `tools/list` / `tools/call`。用 `node:http` 手写，保持「零依赖、无构建」这条既有约束。
+- **Streamable HTTP，无状态。** `POST /mcp` 一条 JSON-RPC 一条 JSON 回复；`GET /mcp` 返回 405（不提供服务端推送流，规范允许）；`DELETE` 回 204。不发 `Mcp-Session-Id`。
+- **回显客户端的 `protocolVersion`。** DSH 的 MCP 客户端会协商到比本文件更新的版本；回显它提议的版本，比钉死一个常量更能兼容新客户端。
+- **只绑 `127.0.0.1` + 强制令牌。** 写入动词能改库，所以端点即使在回环上也不裸奔：首次启动生成 24 字节 base64url 令牌，`Authorization: Bearer` 与 `?token=` 两种形式都认（有些客户端设不了 header，只能给 URL）。绑到非回环地址这个选项不提供。
+- **只暴露库能力。** MCP 调用没有会话，也就没有工作目录可以锚定项目路径，所以 `harness/…` 这类目标由工具层自己拒绝并给出原因；不给 MCP 猜一个 cwd，否则远端 agent 会写进它以为的那个目录。这是用户在两个选项之间的选择（②B）。
+- **开关即生效。** `settings-save` 存下 `mcp` 块后立刻 stop/start，不等到下次启动——一个要重启才生效的开关看起来就是坏的。
+- **端点状态单独一个 `mcp-status`。** 它同时回答「开没开」和「真在听没有」：端口被占时 `enabled:true` 但 `running:false`，面板据此给出提示。
+
+### 32.2 一个踩到的坑：字段名 `error`
+
+`mcp-status` 最初把监听失败原因放在 `error` 字段里。面板的 `callHost` 把**任何**含 `error` 成员的响应当作失败信封（`error !== undefined` 即抛错），于是空字符串 `error: ''` 也让每次读取都走 catch——面板永远显示「默认关闭」，而请求明明是 200。字段改名 `problem`。
+
+**教训**：信封字段名在整个面板里是保留字，业务字段不能复用。`test/remote.test.mjs` 现在断言 `mcp-status` 不含 `error`。
+
+### 32.3 面板
+
+设置页第三个子标签「服务」：开关 + 端口 + 状态（运行中/已停止/失败原因）+ 端点地址 + 暴露的工具 + 可复制的提示词。
+
+提示词同时给两段：DSH 自己的 `cordis.patch.yml` 片段，和通用 MCP 客户端的 `mcpServers` JSON；令牌已经拼进 URL 与 header，复制即可用。工具名会变成 `mcp__ziyan__file_search` 形式，提示词里也写明。
+
+### 32.4 验证
+
+- `test/mcp.test.mjs` 起真实监听端口，按客户端方式说话：握手（含版本回显与 `serverInfo`）→ `notifications/initialized` 得 202 无体 → `tools/list` 四个工具且描述与本地同源 → `tools/call` 真写一篇再检索回来 → 项目路径被拒且原因是插件自己的 → 无/错令牌 401 → GET 405、未知路径 404、未知方法 `-32601`、`ping` → 关掉后端口真的拒绝连接。
+- `test/remote.test.mjs` 断言 `mcp-status` 默认关闭、令牌已生成、不含 `error` 字段、开关保存后状态跟着变。
+- 面板用离线预览核对（认证受限的既定做法）：三个子标签、开关、「运行中」、端点、四个工具标签、905 字提示词与复制按钮都在。
+- 全量 `node harness/tool/verify-repo.mjs`：226 用例 / 225 通过 / 0 失败 / 1 跳过，191/191 文件语法通过。宿主改动要重启 DSH 才生效。

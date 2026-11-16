@@ -36,10 +36,10 @@ export const ENDPOINTS = Object.keys(HANDLERS)
 /**
  * Create the endpoint handler.
  *
- * @param {{store: object, settings: object, logs: object, root: string, version?: string, data?: object, tools?: object[], organize?: object}} deps - The open store and its satellites; `tools` is what `createTools` returned, `organize` the engine from `createOrganizer`.
+ * @param {{store: object, settings: object, logs: object, root: string, version?: string, data?: object, tools?: object[], mcp?: object, organize?: object}} deps - The open store and its satellites; `tools` is what `createTools` returned, `mcp` the endpoint from `createMcpService`, `organize` the engine from `createOrganizer`.
  * @returns {(endpoint: string, payload: object) => Promise<any>} The handler.
  */
-export function createZiyanHandler({ store, settings, logs, root, version = '', data, tools = [], organize }) {
+export function createZiyanHandler({ store, settings, logs, root, version = '', data, tools = [], mcp, organize }) {
 	// Described once, at registration: the catalog is static for the life of
 	// the host process, and a missing `tools` dep yields an empty catalog.
 	const catalog = describeTools(tools)
@@ -51,6 +51,15 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 		version,
 		data,
 		catalog,
+		/**
+		 * The MCP endpoint, or a readable refusal when the host did not mount it.
+		 *
+		 * @returns {object} The service.
+		 */
+		mcp() {
+			if (mcp === undefined) throw new Error('MCP 服务不可用：宿主装配没有提供 mcp 依赖。')
+			return mcp
+		},
 		/**
 		 * The organize engine, or a readable refusal on a host that mounted the
 		 * plugin without the optional services it degrades from.

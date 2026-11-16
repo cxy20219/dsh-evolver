@@ -29,6 +29,9 @@ function panelSettings(settings) {
 		descriptionMaxChars: view.descriptionMaxChars,
 		maxFileBytes: view.maxFileBytes,
 		readTextBytes: view.readTextBytes,
+		// The token is deliberately absent: it is handed out by `mcp-status`,
+		// the one place that also says whether the endpoint is actually up.
+		mcp: { enabled: view.mcp.enabled === true, port: view.mcp.port },
 		dataDir: view.dataDir,
 	}
 }
@@ -85,10 +88,19 @@ export const panelHandlers = {
 
 	settings: async (_payload, { settings }) => panelSettings(settings),
 
-	'settings-save': async (payload, { store, settings }) => {
+	'settings-save': async (payload, { store, settings, mcp }) => {
 		const patch = {}
 		for (const field of ['descriptionMaxChars', 'maxFileBytes', 'readTextBytes']) {
 			if (payload?.[field] !== undefined) patch[field] = Number(payload[field])
+		}
+		const wantedMcp = {}
+		if (payload?.mcp !== undefined && payload.mcp !== null && typeof payload.mcp === 'object') {
+			if (payload.mcp.enabled !== undefined) wantedMcp.enabled = payload.mcp.enabled === true
+			if (payload.mcp.port !== undefined) wantedMcp.port = Number(payload.mcp.port)
+			if (typeof payload.mcp.token === 'string' && payload.mcp.token.trim() !== '') {
+				wantedMcp.token = payload.mcp.token.trim()
+			}
+			patch.mcp = wantedMcp
 		}
 		const saved = await settings.save(patch)
 		store.setLimits({
@@ -96,7 +108,36 @@ export const panelHandlers = {
 			readTextBytes: saved.readTextBytes,
 			descriptionMaxChars: saved.descriptionMaxChars,
 		})
+		// Apply the switch in the same request that stores it: a toggle that only
+		// took effect on the next host start would look broken.
+		if (patch.mcp !== undefined) {
+			try {
+				const service = mcp()
+				await service.stop()
+				if (saved.mcp.enabled) await service.start({ port: saved.mcp.port, token: saved.mcp.token })
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error)
+				logs?.warn?.(`自衍中枢：MCP 开关切换失败：${message}`)
+			}
+		}
 		return panelSettings(settings)
+	},
+
+	'mcp-status': async (_payload, { settings, mcp }) => {
+		const block = settings.get().mcp
+		const service = mcp()
+		const state = service.status()
+		return {
+			enabled: block.enabled === true,
+			port: block.port,
+			running: state.running,
+			url: state.url,
+			token: block.token,
+			tools: state.tools,
+			tokens: state.tokens,
+			problem: state.problem,
+			hint: block.enabled && !state.running ? '已开启但未能监听：端口可能被占用，换一个端口再试。' : '',
+		}
 	},
 
 	logs: async (payload, { root }) => logTail(root, payload?.limit),

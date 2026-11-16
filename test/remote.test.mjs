@@ -82,7 +82,7 @@ async function post(routes, endpoint, payload = {}) {
 	return value
 }
 
-test('面板接口：27 个端点，一次完整读写/上传/预览/图/注入/工具/偏好/自衍/设置/日志/删除', async () => {
+test('面板接口：28 个端点，一次完整读写/上传/预览/图/注入/工具/偏好/自衍/设置/日志/删除', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-remote-'))
 	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
 	const previousHome = process.env.DSH_HOME
@@ -91,7 +91,7 @@ test('面板接口：27 个端点，一次完整读写/上传/预览/图/注入/
 	let failure
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 27)
+		assert.equal(routes.size, 28)
 
 		const empty = await post(routes, 'overview')
 		assert.equal(empty.stats.files, 0)
@@ -205,7 +205,12 @@ test('面板接口：27 个端点，一次完整读写/上传/预览/图/注入/
 		const saved = await post(routes, 'settings-save', { descriptionMaxChars: 200, injectionBudget: 99_999 })
 		assert.equal(saved.descriptionMaxChars, 200)
 		assert.equal('injectionBudget' in saved, false, 'settings-save 白名单不再含注入预算')
-		assert.deepEqual(Object.keys(saved).sort(), ['dataDir', 'descriptionMaxChars', 'maxFileBytes', 'readTextBytes'], '面板只拿它读的四个字段')
+		// The panel reads exactly these: the three limits, where the library lives,
+		// and the MCP switch. The token is absent on purpose — `mcp-status` hands
+		// it out together with whether the endpoint is actually listening.
+		assert.deepEqual(Object.keys(saved).sort(), ['dataDir', 'descriptionMaxChars', 'maxFileBytes', 'mcp', 'readTextBytes'], '面板只拿它读的字段')
+		assert.deepEqual(Object.keys(saved.mcp).sort(), ['enabled', 'port'], 'mcp 视图不含 token')
+		assert.equal(saved.mcp.enabled, false, 'MCP 默认关闭')
 		const settingsView = await post(routes, 'settings')
 		assert.deepEqual(settingsView, saved, 'settings 与 settings-save 返回同一个窄视图')
 
@@ -270,7 +275,7 @@ test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通'
 	})
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 27)
+		assert.equal(routes.size, 28)
 
 		const status = await post(routes, 'organize-status')
 		assert.equal(status.followsChat, true)
@@ -454,3 +459,59 @@ function fakeOrganizeLlm() {
 		},
 	}
 }
+
+test('mcp-status：默认关闭、令牌已备好、字段名不撞错误信封', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'ys-mcp-'))
+	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
+	const previousHome = process.env.DSH_HOME
+	process.env.DSH_HOME = home
+	const { ctx, routes, effects } = fakeContext()
+	let failure
+	try {
+		await apply(ctx, { dataDir: dir })
+
+		const status = await post(routes, 'mcp-status')
+		assert.equal(status.enabled, false, '默认关闭')
+		assert.equal(status.running, false, '没开就不监听')
+		assert.equal(status.url, '', '没开就没有端点地址')
+		// The panel's callHost treats any `error` member as a failed envelope, so
+		// a status field named that would make every read look like a failure —
+		// the original name cost a browser round of debugging.
+		assert.equal('error' in status, false, '状态字段不能叫 error')
+		assert.equal(typeof status.problem, 'string')
+		assert.ok(status.token.length >= 24, '令牌在开启前就生成，配置可以先写好')
+		assert.deepEqual([...status.tools].sort(), ['file_edit', 'file_read', 'file_search', 'file_write'])
+
+		// The switch lives in settings; saving it is what turns the endpoint on.
+		const saved = await post(routes, 'settings-save', { mcp: { enabled: true, port: 47001 } })
+		assert.equal(saved.mcp.enabled, true)
+		assert.equal(saved.mcp.port, 47001)
+		const after = await post(routes, 'mcp-status')
+		assert.equal(after.enabled, true)
+		assert.equal(after.port, 47001)
+
+		// 关掉之后端口不再监听，状态如实回落。
+		await post(routes, 'settings-save', { mcp: { enabled: false } })
+		const closed = await post(routes, 'mcp-status')
+		assert.equal(closed.enabled, false)
+		assert.equal(closed.running, false)
+	} catch (error) {
+		failure = error
+		throw error
+	} finally {
+		if (effects[0] !== undefined) {
+			try {
+				const disposer = await effects[0]()
+				await disposer()
+			} catch { /* the store may already be closed by a failing body */ }
+		}
+		if (previousHome === undefined) delete process.env.DSH_HOME
+		else process.env.DSH_HOME = previousHome
+		try {
+			await removeDir(dir)
+			await removeDir(home)
+		} catch (cleanupError) {
+			if (failure === undefined) throw cleanupError
+		}
+	}
+})

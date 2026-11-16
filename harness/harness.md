@@ -15,9 +15,10 @@ DSH 插件：**一切皆文件**的知识库。每个文件是一等实体（唯
 
 | 路径 | 内容 |
 |---|---|
-| `index.js` | 宿主装配：store、**4 个工具**（`file_search`/`file_read`/`file_write`/`file_edit`，一套动词同时服务文件库与项目 harness）、一段静态注入（无运行时索引）、27 个面板接口、整理引擎与自动调度 |
+| `index.js` | 宿主装配：store、**4 个工具**（`file_search`/`file_read`/`file_write`/`file_edit`，一套动词同时服务文件库与项目 harness）、一段静态注入（无运行时索引）、28 个面板接口、整理引擎与自动调度、MCP 端点 |
 | `client.js` | 浏览器半边，单文件 `window.__ModuleLoader__.load` 工厂，无构建；七个页签 + 图谱 canvas 引擎 |
 | `src/harness/` | 项目 harness 资源系统（库与校验底座，不再有独立工具）：`sidecar.js`（资源描述边车）、`store.js`（四层目录 + 描述边车 + AGENTS.md 全量索引生成 + 目录收编）、`write.js`（内容+边车+索引+校验+回滚 一体化写入）、`validate.js`（结构/索引一致/引用与文档契约/Python 语法） |
+| `src/mcp/` | MCP 端点：`server.js` 手写 Streamable HTTP（JSON-RPC 五方法），把四个库动词交给别的 agent；只绑 127.0.0.1、强制 Bearer 令牌、只给库能力（项目路径需会话 cwd，一律拒绝）。设置 → 服务里开关，默认关闭 |
 | `src/remote/` | 面板接口：`index.js` 的 `HANDLERS` 表 → `ENDPOINTS` 派生 + dispatch；`files.js`/`panel.js`/`organize.js`/`data.js` 四个域模块；`src/remote.js` 是薄 re-export（保持旧 import 路径） |
 | `src/organize/` | 会话外整理引擎：`index.js` 组装 `createOrganizer`，`budget.js`（预算/记账）、`prompts.js`、`loop.js`（工具循环）、`jobs-store.js`（作业落盘/台账）、`scheduler.js`（自动调度）、`executor.js`（作业执行/状态）；`src/organize-jobs.js` 是薄 re-export |
 | `src/json.js` | `render`/`OBJECT_OUTPUT`/`sanitize`/`summaryOf`，四个工具共用 |
@@ -53,7 +54,7 @@ dsh --profile ziyan --patch .scratch/verify-patch.yml --no-open --port 0   # std
 - **没有构建步骤**：`package.json` 只有 `test` 一个脚本。
 - **宿主改了要重启 DSH**（`index.js` + `src/**`）；`client.js` 是浏览器半边，刷新面板即可。
 - **边车是事实，数据库是索引**：`files/<id>/meta.json` 为准，`system/ziyan.db` 随时可删、可重建；写序是 字节 → 边车 → DB，DB 失败不影响事实。
-- **新增面板接口要两处一致**：`src/remote/index.js` 的 `HANDLERS` 表（`ENDPOINTS` 由它派生）与 `client.js` 的 `call()`；`test/contract.test.mjs` 静态守这一条（当前 27 个端点）。`src/remote.js`/`src/organize-jobs.js` 只是薄 re-export，不要把实现搬回去。
+- **新增面板接口要两处一致**：`src/remote/index.js` 的 `HANDLERS` 表（`ENDPOINTS` 由它派生）与 `client.js` 的 `call()`；`test/contract.test.mjs` 静态守这一条（当前 28 个端点）。`src/remote.js`/`src/organize-jobs.js` 只是薄 re-export，不要把实现搬回去。
 - **列表分页在 SQL 里算**：`IndexDatabase.page()` 用同一条 WHERE 既做 `COUNT(*)` 又做 `LIMIT/OFFSET`，且是两段式（先 id 再批量取行）；部分索引 `files_live_updated`/`files_archived_updated` 是分页热路径，删了或退回「取固定窗口再内存过滤」都会让深翻页退化到秒级（`test/paging.test.mjs` 守）。
 - **FTS 必须用 rowid**：`files_fts.id` 是 UNINDEXED，按 id 删除会全表扫描（单写 O(N)、rebuild O(N²)，1M 冷建曾外推 ~60h）。写/删按 `rowid`（= files.rowid），rebuild 走一条 `INSERT ... SELECT`；`test/store.test.mjs` 守 rowid 一致。
 - **派生冗余列由写路径维护**：`tags.archived`、`files.suffix/created_day`、`linked_ids` 是为 100k/1M 聚合准备的覆盖索引数据，写文件时必须同步更新；schema 版本（`INDEX_SCHEMA`）变更 = 不匹配的旧库会被隔离并从边车重建，不需要写迁移代码。
