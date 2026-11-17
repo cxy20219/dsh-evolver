@@ -15,14 +15,24 @@ test('检索只认描述：中文两字查询能命中', async () => {
 	})
 })
 
-test('正文不参与检索：只有正文里出现的词搜不到', async () => {
+test('正文是兜底：只写在正文里的词也能搜到，但排在描述之后', async () => {
 	await withStore(async (store) => {
-		await store.create({ tags: ['测试'],
+		// 描述命中：这个文件"就是关于"该词的。
+		const described = await store.create({ tags: ['测试'],
+			name: 'b.md',
+			description: '青鸟协议的完整说明：排障时先看这里',
+			content: '正文没提那个词。',
+		})
+		// 正文命中：词只顺带出现在正文里。
+		const incidental = await store.create({ tags: ['测试'],
 			name: 'a.md',
 			description: '普通说明文件，描述里没有那个词',
-			content: '青鸟协议只写在正文里，索引不应看到它。',
+			content: '青鸟协议只写在正文里，索引现在能看到它。',
 		})
-		assert.equal((await store.list({ query: '青鸟' })).total, 0)
+		const found = await store.list({ query: '青鸟' })
+		assert.equal(found.total, 2, '两篇都能被正文兜底命中')
+		assert.equal(found.files[0].id, described.id, '描述命中的排在前面')
+		assert.equal(found.files[1].id, incidental.id)
 	})
 })
 

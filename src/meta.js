@@ -77,7 +77,7 @@ export function normalizeDescription(value) {
 export function assertDescription(value, maxChars = DEFAULT_DESCRIPTION_CHARS) {
 	const clean = normalizeDescription(value)
 	if (clean === '') {
-		throw new Error('文件必须写 description：一句话说清这个文件是什么、以后哪些场景/任务会用到它（描述是唯一检索面）。')
+		throw new Error('文件必须写 description：说明以后什么场景、任务或问题会用到它——正文也能搜到「是什么」，描述要补的是「什么时候用」。')
 	}
 	if (PLACEHOLDER_DESCRIPTION.test(clean)) {
 		throw new Error('描述不能是占位词（「暂无」「TODO」之类）：索引里显示的就是这段文本。')
@@ -107,12 +107,20 @@ export function assertDescription(value, maxChars = DEFAULT_DESCRIPTION_CHARS) {
 export function descriptionAdvice(value) {
 	const clean = normalizeDescription(value)
 	if (clean === '') return ''
+	// A file's body is searchable now, so a description that repeats "what this
+	// is" adds little — the payload already says that in its own words. What the
+	// body cannot say is when a future task should reach for this file, and that
+	// is written in the words the searcher will use. So the one thing asked for
+	// here is the situation.
 	const chars = [...clean].length
-	// Long sentences usually carry their own context; short ones need a
-	// scenario word to be findable later.
+	// A scenario word is what makes the file findable by a future task, but one
+	// word on its own ("导入短描述") names the topic without saying when to reach
+	// for it, so it still needs the nudge.
+	if (chars >= 10 && SCENARIO_MARKERS.test(clean)) return ''
+	// A longer sentence usually states its own trigger (the symptom, the
+	// precondition, the mistake). Only short ones get the nudge.
 	if (chars >= 30) return ''
-	if (chars >= 12 && SCENARIO_MARKERS.test(clean)) return ''
-	return '描述建议写清两件事：①它是什么（做法/结论）；②以后哪些场景、任务或问题会用到它（写进以后会搜的场景关键词）；不要写“某次会话记录/临时用/待补”。'
+	return '描述建议写「以后什么时候会用到它」：正文已经能搜到「它是什么」，描述要补的是未来的场景、任务或问题会怎么说（比如“排查 X 时先看”“给 Y 定方案前读”），不要写“某次会话记录/临时用/待补”。'
 }
 
 /**

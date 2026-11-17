@@ -113,7 +113,7 @@ test('面板接口：28 个端点，一次完整读写/上传/预览/图/注入/
 		assert.match(injection.static, /^# 自衍中枢/, '静态段用 AGENTS.md 风格标题')
 		assert.match(injection.static, /## 记忆/)
 		assert.match(injection.static, /## 沉淀/)
-		assert.match(injection.static, /以后哪些场景/, '记忆段说明描述要包含适用场景')
+		assert.match(injection.static, /以后什么时候会用到它/, '记忆段说明描述要写「什么时候用」')
 		assert.match(injection.static, /file_search/, '记忆段写明开工前先搜')
 		assert.match(injection.static, /开工前先搜/, '记忆段点明开工前先搜')
 		assert.match(injection.static, /每轮答复前/, '沉淀段点明每轮答复前沉淀')

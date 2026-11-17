@@ -53,6 +53,16 @@ const MIME_SNIFF_BYTES = 8192
  */
 const SCAN_CONCURRENCY = 16
 
+/**
+ * How much of a payload the full-text index keeps.
+ *
+ * The body is a fallback signal, not a copy of the library: enough leading text
+ * to catch the terms a description missed, small enough that a large file does
+ * not turn every write into a multi-megabyte tokenise. 32 KB is dozens of
+ * pages of prose.
+ */
+const FTS_BODY_BYTES = 32 * 1024
+
 /** The Windows namespaces that name devices and pipes rather than files. */
 const WINDOWS_NAMESPACE = /^[\\/]{2}[.?][\\/]/
 
@@ -304,6 +314,49 @@ export class FileStore {
 	 * @param {string | Buffer} data - The bytes.
 	 * @returns {Promise<void>} Resolves once renamed.
 	 */
+	/**
+	 * The part of a payload that may enter the full-text index.
+	 *
+	 * Binary payloads contribute nothing — a description is their only visible
+	 * face — and text is cut to `FTS_BODY_BYTES`.
+	 *
+	 * @param {Buffer | undefined} buffer - The payload bytes.
+	 * @param {string} mime - The detected or declared type.
+	 * @returns {string} The indexable head, or an empty string.
+	 */
+	indexableBody(buffer, mime) {
+		if (!Buffer.isBuffer(buffer) || buffer.length === 0) return ''
+		if (!isTextMime(mime)) return ''
+		// A binary sniffed into text still ok; a large file is cut, not guessed at.
+		return buffer.subarray(0, FTS_BODY_BYTES).toString('utf8')
+	}
+
+	/**
+	 * Read the leading bytes of a payload without loading the whole file.
+	 *
+	 * Used when an update leaves the content alone: the index still has to
+	 * describe what is on disk, and re-reading 32 KB is cheaper than holding a
+	 * whole payload in memory just to index its head.
+	 *
+	 * @param {string} path - The payload path.
+	 * @param {string} mime - The type, from the sidecar.
+	 * @returns {Promise<string>} The indexable head, or an empty string.
+	 */
+	async readIndexableBody(path, mime) {
+		if (!isTextMime(mime)) return ''
+		const handle = await open(path, 'r').catch(() => undefined)
+		if (handle === undefined) return ''
+		try {
+			const buffer = Buffer.alloc(FTS_BODY_BYTES)
+			const { bytesRead } = await handle.read(buffer, 0, FTS_BODY_BYTES, 0)
+			return buffer.subarray(0, bytesRead).toString('utf8')
+		} catch {
+			return ''
+		} finally {
+			await handle.close().catch(() => {})
+		}
+	}
+
 	async atomicWrite(path, data) {
 		await mkdir(dirname(path), { recursive: true, mode: 0o700 })
 		const temp = join(dirname(path), `.tmp-${process.pid}-${randomUUID()}`)
@@ -454,7 +507,7 @@ export class FileStore {
 		await this.atomicWrite(this.entityPath(meta), buffer)
 		await this.applyMode(this.entityPath(meta), name, buffer)
 		await this.writeMeta(meta)
-		this.db.upsert(meta)
+		this.db.upsert(meta, this.indexableBody(buffer, meta.mime))
 		const file = await this.read(id, { text: input.text !== false })
 		return warnings.length === 0 ? file : { ...file, warnings }
 	}
@@ -516,7 +569,10 @@ export class FileStore {
 		}, { descriptionMaxChars: this.descriptionMaxChars })
 		await this.writeMeta(meta)
 		if (buffer !== undefined && oldPath !== nextPath) await rm(oldPath, { force: true }).catch(() => {})
-		this.db.upsert(meta)
+		const body = buffer !== undefined
+			? this.indexableBody(buffer, meta.mime)
+			: await this.readIndexableBody(this.entityPath(meta), meta.mime)
+		this.db.upsert(meta, body)
 		const file = await this.read(id, { text: true })
 		return warnings.length === 0 ? file : { ...file, warnings }
 	}
@@ -1063,7 +1119,12 @@ export class FileStore {
 			// is only needed to diagnose a missing, renamed or resized payload.
 			const direct = await lstat(dataDir).catch(() => undefined)
 			if (direct !== undefined && !direct.isSymbolicLink() && direct.isFile() && direct.size === meta.bytes) {
-				return { entry: { meta } }
+				// The payload matches its sidecar, so no repair is needed — but the
+				// full-text index still wants the head of the body, and a rebuild
+				// has no other way to get it. 32 KB per file keeps this a head read
+				// rather than a full-file load.
+				const body = await this.readIndexableBody(dataDir, meta.mime)
+				return { entry: { meta, body } }
 			}
 			const files = (await readdir(dir)).filter((name) => name !== META_FILE && !name.startsWith('.tmp-'))
 			if (files.length === 0) return { problem: { id, reason: '没有文件本体' } }
@@ -1076,11 +1137,9 @@ export class FileStore {
 			if (info.isSymbolicLink()) {
 				return { problem: { id, reason: '拒绝符号链接（可能指向库外）' } }
 			}
-			// The index no longer holds body text, so a healthy sidecar and a
-			// payload of the recorded size need no read at all: rebuilding a
-			// library is a stat pass, not a full-file copy into memory.
 			if (payloadName === meta.name && info.size === meta.bytes) {
-				return { entry: { meta }, problem: mismatch }
+				const body = await this.readIndexableBody(path, meta.mime)
+				return { entry: { meta, body }, problem: mismatch }
 			}
 			const buffer = await readFile(path)
 			let repaired = meta
@@ -1104,7 +1163,7 @@ export class FileStore {
 					await this.writeMeta(repaired)
 				}
 			}
-			return { entry: { meta: repaired }, problem: mismatch }
+			return { entry: { meta: repaired, body: this.indexableBody(buffer, repaired.mime) }, problem: mismatch }
 		} catch (error) {
 			return { problem: { id, reason: error instanceof Error ? error.message : String(error) } }
 		}

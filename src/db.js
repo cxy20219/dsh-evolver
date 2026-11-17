@@ -20,7 +20,7 @@ import { extensionOf } from './names.js'
 import { matchExpression, tokenize } from './text.js'
 
 /** The index schema version. */
-export const INDEX_SCHEMA = 3
+export const INDEX_SCHEMA = 4
 
 /** The separator `group_concat` joins list columns with (unit separator). */
 const SEP = '\u001f'
@@ -97,9 +97,12 @@ CREATE TABLE IF NOT EXISTS linked_ids (
 	archived INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS linked_archived ON linked_ids(archived);
--- Only the description (and the name/tags it carries) is indexed. The body
--- is the agent's job: read the payload, parse it, understand it. This keeps
--- the index a semantic catalogue instead of a second copy of the library.
+-- The description (with name and tags) is indexed, and so is a head of the
+-- body. The description is the primary entry point: it is written in the words
+-- a future search will use ("when do I need this"), so a hit there means the
+-- file is really about the query. The body is a fallback: its words describe
+-- what the file says, not when to reach for it, so it ranks much lower. Both
+-- are tokenised the same way; only the bm25 weights differ.
 --
 -- The rowid is not implicit: it is the files.rowid of the row being
 -- indexed. id is UNINDEXED inside FTS5, so deleting by id is a full scan,
@@ -109,6 +112,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
 	id UNINDEXED,
 	name,
 	description,
+	body,
 	tokenize='unicode61'
 );
 `
@@ -449,14 +453,14 @@ export class IndexDatabase {
 	 * @param {object} meta - The metadata.
 	 * @returns {void}
 	 */
-	upsertRow(meta) {
+	upsertRow(meta, body = '') {
 		const { rowid, oldTargets } = this.writeCore(meta)
 		const columns = this.searchColumns(meta)
 		this.statement('fts-delete-rowid', 'DELETE FROM files_fts WHERE rowid = ?').run(rowid)
 		this.statement(
 			'fts-insert',
-			'INSERT INTO files_fts(rowid, id, name, description) VALUES (?, ?, ?, ?)',
-		).run(rowid, meta.id, columns.name, columns.description)
+			'INSERT INTO files_fts(rowid, id, name, description, body) VALUES (?, ?, ?, ?, ?)',
+		).run(rowid, meta.id, columns.name, columns.description, tokenize(body).join(' '))
 		this.refreshLinked([meta.id, ...oldTargets, ...(meta.links ?? [])])
 	}
 
@@ -498,10 +502,11 @@ export class IndexDatabase {
 	 * Store one file, transactionally.
 	 *
 	 * @param {object} meta - The metadata.
+	 * @param {string} [body] - The indexable head of the payload ('' for binary).
 	 * @returns {void}
 	 */
-	upsert(meta) {
-		this.transaction(() => this.upsertRow(meta))
+	upsert(meta, body = '') {
+		this.transaction(() => this.upsertRow(meta, body))
 		this.version += 1
 		this.shortIndex?.add(meta.id)
 	}
@@ -721,7 +726,9 @@ export class IndexDatabase {
 	 */
 	searchWindow(expression, filter, limit) {
 		const sql = `SELECT id, rank FROM (
-			SELECT f.id AS id, bm25(files_fts, 0, 6, 10) AS rank
+			-- description 10 > name 6 > body 2: a description hit means "this is
+			-- about your query"; a body hit only means "the words appear inside".
+			SELECT f.id AS id, bm25(files_fts, 0, 6, 10, 2) AS rank
 			FROM files_fts JOIN files f ON f.rowid = files_fts.rowid
 			WHERE files_fts MATCH ?${filter.sql}
 			ORDER BY files_fts.rowid DESC
@@ -1040,24 +1047,37 @@ export class IndexDatabase {
 	 *
 	 * @returns {void}
 	 */
-	rebuildFts() {
+	rebuildFts(bodies = new Map()) {
 		this.db.exec('DELETE FROM files_fts')
+		// The body of a file is not a column of `files` — the payload lives on
+		// disk and the metadata table stays small. A rebuild therefore carries
+		// the indexable heads in a temporary table so the bulk insert below can
+		// still be one statement instead of a per-row round trip.
+		this.db.exec('CREATE TEMP TABLE IF NOT EXISTS fts_bodies(id TEXT PRIMARY KEY, body TEXT)')
+		this.db.exec('DELETE FROM fts_bodies')
+		if (bodies.size > 0) {
+			const put = this.db.prepare('INSERT INTO fts_bodies(id, body) VALUES (?, ?)')
+			for (const [id, body] of bodies) put.run(String(id), String(body ?? ''))
+		}
 		if (this.bulkTokenizer) {
-			this.db.exec(`INSERT INTO files_fts(rowid, id, name, description)
+			this.db.exec(`INSERT INTO files_fts(rowid, id, name, description, body)
 				SELECT f.rowid, f.id, ziyan_tokens(f.name),
-					ziyan_tokens(f.description || ' ' || COALESCE((SELECT group_concat(tag, ' ') FROM tags WHERE file_id = f.id), ''))
-				FROM files f`)
+					ziyan_tokens(f.description || ' ' || COALESCE((SELECT group_concat(tag, ' ') FROM tags WHERE file_id = f.id), '')),
+					ziyan_tokens(COALESCE(b.body, ''))
+				FROM files f LEFT JOIN fts_bodies b ON b.id = f.id`)
+			this.db.exec('DELETE FROM fts_bodies')
 			return this.ftsCount()
 		}
 		const insert = this.statement(
 			'fts-insert',
-			'INSERT INTO files_fts(rowid, id, name, description) VALUES (?, ?, ?, ?)',
+			'INSERT INTO files_fts(rowid, id, name, description, body) VALUES (?, ?, ?, ?, ?)',
 		)
 		const source = this.statement(
 			'fts-source',
 			`SELECT f.rowid AS rowid, f.id AS id, f.name AS name, f.description AS description,
-				(SELECT group_concat(tag, ' ') FROM tags WHERE file_id = f.id) AS tag_list
-			 FROM files f`,
+				(SELECT group_concat(tag, ' ') FROM tags WHERE file_id = f.id) AS tag_list,
+				b.body AS body
+			 FROM files f LEFT JOIN fts_bodies b ON b.id = f.id`,
 		)
 		for (const row of source.all()) {
 			const columns = this.searchColumns({
@@ -1065,8 +1085,9 @@ export class IndexDatabase {
 				description: row.description,
 				tags: typeof row.tag_list === 'string' && row.tag_list !== '' ? row.tag_list.split(' ') : [],
 			})
-			insert.run(rowidOf(row), String(row.id), columns.name, columns.description)
+			insert.run(rowidOf(row), String(row.id), columns.name, columns.description, tokenize(String(row.body ?? '')).join(' '))
 		}
+		this.db.exec('DELETE FROM fts_bodies')
 		return this.ftsCount()
 	}
 
@@ -1118,9 +1139,11 @@ export class IndexDatabase {
 	rebuild(entries, { scanStartedAt = new Date().toISOString() } = {}) {
 		this.transaction(() => {
 			const seen = new Set()
+			const bodies = new Map()
 			for (const entry of entries) {
 				this.writeCore(entry.meta)
 				seen.add(entry.meta.id)
+				if (typeof entry.body === 'string') bodies.set(entry.meta.id, entry.body)
 			}
 			const stale = this.statement('files-stale', 'SELECT id FROM files WHERE updated < ?')
 				.all(scanStartedAt)
@@ -1136,7 +1159,7 @@ export class IndexDatabase {
 					deleteTags.run(id)
 				}
 			}
-			this.rebuildFts()
+			this.rebuildFts(bodies)
 			this.rebuildLinkedIds()
 			this.writeMeta('built_at', new Date().toISOString())
 		})

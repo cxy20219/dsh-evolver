@@ -201,7 +201,7 @@ test('file_write：新建库文件（默认 note.md、描述 advice、死链警�
 		assert.match(created.id, /^file-/)
 		assert.equal(created.name, 'note.md', '新建库文件默认 note.md')
 		assert.equal(created.text, undefined, '写入结果不带正文')
-		assert.ok(created.warnings.some((hint) => hint.includes('以后哪些场景')), '短描述收到 advice')
+		assert.ok(created.warnings.some((hint) => hint.includes('以后什么时候')), '短描述收到 advice')
 
 		const clear = await createLibraryFile(tools, {
 			name: 'clear.md',
@@ -272,7 +272,7 @@ test('file_write({from})：宿主绝对路径与项目内相对路径都能导�
 			from: scriptPath,
 			meta: { description: '导入短描述', tags: ['测试/导入'] },
 		})
-		assert.ok(vague.warnings.some((hint) => hint.includes('以后哪些场景')), '导入也保留 descriptionAdvice')
+		assert.ok(vague.warnings.some((hint) => hint.includes('以后什么时候')), '导入也保留 descriptionAdvice')
 	} finally {
 		await cleanup()
 		await rm(sourceDir, { recursive: true, force: true })
@@ -545,7 +545,7 @@ test('descriptionAdvice：vague 描述给软提示，写清场景不提示，都
 			tags: ['测试/描述'],
 		})
 		assert.ok(Array.isArray(vague.warnings), '短描述带 warnings')
-		assert.ok(vague.warnings.some((hint) => hint.includes('以后哪些场景')), '提示写清适用场景')
+		assert.ok(vague.warnings.some((hint) => hint.includes('以后什么时候')), '提示写清适用场景')
 		const clear = await createLibraryFile(tools, {
 			name: 'clear.md',
 			description: '排查 Windows EBUSY 删除失败时，验证句柄与杀毒软件影响的可复现步骤',

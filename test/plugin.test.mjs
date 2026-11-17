@@ -97,7 +97,7 @@ test('apply：所有数据在一个目录，注册 4 个工具与一段静态注
 		assert.match(discipline, /^# 自衍中枢/)
 		assert.match(discipline, /## 记忆/)
 		assert.match(discipline, /## 沉淀/)
-		assert.match(discipline, /以后哪些场景/, '记忆段写明描述要包含适用场景')
+		assert.match(discipline, /以后什么时候会用到它/, '记忆段写明描述要写「什么时候用」')
 		assert.match(discipline, /file_search/, '记忆段写明开工前先搜')
 		assert.match(discipline, /开工前先搜/, '记忆段点明开工前先搜')
 		assert.match(discipline, /每轮答复前/, '沉淀段点明每轮答复前沉淀')

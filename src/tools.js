@@ -326,7 +326,7 @@ export function createTools({ store, paths } = {}) {
 		},
 		{
 			name: 'file_write',
-			description: '写：无 target → 新建库文件（content + meta.description + meta.tags）；target 是库文件 id/短 id → 更新正文或元数据；from 非空 → 把宿主文件导入库（相对路径按会话 cwd，越界拒绝）；target 是项目内路径 → 写项目文件（普通文件，不加元数据、不建索引）；要改正文用 file_edit 的 old+new，不必重写整篇。meta: {name,description,tags,links}；描述写清「是什么 + 以后哪些场景/任务会用到它」。',
+			description: '写：无 target → 新建库文件（content + meta.description + meta.tags）；target 是库文件 id/短 id → 更新正文或元数据；from 非空 → 把宿主文件导入库（相对路径按会话 cwd，越界拒绝）；target 是项目内路径 → 写项目文件（普通文件，不加元数据、不建索引）；要改正文用 file_edit 的 old+new，不必重写整篇。meta: {name,description,tags,links}；描述写「以后什么时候会用到它」。',
 			parameters: {
 				type: 'object',
 				properties: {
@@ -346,11 +346,11 @@ export function createTools({ store, paths } = {}) {
 						// already carries the contract, and this rides every request.
 						properties: {
 							name: { type: 'string' },
-							description: { type: 'string', description: '一句话：是什么 + 以后哪些场景会用到' },
+							description: { type: 'string', description: '写「以后什么时候会用到它」；正文已能搜到「是什么」' },
 							tags: { type: 'array', items: { type: 'string' }, description: '字符串数组，如 ["来源/harness","践行/约定"]；不是 {"item": [...]}；库文件必填' },
 							links: { type: 'array', items: { type: 'string' }, description: '关联文件 id 的字符串数组' },
 						},
-						description: '元数据对象：{name?,description?,tags?,links?}；新建或导入需要 description + tags；它们会成为检索面，所以写清「是什么 + 以后哪些场景/任务会用到它」',
+						description: '元数据对象：{name?,description?,tags?,links?}；新建或导入需要 description + tags。描述是检索的第一排序面，写「以后什么场景、任务或问题会用到它」；正文参与兜底检索但权重低于描述',
 					},
 					from: { type: 'string', description: '导入源：宿主绝对路径，或相对会话 cwd 的项目内路径（越界拒绝）；给了 from 就不看 target' },
 				},
