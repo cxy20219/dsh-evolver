@@ -1,5 +1,0 @@
-{
-	"schema": 1,
-	"title": "给别的 agent 开 MCP 端点：协议子集与两个坑",
-	"description": "给别的 agent 开 MCP 端点的协议子集与两个真坑：JSON-RPC 五方法、GET 405、回显 protocolVersion、isError 承载业务错误；面板里 error 是信封保留字、listen(0) 要回报实际端口。实现或排查 MCP 服务端时看。"
-}

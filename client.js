@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
 			'preferences.save': '保存',
 			'preferences.saved': '偏好已保存',
 			'injection.static.hint': '每轮请求都带，约 {tokens} tok；它不发散，但会永久占住前缀。',
-			'injection.runtime.removed': '运行时不再注入文件索引；agent 需要文件时用 file_search 按描述/标签/links 自己搜；项目依赖与约定由项目 harness 管理。',
+			'injection.runtime.removed': '运行时不再注入文件索引；agent 需要文件时用 file_search 按描述/标签/links 自己搜；项目依赖与约定由项目自己管理，插件不碰。',
 			'injection.tools.hint': '插件向 DSH 注册了 {n} 个工具（每轮请求约 {tokens} tok）；Agent 在任意会话里都能直接调用，工具在会话启动时绑定，换插件版本要重启宿主。',
 			'injection.tools.read': '只读',
 			'injection.tools.write': '写入',
@@ -276,7 +276,7 @@ window.__ModuleLoader__.load({
 			'preferences.save': 'Save',
 			'preferences.saved': 'Preferences saved',
 			'injection.static.hint': 'Sent with every request, ≈ {tokens} tok; it never changes, but it holds the prefix.',
-			'injection.runtime.removed': 'The host no longer injects a file index; when an agent needs files it searches them itself with file_search by description, tags or links. Project dependencies and conventions live in the project harness.',
+			'injection.runtime.removed': 'The host no longer injects a file index; when an agent needs files it searches them itself with file_search by description, tags or links. Project dependencies and conventions belong to the project itself.',
 			'injection.tools.hint': 'The plugin registers {n} tools with DSH (≈ {tokens} tok per request); any agent session can call them directly. Tools are bound when a session starts, so plugin changes need a host restart.',
 			'injection.tools.read': 'Read-only',
 			'injection.tools.write': 'Write',
@@ -3137,7 +3137,7 @@ window.__ModuleLoader__.load({
 		 * 注入页：模型每轮看到的文本，分成「提示词」和「偏好」两栏。
 		 *
 		 * 提示词栏只剩插件注册的那段静态纪律：运行时上下文注入已移除，agent
-		 * 需要库里的文件时自己用 file_search 搜，项目依赖与约定由项目 harness
+		 * 需要库里的文件时自己用 file_search 搜，项目依赖与约定归项目自己
 		 * 管理。偏好栏是写进 `~/.dsh/AGENTS.md` 的那一段，由 DSH 的 AGENTS.md
 		 * 加载器在每次会话开始时注入，所以它跟插件版本无关，改完立刻对下一个
 		 * 会话生效。
@@ -3173,7 +3173,7 @@ window.__ModuleLoader__.load({
 		 * 提示词栏：只剩静态纪律这一段，外加一句「运行时不再注入索引」的说明。
 		 *
 		 * 运行时上下文注入移除后，agent 需要文件时自己用 file_search 按描述/
-		 * 标签/links 搜，项目依赖与约定由项目 harness 管理。所以这里没有预算
+		 * 标签/links 搜，项目依赖与约定由项目自己管理。所以这里没有预算
 		 * 条、没有快照信息，也没有重建按钮：已经没有要手动维护的对象了。
 		 */
 		function PromptsPane(props) {

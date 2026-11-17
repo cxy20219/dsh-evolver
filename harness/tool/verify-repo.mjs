@@ -2,15 +2,14 @@
 /**
  * The repository's self-check gate.
  *
- * Three questions have to be answered before a change may be called done:
- * does every source file still parse, does the harness folder still agree with
- * the index the plugin generates from it, and do the tests still pass. Each
- * answer is cheap; forgetting the third is how a broken build reaches a commit.
+ * Two questions have to be answered before a change may be called done: does
+ * every source file still parse, and do the tests still pass. Each answer is
+ * cheap; forgetting the second is how a broken build reaches a commit.
  *
- * The harness step reuses the plugin's own `validate()` instead of a second
- * implementation of the rules: the plugin decides what a valid harness folder
- * is, so a copy of that rule would drift away from it the moment the plugin
- * changes.
+ * There used to be a third step that validated the project's `harness/` folder
+ * against the index the plugin generated for it. The plugin no longer owns
+ * that folder, so there is nothing to validate: `harness/` here is an ordinary
+ * directory the project maintains itself.
  *
  * Three environment facts shape the implementation, all of them learned the
  * hard way:
@@ -45,7 +44,6 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { validate } from '../../src/harness/validate.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -107,12 +105,6 @@ for (const file of files) {
 }
 console.log(`语法检查：${files.length - broken}/${files.length} 个文件通过`)
 
-const report = await validate(root)
-for (const warning of report.warnings) console.log(`  警告：${warning}`)
-for (const skip of report.skipped) console.log(`  跳过：${skip.path} — ${skip.reason}`)
-if (!report.ok) {
-	for (const error of report.errors) console.error(`harness 校验失败：${error}`)
-}
 
 const testFiles = (await readdir(join(root, 'test'))).filter((name) => name.endsWith('.test.mjs')).sort()
 let total = 0
@@ -143,6 +135,6 @@ for (const name of testFiles) {
 console.log(`测试：${total} 个用例，${passed} 通过，${failed} 失败，${skipped} 跳过`)
 for (const line of regressions) console.error(`  失败：${line}`)
 
-const ok = broken === 0 && report.ok && failed === 0
-console.log(ok ? '自检通过：语法、harness 结构、测试都没有回归。' : '自检未通过。')
+const ok = broken === 0 && failed === 0
+console.log(ok ? '自检通过：语法与测试都没有回归。' : '自检未通过。')
 process.exit(ok ? 0 : 1)

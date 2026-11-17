@@ -795,3 +795,51 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - `test/remote.test.mjs` 断言 `mcp-status` 默认关闭、令牌已生成、不含 `error` 字段、开关保存后状态跟着变。
 - 面板用离线预览核对（认证受限的既定做法）：三个子标签、开关、「运行中」、端点、四个工具标签、905 字提示词与复制按钮都在。
 - 全量 `node harness/tool/verify-repo.mjs`：226 用例 / 225 通过 / 0 失败 / 1 跳过，191/191 文件语法通过。宿主改动要重启 DSH 才生效。
+
+## 33. 项目 harness 解耦：只做库（2026-11-17）
+
+用户拍板：**全解耦**。自衍中枢的职责收敛为一句话——**存有价值的文件、需要时找得出、agent 读出来就能直接用**。项目内的知识不属于「存文件」这件事。
+
+### 33.1 为什么
+
+托管项目 `harness/` 三天，暴露四件事（详见 `harness/experience/library-scope-decoupled-from-projects.md`）：
+
+- **外部工具绕道**：opencode 按 skill 直接改正文，不写边车、不重建索引，描述与正文脱节。
+- **接管了不该插手的目录**：在只读素材目录开一次会话，插件自动建 `AGENTS.md` + 四层 + 边车。
+- **契约变成摩擦**：11-17 的 8 次失败里 4 次是「漏 `meta.description`」「顶层平铺 description」「给 harness 传 tags」。
+- **真实价值只剩一条**：索引与目录一致。其余都在为一个不属于插件的问题付代价。
+
+### 33.2 边界
+
+| 谁 | 负责 |
+|---|---|
+| 项目的 skill / 任何 agent / 编辑器 | 写 `harness/**/*.md`，结构自定 |
+| 项目自己 | 维护项目根 `AGENTS.md`（仍是注入入口，插件不再生成、也不再拒绝手写） |
+| 自衍中枢 | 库文件的存储、检索、直接可用；`file_write({from})` 把项目文件复制进库 |
+
+**删掉**：`src/harness/` 四个模块共 1835 行、`file_read("harness/")` 清单哨兵、`meta.title`/`meta.layer`、写 harness 时的边车与索引重建、`AGENTS.md` 手写拒绝与备份重建、项目根索引生成。
+
+**留下**：`src/project.js` 的 `projectRootOf` 与 `isWithin`——项目路径仍要锚定稳定的根，仍不许写出项目根之外。路径解析从「`harness/` 锚定项目根、其余相对 cwd」简化为「相对 cwd、可上溯到项目根、越出根拒绝」，不再有哪个目录享有特殊契约。
+
+### 33.3 失去的三条保证（明确记下）
+
+1. **索引一致性**：`AGENTS.md` 与目录不再自动对齐。
+2. **引用完整性校验**：文档里写不存在的 `harness/...` 路径不再被拦。
+3. **写入即检索**：项目文件不再有描述，`file_search` 搜不到项目内知识。
+
+这三条是项目自己的责任。若哪天觉得「项目知识也得能搜」，正确做法是**把值得跨项目复用的部分写进库**，而不是把 harness 托管加回来。
+
+### 33.4 本仓库自己的迁移
+
+- `harness/workflow/harness-resource-write.md`（写入规程）删除——流程已作废。
+- 所有 `<文件>.meta.json` 边车删除——生成器没了，它们是孤儿。
+- `harness/workflow/`、`harness/resources/` 空目录移除。
+- 项目根 `AGENTS.md` 改为手工维护，并在头部写明「改 `harness/` 时记得同步这里」。
+- 自检闸门去掉 harness 校验步骤，只剩「全量语法 + 全量测试」（`验证过：187/187`）。
+
+### 33.5 验证
+
+- `test/harness.test.mjs` 删除；`test/tools.test.mjs` 删掉 8 个 harness 用例，保留并改写项目文件与库用例。
+- `test/plugin.test.mjs` 两个用例改写：哨兵改项目文件读取；边界用例改为「子目录可上溯项目根、越出根拒绝」。
+- `test/tools.test.mjs` 新增断言：`file_write` 描述里不再出现 harness；`meta.title`/`meta.layer` 已移除。
+- 全量 `node harness/tool/verify-repo.mjs`：187 用例 / 187 通过 / 0 失败，187/187 文件语法通过。

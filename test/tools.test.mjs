@@ -1,11 +1,12 @@
 /**
  * The four tools: search, read, write and edit.
  *
- * Two stores share the verbs — the file library and a project's `harness/` —
+ * Two stores share the verbs — the file library and ordinary project files —
  * so the cases below pin the dispatch (where does a target land), the
- * contracts of each branch (required metadata, summary, validation/rollback),
- * and the library-only paths that must keep working when no session cwd is
- * available (an organize job).
+ * contracts of each branch (required metadata, text replacement), and the
+ * library-only paths that must keep working when no session cwd is available
+ * (an organize job). A project's `harness/` is just a folder now: no sidecar,
+ * no generated index, no validation.
  */
 
 import assert from 'node:assert/strict'
@@ -88,9 +89,10 @@ test('四个工具：名字、参数与分类', async () => {
 		assert.deepEqual(byName.file_edit.parameters.required, ['target'])
 		assert.match(byName.file_edit.description, /remove/, 'file_edit 描述说明 remove')
 		assert.match(byName.file_edit.description, /归档|删除/, 'remove 是归档后的删除动作')
-		// 描述是模型唯一能看见的能力面：harness 资源也支持 old+new，这句必须写在描述里，
-		// 否则模型会以为 harness 只能整篇重写，转而绕道 bash/python（能力在，描述没露出来等于不存在）。
-		assert.match(byName.file_edit.description, /库文件、项目文件、harness 资源都适用/, 'file_edit 描述要露出 harness 资源也支持 old+new')
+		// 描述是模型唯一能看见的能力面：项目文件也吃 old+new，这句必须写在描述里，
+		// 否则模型会以为项目文件只能整篇重写，转而绕道 bash/python（能力在，描述没露出来等于不存在）。
+		assert.match(byName.file_edit.description, /库文件与项目文件都适用/, 'file_edit 描述要露出项目文件也支持 old+new')
+		assert.doesNotMatch(byName.file_write.description, /harness/, '库不再托管项目 harness')
 		assert.match(byName.file_write.description, /file_edit 的 old\+new/, 'file_write 描述要指向 file_edit 的增量写法')
 		// meta 是自由对象，但它的核心字段必须声明类型：不声明 tags 是数组，
 		// 部分路由会输出自己的列表编码（{"item": ["来源/harness"]}），
@@ -100,10 +102,10 @@ test('四个工具：名字、参数与分类', async () => {
 		assert.equal(metaSchema.properties.tags.items.type, 'string')
 		assert.equal(metaSchema.properties.links.type, 'array')
 		assert.equal(metaSchema.properties.description.type, 'string')
-		assert.equal(metaSchema.properties.title.type, 'string')
 		assert.equal(metaSchema.additionalProperties, true, '未声明字段仍然允许，保持自由对象')
 		assert.match(metaSchema.properties.tags.description, /\{"item"/, '描述里点名不要用 {item:[...]} 形态')
-		assert.deepEqual(metaSchema.properties.layer.enum, ['workflow', 'experience', 'tool', 'resources'], 'layer 枚举即四层')
+		assert.equal(metaSchema.properties.title, undefined, 'title 是 harness 专用字段，已移除')
+		assert.equal(metaSchema.properties.layer, undefined, 'layer 已移除')
 		// JSON 往返不丢字段；混进函数会在这一步消失。
 		assert.deepEqual(JSON.parse(JSON.stringify(catalog)), catalog)
 		// 未登记的工具默认归 write：未知工具更可能改库，误标只读比误标写入更危险。
@@ -183,36 +185,6 @@ test('file_read：项目内路径按会话 cwd 解析，相对/绝对路径、�
 		await assert.rejects(() => tools.get('file_read').execute({ target: '../outside.md' }), /路径越界/)
 		await assert.rejects(() => tools.get('file_read').execute({ target: join(project, '..', 'outside.md') }), /路径越界/)
 		await assert.rejects(() => tools.get('file_read').execute({ target: 'src/none.md' }), /没有这个文件/)
-	} finally {
-		await cleanup()
-	}
-})
-
-test('file_read("harness/")：没有 harness 时给 needsInit，写入后给出分层与索引状态', async () => {
-	const { tools, project, cleanup } = await fixture()
-	try {
-		const empty = await tools.get('file_read').execute({ target: 'harness/' })
-		assert.equal(empty.root, project)
-		assert.equal(empty.present, false)
-		assert.equal(empty.needsInit, true)
-		assert.match(empty.next, /harness\/experience/)
-		assert.deepEqual(empty.missing, ['harness.md', 'workflow', 'experience', 'tool', 'resources'])
-
-		await tools.get('file_write').execute({
-			target: 'harness/experience/cache-prefix.md',
-			content: '# 写卡会作废前缀缓存\n\n现象、根因、做法。\n',
-			meta: { description: '写卡后整段前缀重算：排查缓存命中率突然变低时先看这里' },
-		})
-		const listed = await tools.get('file_read').execute({ target: 'harness/' })
-		assert.equal(listed.present, true)
-		assert.equal(listed.agents, true)
-		assert.equal(listed.overview, true)
-		assert.deepEqual(listed.layers, { workflow: 0, experience: 1, tool: 0, resources: 0 })
-		assert.deepEqual(listed.missing, [])
-		assert.equal(listed.resources.some((item) => item.path === 'harness/experience/cache-prefix.md'), true)
-		assert.equal(listed.index.mode, 'index')
-		assert.equal(listed.index.entries >= 2, true, '总览 + 经验各一条')
-		assert.deepEqual(listed.index.notIndexed, [])
 	} finally {
 		await cleanup()
 	}
@@ -329,132 +301,6 @@ test('file_write：普通项目文件自动建父目录，越界与目录目标�
 	}
 })
 
-test('file_write 到 harness/：自动建骨架、写描述边车、重建 AGENTS.md 索引并通过校验', async () => {
-	const { tools, project, cleanup } = await fixture()
-	try {
-		const written = await tools.get('file_write').execute({
-			target: 'harness/experience/cache-prefix.md',
-			content: '# 写卡会作废前缀缓存\n\n现象、根因、做法。\n',
-			meta: { title: '写卡会作废前缀缓存', description: '写卡后整段前缀重算：排查缓存命中率突然变低时先看这里' },
-		})
-		assert.equal(written.layer, 'experience')
-		assert.equal(written.created, true)
-		assert.equal(written.validation.ok, true, written.validation.errors.join(' / '))
-		assert.equal(written.path, 'harness/experience/cache-prefix.md')
-		const document = await readFile(join(project, written.path), 'utf8')
-		assert.match(document, /^# 写卡会作废前缀缓存/, '正文原样写入')
-		const sidecar = JSON.parse(await readFile(join(project, 'harness/experience/cache-prefix.md.meta.json'), 'utf8'))
-		assert.equal(sidecar.title, '写卡会作废前缀缓存')
-		assert.equal(sidecar.description, '写卡后整段前缀重算：排查缓存命中率突然变低时先看这里')
-		const agents = await readFile(join(project, 'AGENTS.md'), 'utf8')
-		assert.ok(agents.includes('(harness/experience/cache-prefix.md)'), '索引里有这一条')
-		assert.ok(agents.includes('写卡后整段前缀重算：排查缓存命中率突然变低时先看这里'), '索引里带着描述')
-
-		const update = await tools.get('file_write').execute({
-			target: 'harness/experience/cache-prefix.md',
-			content: '# 写卡会作废前缀缓存\n\n现象、根因、做法（更新）。\n',
-			meta: { description: '写卡后整段前缀重算：排查缓存命中率变低时先看这里，附复现步骤' },
-		})
-		assert.equal(update.created, false)
-		assert.equal(update.validation.ok, true)
-		const agentsAfter = await readFile(join(project, 'AGENTS.md'), 'utf8')
-		assert.equal(agentsAfter.split('harness/experience/cache-prefix.md').length, 2, '索引里只有一条')
-
-		// meta.layer 与路径层一致才允许覆盖。
-		const overridden = await tools.get('file_write').execute({
-			target: 'harness/experience/layer-ok.md',
-			content: '# 一致\n\n正文。\n',
-			meta: { description: '验证 meta.layer 与路径层一致时可以通过', layer: 'experience' },
-		})
-		assert.equal(overridden.layer, 'experience')
-		await assert.rejects(
-			() => tools.get('file_write').execute({
-				target: 'harness/experience/layer-bad.md',
-				content: '# 不一致\n\n正文。\n',
-				meta: { description: '验证 meta.layer 与路径层不一致时被拒绝', layer: 'workflow' },
-			}),
-			/不一致/,
-		)
-		await assert.rejects(
-			() => tools.get('file_write').execute({
-				target: 'harness/experience/no-description.md',
-				content: '# 没描述\n\n正文。\n',
-				meta: {},
-			}),
-			/description/,
-		)
-		await assert.rejects(
-			() => tools.get('file_write').execute({ target: 'harness/unknown/x.md', content: '# x\n' }),
-			/harness\//,
-		)
-
-		// 契约跟着落点：绝对路径命中的是 harness/ 下，同样按 harness 资源写。
-		const absoluteTarget = join(project, 'harness', 'experience', 'absolute.md')
-		const viaAbsolute = await tools.get('file_write').execute({
-			target: absoluteTarget,
-			content: '# 绝对路径写入\n\n正文。\n',
-			meta: { description: '绝对路径落在 harness 下也走 harness 模式：验证落点判定' },
-		})
-		assert.equal(viaAbsolute.layer, 'experience')
-		assert.equal(viaAbsolute.path, 'harness/experience/absolute.md')
-		const absoluteEdit = await tools.get('file_edit').execute({
-			target: absoluteTarget,
-			meta: { description: '绝对路径的 harness 文档也能改描述边车：验证落点判定与写入复用' },
-		})
-		assert.equal(absoluteEdit.layer, 'experience')
-		assert.equal(absoluteEdit.validation.ok, true, absoluteEdit.validation.errors.join(' / '))
-	} finally {
-		await cleanup()
-	}
-})
-
-test('file_write 到 harness/：工具与资源是普通文件，校验失败整体回滚', async () => {
-	const { tools, project, cleanup } = await fixture()
-	try {
-		// 文档里引用了不存在的资源：校验失败，写入必须回滚，AGENTS.md 不留半条索引。
-		await assert.rejects(
-			() => tools.get('file_write').execute({
-				target: 'harness/tool/orphan.py',
-				content: 'print(1)\n',
-				meta: { description: '孤儿脚本：引用了不存在的路径：harness/tool/ghost.py' },
-			}),
-			/校验未通过，已回滚/,
-		)
-		await assert.rejects(
-			() => stat(join(project, 'harness/tool/orphan.py')),
-			{ code: 'ENOENT' },
-			'失败写入的目标已回滚',
-		)
-
-		// 先写一条经验触发骨架与索引，再验证总览与 resources 的原始写入。
-		await tools.get('file_write').execute({
-			target: 'harness/experience/base.md',
-			content: '# 基线\n\n正文。\n',
-			meta: { description: '后续写入的基线经验：验证 harness 索引已建立' },
-		})
-		const overview = await tools.get('file_write').execute({
-			target: 'harness/harness.md',
-			content: '# Harness 项目资源总览\n\n## 项目总览\n\n更新后的总览。\n',
-			meta: { description: '项目总览：开始任何任务前先读它' },
-		})
-		assert.equal(overview.layer, 'overview')
-		assert.equal(overview.created, false, '骨架里的总览已被 init 创建')
-		assert.equal(overview.validation.ok, true, overview.validation.errors.join(' / '))
-		assert.match(await readFile(join(project, 'harness/harness.md'), 'utf8'), /更新后的总览/)
-		const resource = await tools.get('file_write').execute({
-			target: 'harness/resources/data.md',
-			content: '# 资源\n',
-			meta: { description: '一份原始资源：工具要读的模板' },
-		})
-		assert.equal(resource.validation.ok, true, resource.validation.errors.join(' / '))
-		assert.match(await readFile(join(project, 'harness/resources/data.md'), 'utf8'), /^# 资源/, '原始文件不写 frontmatter')
-		const agents = await readFile(join(project, 'AGENTS.md'), 'utf8')
-		assert.ok(agents.includes('(harness/resources/data.md)'), '资源也进索引')
-	} finally {
-		await cleanup()
-	}
-})
-
 test('库操作在拿不到会话 cwd 时仍然可用，项目路径操作给出清晰错误', async () => {
 	const { store, cleanup } = await fixture()
 	try {
@@ -475,35 +321,6 @@ test('库操作在拿不到会话 cwd 时仍然可用，项目路径操作给出
 		)
 	} finally {
 		await cleanup()
-	}
-})
-
-test('file_write 到 harness/：从子目录会话写入时 harness/ 锚定项目根', async () => {
-	const project = await tempDir()
-	await mkdir(join(project, '.git'), { recursive: true })
-	const deep = join(project, 'src', 'deep')
-	await mkdir(deep, { recursive: true })
-	const { tools, cleanup } = await fixture({
-		paths: async () => ({ cwd: deep, root: project }),
-	})
-	try {
-		const written = await tools.get('file_write').execute({
-			target: 'harness/experience/from-subdir.md',
-			content: '# 子目录写入\n\n正文。\n',
-			meta: { description: '会话在子目录时 harness 仍写到项目根，验证锚点规则' },
-		})
-		assert.equal(written.path, 'harness/experience/from-subdir.md')
-		assert.equal((await stat(join(project, 'harness/experience/from-subdir.md'))).isFile(), true)
-		const listed = await tools.get('file_read').execute({ target: 'harness/' })
-		assert.equal(listed.present, true)
-		// 普通项目路径仍按 cwd 解析：子目录里的文件能读，项目根的文件越界。
-		await writeFile(join(deep, 'note.md'), 'deep')
-		await writeFile(join(project, 'root.md'), 'root')
-		assert.equal((await tools.get('file_read').execute({ target: 'note.md' })).text, 'deep')
-		await assert.rejects(() => tools.get('file_read').execute({ target: '../root.md' }), /路径越界/)
-	} finally {
-		await cleanup()
-		await rm(project, { recursive: true, force: true })
 	}
 })
 
@@ -594,7 +411,7 @@ test('file_edit：库文件改描述/标签/links/归档，meta.remove 移入回
 
 		await assert.rejects(
 			() => tools.get('file_edit').execute({ target: other.id, meta: { title: 'x' } }),
-			/title\/summary/,
+			/没有 title\/summary|没有可执行的操作/,
 		)
 	} finally {
 		await cleanup()
@@ -618,11 +435,11 @@ test('file_edit：项目文件只做正文替换，删除与库元数据字段�
 		)
 		await assert.rejects(
 			() => tools.get('file_edit').execute({ target: 'run.md', meta: { description: '项目文件没有库描述' } }),
-			/只用于 harness 资源与库文件/,
+			/只用于库文件/,
 		)
 		await assert.rejects(
-			() => tools.get('file_edit').execute({ target: 'run.md', meta: { summary: '项目文件没有 harness 元数据' } }),
-			/只用于 harness 资源与库文件/,
+			() => tools.get('file_edit').execute({ target: 'run.md', meta: { summary: '项目文件没有库元数据' } }),
+			/只用于库文件/,
 		)
 		await assert.rejects(() => tools.get('file_edit').execute({ target: 'none.md', old: 'a', new: 'b' }), /没有这个文件/)
 		await assert.rejects(() => tools.get('file_edit').execute({ target: '../outside.md', old: 'a', new: 'b' }), /路径越界/)
@@ -662,124 +479,6 @@ test('file_edit：字段名传错时报错点名，模型一次重试就能自�
 		// 正常调用不受影响。
 		const ok = await tools.get('file_edit').execute({ target: 'run.md', old: '旧步骤', new: '新步骤' })
 		assert.equal(ok.changed, true)
-	} finally {
-		await cleanup()
-	}
-})
-
-test('file_edit：harness 文档改正文与描述边车，索引同步', async () => {
-	const { tools, project, cleanup } = await fixture()
-	try {
-		await tools.get('file_write').execute({
-			target: 'harness/experience/edit-harness.md',
-			content: '# 编辑 harness\n\n旧结论。\n',
-			meta: { title: '编辑 harness', description: '验证 file_edit 能改 harness 文档的正文与描述边车' },
-		})
-		const bodyEdit = await tools.get('file_edit').execute({
-			target: 'harness/experience/edit-harness.md',
-			old: '旧结论。',
-			new: '新结论。',
-		})
-		assert.equal(bodyEdit.layer, 'experience')
-		assert.equal(bodyEdit.validation.ok, true, bodyEdit.validation.errors.join(' / '))
-		const afterBody = await readFile(join(project, 'harness/experience/edit-harness.md'), 'utf8')
-		assert.match(afterBody, /新结论/)
-
-		const summaryEdit = await tools.get('file_edit').execute({
-			target: 'harness/experience/edit-harness.md',
-			meta: {
-				title: '编辑 harness（更新）',
-				description: '验证 file_edit 能改 harness 文档的描述边车：改完重建 AGENTS.md 索引并校验通过',
-			},
-		})
-		assert.equal(summaryEdit.validation.ok, true, summaryEdit.validation.errors.join(' / '))
-		const sidecar = JSON.parse(await readFile(join(project, 'harness/experience/edit-harness.md.meta.json'), 'utf8'))
-		assert.equal(sidecar.title, '编辑 harness（更新）')
-		assert.match(sidecar.description, /验证 file_edit 能改 harness 文档的描述边车/)
-		const agents = await readFile(join(project, 'AGENTS.md'), 'utf8')
-		assert.match(agents, /验证 file_edit 能改 harness 文档的描述边车/)
-
-		// harness 总览也是一条资源：改它的描述同样走边车与索引。
-		const overviewEdit = await tools.get('file_edit').execute({
-			target: 'harness/harness.md',
-			meta: { description: '项目总览：改描述边车后索引同步' },
-		})
-		assert.equal(overviewEdit.layer, 'overview')
-		assert.equal(overviewEdit.validation.ok, true, overviewEdit.validation.errors.join(' / '))
-		assert.match(await readFile(join(project, 'AGENTS.md'), 'utf8'), /项目总览：改描述边车后索引同步/)
-	} finally {
-		await cleanup()
-	}
-})
-
-test('file_edit：harness 改动校验不过时回滚，文件与索引都不留半成品', async () => {
-	const { tools, project, cleanup } = await fixture()
-	try {
-		await tools.get('file_write').execute({
-			target: 'harness/experience/rollback.md',
-			content: '# 回滚\n\n安全文本。\n',
-			meta: { description: '回滚测试基线：后续把它改成引用不存在资源以求失败' },
-		})
-		const before = await readFile(join(project, 'harness/experience/rollback.md'), 'utf8')
-		const agentsBefore = await readFile(join(project, 'AGENTS.md'), 'utf8')
-		await assert.rejects(
-			() => tools.get('file_edit').execute({
-				target: 'harness/experience/rollback.md',
-				old: '安全文本。',
-				new: '```\npython3 harness/tool/ghost.py\n```',
-			}),
-			/校验未通过，已回滚/,
-		)
-		assert.equal(await readFile(join(project, 'harness/experience/rollback.md'), 'utf8'), before, '目标文件已回滚')
-		assert.equal(await readFile(join(project, 'AGENTS.md'), 'utf8'), agentsBefore, '索引已回滚')
-	} finally {
-		await cleanup()
-	}
-})
-
-test('harness 资源：整篇重写不必重述描述与标题，非常规位置给出下一步', async () => {
-	const { tools, project, cleanup } = await fixture()
-	try {
-		await tools.get('file_write').execute({
-			target: 'harness/experience/reuse-meta.md',
-			content: '# 沿用\n\n第一版。\n',
-			meta: { title: '沿用边车', description: '整篇重写时描述与标题应当沿用边车：验证不必重述' },
-		})
-		// 不给 meta.description：边车已经是事实，重写正文不该逼人再说一遍自己写的是什么。
-		const rewritten = await tools.get('file_write').execute({
-			target: 'harness/experience/reuse-meta.md',
-			content: '# 沿用\n\n第二版。\n',
-		})
-		assert.equal(rewritten.validation.ok, true, rewritten.validation.errors.join(' / '))
-		const sidecar = JSON.parse(await readFile(join(project, 'harness/experience/reuse-meta.md.meta.json'), 'utf8'))
-		assert.equal(sidecar.title, '沿用边车', '标题沿用边车，没有被抹掉')
-		assert.match(sidecar.description, /整篇重写时描述与标题应当沿用边车/, '描述沿用边车')
-		assert.match(await readFile(join(project, 'AGENTS.md'), 'utf8'), /整篇重写时描述与标题应当沿用边车/)
-
-		// 没有边车的新资源仍然必须说清自己是什么：描述是它在索引里唯一的脸。
-		await assert.rejects(
-			() => tools.get('file_write').execute({
-				target: 'harness/experience/never-described.md',
-				content: '# 新资源\n\n正文。\n',
-			}),
-			/description/,
-		)
-
-		// harness/ 根下的文件不在四层里：报错要说清下一步，否则模型会绕道 bash/python。
-		await assert.rejects(
-			() => tools.get('file_write').execute({ target: 'harness/loose.md', content: '# 根下\n' }),
-			/移到 harness\/<层>\/ 下再写一次/,
-		)
-		// 历史上留下的根下文件也要给出路。
-		await writeFile(join(project, 'harness', 'loose.md'), '# 根下\n\n正文。\n', 'utf8')
-		try {
-			await assert.rejects(
-				() => tools.get('file_edit').execute({ target: 'harness/loose.md', old: '正文。', new: '新正文。' }),
-				/移到 harness\/<层>\/ 下再改一次/,
-			)
-		} finally {
-			await rm(join(project, 'harness', 'loose.md'), { force: true })
-		}
 	} finally {
 		await cleanup()
 	}
@@ -854,34 +553,6 @@ test('descriptionAdvice：vague 描述给软提示，写清场景不提示，都
 			tags: ['测试/描述'],
 		})
 		assert.equal(clear.warnings, undefined, '写清场景的描述不再提示')
-	} finally {
-		await cleanup()
-	}
-})
-
-test('harness/ 里的 .DS_Store 不阻断写入（macOS 上打开过目录就必现）', async () => {
-	const { tools, project, cleanup } = await fixture()
-	try {
-		await tools.get('file_write').execute({
-			target: 'harness/experience/base.md',
-			content: '# 基线\n\n正文。\n',
-			meta: { description: '基线资源：验证 dotfile 不打断后续写入' },
-		})
-		// Finder 打开过 harness/ 就会留下这个文件；它是构建噪声，不是资源。
-		await writeFile(join(project, 'harness', '.DS_Store'), 'Bud1\u0000\u0000\u0000\u0008', 'utf8')
-		const written = await tools.get('file_write').execute({
-			target: 'harness/experience/after-dotfile.md',
-			content: '# 后续\n\n正文。\n',
-			meta: { description: 'dotfile 存在时仍能写入：以前会以「多余的顶层条目」整体回滚' },
-		})
-		assert.equal(written.validation.ok, true, written.validation.errors.join(' / '))
-		assert.equal((await stat(join(project, 'harness/experience/after-dotfile.md'))).isFile(), true, '文件真的落盘了')
-		// 噪声不该进索引，也不该被当成资源。
-		const agents = await readFile(join(project, 'AGENTS.md'), 'utf8')
-		assert.doesNotMatch(agents, /DS_Store/)
-		const listed = await tools.get('file_read').execute({ target: 'harness/' })
-		assert.equal(listed.resources.some((item) => item.path.includes('DS_Store')), false)
-		await rm(join(project, 'harness', '.DS_Store'), { force: true })
 	} finally {
 		await cleanup()
 	}

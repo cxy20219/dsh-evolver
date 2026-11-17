@@ -6,9 +6,10 @@
  *   1. **the data** — one folder (`~/.dsh/ziyan` by default) holding files,
  *      sidecars, the SQLite index, settings, logs and trash. Only a one-line
  *      pointer (`~/.dsh/ziyan.home.json`) may live beside that folder;
- *   2. **the tools** — four verbs: search, read, write and edit. The same
- *      verbs serve the file library and a project's own `harness/` resources,
- *      so where a write lands decides which contract applies;
+ *   2. **the tools** — four verbs: search, read, write and edit. They serve
+ *      the file library and ordinary project files; a project's own
+ *      `harness/` is just another folder now, written by whatever tool the
+ *      project uses;
  *   3. **the injection** — one static system section, and nothing else. No
  *      library index is injected, so a write never rewrites the prompt prefix;
  *      an agent that needs a file searches for it with `file_search`.
@@ -23,7 +24,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
 import { createDataJobs } from './src/data-jobs.js'
-import { projectRootOf } from './src/harness/store.js'
+import { projectRootOf } from './src/project.js'
 import { dataDirPointerPath, readDataDirPointer } from './src/home.js'
 import { createLogSink } from './src/logs.js'
 import { createMcpService, mintToken } from './src/mcp/server.js'
@@ -167,7 +168,7 @@ export async function apply(ctx, config) {
 	async function pathsOf(exec) {
 		const cwd = await cwdFor(exec)
 		if (cwd === undefined) return {}
-		// A session opened inside a repository still owns `harness/` at the
+		// A session opened inside a repository still resolves paths against the
 		// repository root; a folder with no project marker is its own root.
 		const root = await projectRootOf(cwd)
 		return { cwd, root: root ?? cwd }

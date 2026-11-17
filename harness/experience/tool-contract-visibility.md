@@ -29,5 +29,5 @@
 ## 关联
 
 - 契约与提示词改动先给选项再动手：`harness/experience/contract-change-by-options.md`。
-- harness 写入四步与四个陷阱：`harness/workflow/harness-resource-write.md`。
+- 项目 harness 为什么不再由插件托管：`harness/experience/library-scope-decoupled-from-projects.md`。
 - 全量自检闸门：`harness/tool/verify-repo.mjs`（改动后跑它，语法、索引一致性、测试一起验）。

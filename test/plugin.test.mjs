@@ -144,13 +144,14 @@ test('apply 拒绝相对路径的 dataDir', async () => {
 	})
 })
 
-test('apply：file_read("harness/") 用 sessionQuery 的 cwd 推断项目根，按 agent id 缓存', async () => {
+test('apply：项目文件读取用 sessionQuery 的 cwd 定位，按 agent id 缓存', async () => {
 	const projectRoot = await mkdtemp(join(tmpdir(), 'ys-project-'))
 	await mkdir(join(projectRoot, '.git'), { recursive: true })
 	// The session header carries a real working directory; the resolver only
 	// walks up from a path that exists.
 	const sessionCwd = join(projectRoot, 'src', 'deep')
 	await mkdir(sessionCwd, { recursive: true })
+	await writeFile(join(sessionCwd, 'note.md'), '# 笔记\n\n正文。\n', 'utf8')
 	try {
 		await withHome(async () => {
 			const queries = []
@@ -164,25 +165,23 @@ test('apply：file_read("harness/") 用 sessionQuery 的 cwd 推断项目根，�
 			await apply(ctx, {})
 			try {
 				const readTool = tools.find((tool) => tool.name === 'file_read')
-				const listed = await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-a' } })
-				assert.equal(listed.root, projectRoot, '项目根由会话 header.cwd 向上推断')
-				assert.equal(listed.present, false)
-				assert.equal(listed.needsInit, true)
+				const first = await readTool.execute({ target: 'note.md' }, { agent: { id: 'agent-a' } })
+				assert.equal(first.text, '# 笔记\n\n正文。\n', '相对路径按会话 cwd 解析')
 				assert.deepEqual(queries[0], [{ kind: 'id', values: ['agent-a'] }])
 				// 同一 agent 再调用命中缓存，不再查 sessionQuery。
-				await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-a' } })
+				await readTool.execute({ target: 'note.md' }, { agent: { id: 'agent-a' } })
 				assert.equal(queries.length, 1)
 				// 另一个 agent 是另一个项目查询。
-				await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-b' } })
+				await readTool.execute({ target: 'note.md' }, { agent: { id: 'agent-b' } })
 				assert.equal(queries.length, 2)
 				// 缓存上限 64：第 1 个 agent 被挤出后重新查，最近一个还在。
 				for (let index = 1; index <= 65; index += 1) {
-					await readTool.execute({ target: 'harness/' }, { agent: { id: `agent-${index}` } })
+					await readTool.execute({ target: 'note.md' }, { agent: { id: `agent-${index}` } })
 				}
 				assert.equal(queries.length, 67)
-				await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-1' } })
+				await readTool.execute({ target: 'note.md' }, { agent: { id: 'agent-1' } })
 				assert.equal(queries.length, 68, '最老的 agent 已被挤出缓存')
-				await readTool.execute({ target: 'harness/' }, { agent: { id: 'agent-65' } })
+				await readTool.execute({ target: 'note.md' }, { agent: { id: 'agent-65' } })
 				assert.equal(queries.length, 68, '最近的 agent 仍在缓存里')
 			} finally {
 				const dispose = await effects[0]()
@@ -206,7 +205,7 @@ test('apply：没有 sessionQuery 时项目路径操作拒绝，库操作照常�
 				const exec = { agent: { id: 'agent-x' } }
 				// 无法证明 cwd 时项目路径操作一律拒绝，而不是猜一个项目。
 				await assert.rejects(
-					() => readTool.execute({ target: 'harness/' }, exec),
+					() => readTool.execute({ target: 'note.md' }, exec),
 					/无法确定当前会话工作目录/,
 				)
 				await assert.rejects(
@@ -255,7 +254,7 @@ test('apply：坏 DB 不让插件加载失败——隔离坏库、从边车重�
 	})
 })
 
-test('apply：项目根按会话 cwd 推断到仓库根，项目外路径越界拒绝', async () => {
+test('apply：项目路径可从子目录上溯到项目根，越出项目根拒绝', async () => {
 	const projectRoot = await mkdtemp(join(tmpdir(), 'ys-project-'))
 	const otherRoot = await mkdtemp(join(tmpdir(), 'ys-other-'))
 	await mkdir(join(projectRoot, '.git'), { recursive: true })
@@ -271,23 +270,24 @@ test('apply：项目根按会话 cwd 推断到仓库根，项目外路径越界�
 				const readTool = tools.find((tool) => tool.name === 'file_read')
 				const writeTool = tools.find((tool) => tool.name === 'file_write')
 				const exec = { agent: { id: 'agent-boundary' } }
-				// 会话在子目录：项目根（cwd 的祖先）是 harness 的落点。
-				assert.equal((await readTool.execute({ target: 'harness/' }, exec)).root, projectRoot)
-				const written = await writeTool.execute({
-					target: 'harness/experience/from-subdir.md',
-					content: '# 子目录\n\n正文。\n',
-					meta: { summary: '会话在子目录时 harness 锚定仓库根，验证项目根推断' },
-				}, exec)
-				assert.equal(written.path, 'harness/experience/from-subdir.md')
-				// 普通项目路径按 cwd 解析：仓库根的文件在看守范围外。
+				// 会话在 src/deep：相对路径先按 cwd 解析，再允许上溯到项目根。
 				await writeFile(join(projectRoot, 'root.md'), 'root')
-				await assert.rejects(
-					() => readTool.execute({ target: '../root.md' }, exec),
-					/路径越界/,
-				)
-				// 绝对路径也无法越过 cwd（不能靠拼路径读别的仓库）。
+				const fromSub = await readTool.execute({ target: '../../root.md' }, exec)
+				assert.equal(fromSub.text, 'root', '子目录会话可以读到项目根的文件')
+				// 写项目根下的新文件同样成立——没有哪一层需要特殊契约。
+				const written = await writeTool.execute({
+					target: '../../docs/from-subdir.md',
+					content: '# 子目录\n\n正文。\n',
+				}, exec)
+				assert.equal(written.created, true)
+				assert.equal(written.path, join(projectRoot, 'docs', 'from-subdir.md'))
+				// 越出项目根一律拒绝：另一个仓库的绝对路径、以及爬到根之外的相对路径。
 				await assert.rejects(
 					() => readTool.execute({ target: join(otherRoot, 'README.md') }, exec),
+					/路径越界/,
+				)
+				await assert.rejects(
+					() => readTool.execute({ target: '../../../../../etc/passwd' }, exec),
 					/路径越界/,
 				)
 			} finally {

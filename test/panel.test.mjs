@@ -858,7 +858,7 @@ test('注入页提示词：只剩静态段与一句说明，没有预算/索引/
 		assert.doesNotMatch(text, /\d+ 字节/, '不再显示字节数')
 		assert.match(text, /运行时不再注入/, '说明运行时不再注入索引')
 		assert.match(text, /按描述/, '说明 agent 需要文件时自己按描述搜')
-		assert.match(text, /harness/, '说明项目依赖与约定由项目 harness 管理')
+		assert.match(text, /项目自己/, '说明项目约定由项目自己管理，插件不再托管')
 		// 新提示用「不再注入文件索引」点名被移除的东西；除这一句外，提示词栏
 		// 不应再有任何索引/快照/预算相关文案。
 		const notice = '运行时不再注入文件索引'

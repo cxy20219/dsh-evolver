@@ -12,10 +12,10 @@
  * Two decisions shape the rest:
  *
  * - **Library only.** An MCP call carries no session: there is no working
- *   directory to anchor a project path against, so `harness/...` targets and
- *   arbitrary project files are refused by the tool layer itself with its own
- *   message. Handing out a guessed cwd would let a remote agent write into
- *   whatever directory it imagined it was in.
+ *   directory to anchor a project path against, so any project-file target is
+ *   refused by the tool layer itself with its own message. Handing out a
+ *   guessed cwd would let a remote agent write into whatever directory it
+ *   imagined it was in.
  * - **A bearer token, always.** The write verbs reach the library, so the
  *   endpoint is not public even though it binds to loopback: a token is minted
  *   on first start and checked on every request. Only `127.0.0.1` is bound —
@@ -168,8 +168,8 @@ export function negotiateVersion(requested) {
  * The tool catalog an MCP client sees.
  *
  * Descriptions and schemas come straight from the live tool objects, so the
- * remote agent reads the same text the local model does — including the
- * target × capability contract that says a `harness/` path needs a session.
+ * remote agent reads the same text the local model does — including the note
+ * that a project path needs a session.
  *
  * @param {object[]} tools - The tool objects from `createTools`.
  * @returns {object[]} MCP tool definitions.
@@ -251,7 +251,7 @@ export async function dispatch(tools, message, serverInfo) {
 				protocolVersion: negotiateVersion(params.protocolVersion),
 				capabilities: { tools: { listChanged: false } },
 				serverInfo,
-				instructions: '自衍中枢文件库：先 file_search 按描述/标签检索，再 file_read 取正文；file_write 新建或整篇改写，file_edit 用 old+new 改一段。项目路径（harness/…）需要会话工作目录，经 MCP 调用不可用，只支持库文件。',
+				instructions: '自衍中枢文件库：先 file_search 按描述/标签检索，再 file_read 取正文；file_write 新建或整篇改写，file_edit 用 old+new 改一段。项目文件路径需要会话工作目录，经 MCP 调用不可用，只支持库文件。',
 			},
 		}
 	}
