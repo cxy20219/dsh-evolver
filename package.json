@@ -20,13 +20,16 @@
 		"README.md",
 		"package.json",
 		"client.js",
-		"icon.svg"
+		"icon.svg",
+		"desktop"
 	],
 	"engines": {
 		"node": ">=22.13"
 	},
 	"scripts": {
-		"test": "node --test \"test/*.test.mjs\""
+		"test": "node --test \"test/*.test.mjs\"",
+		"desktop": "electron desktop/main.cjs",
+		"serve": "node desktop/server.js"
 	},
 	"dsh": {
 		"bundle": {
@@ -43,5 +46,8 @@
 				"@deepseek-ai/dsh-client-connection"
 			]
 		}
+	},
+	"devDependencies": {
+		"electron": "^43.3.0"
 	}
 }
