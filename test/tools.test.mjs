@@ -16,7 +16,7 @@ import test from 'node:test'
 
 import { fileId } from '../src/ids.js'
 import { FileStore } from '../src/store.js'
-import { createTools, describeTools } from '../src/tools.js'
+import { createTools } from '../src/tools.js'
 import { removeDir, tempDir } from './helpers.mjs'
 
 /**
@@ -57,30 +57,22 @@ async function createLibraryFile(tools, { name, description, content, tags, link
 	return tools.get('file_write').execute({ content, meta: { name, description, tags, links } })
 }
 
-test('四个工具：名字、参数与分类', async () => {
+test('四个动词：名字、参数与描述', async () => {
 	const { tools, cleanup } = await fixture()
 	try {
 		assert.deepEqual([...tools.keys()], ['file_search', 'file_read', 'file_write', 'file_edit'])
 
-		const catalog = describeTools([...tools.values()])
-		assert.deepEqual(catalog.map((entry) => [entry.name, entry.category]), [
-			['file_search', 'read'],
-			['file_read', 'read'],
-			['file_write', 'write'],
-			['file_edit', 'write'],
-		])
-		for (const entry of catalog) {
-			assert.ok(entry.description.trim() !== '', `${entry.name} 的描述非空`)
-			assert.equal(entry.parameters.type, 'object', `${entry.name} 的参数是 JSON schema`)
-			for (const [field, spec] of Object.entries(entry.parameters.properties ?? {})) {
-				assert.equal(typeof spec.description, 'string', `${entry.name}.${field} 有参数说明`)
-				assert.ok(spec.description.trim() !== '', `${entry.name}.${field} 的参数说明非空`)
+		// describeTools 随面板的工具页一起删了：分类与 token 估算只是那个页面的
+		// 展示物，动词本身仍是这里定义的四份 schema。
+		const byName = Object.fromEntries(tools)
+		for (const [name, tool] of Object.entries(byName)) {
+			assert.ok(tool.description.trim() !== '', `${name} 的描述非空`)
+			assert.equal(tool.parameters.type, 'object', `${name} 的参数是 JSON schema`)
+			for (const [field, spec] of Object.entries(tool.parameters.properties ?? {})) {
+				assert.equal(typeof spec.description, 'string', `${name}.${field} 有参数说明`)
+				assert.ok(spec.description.trim() !== '', `${name}.${field} 的参数说明非空`)
 			}
-			// output.render 是函数，跨不了面板 API，目录里不能出现 output。
-			assert.deepEqual(Object.keys(entry).sort(), ['category', 'description', 'name', 'parameters', 'tokens'])
-			assert.equal(Number.isInteger(entry.tokens) && entry.tokens > 0, true, `${entry.name} 带 token 估算`)
 		}
-		const byName = Object.fromEntries(catalog.map((entry) => [entry.name, entry]))
 		assert.deepEqual(Object.keys(byName.file_search.parameters.properties).sort(), ['graph', 'limit', 'query', 'tags'])
 		assert.deepEqual(Object.keys(byName.file_read.parameters.properties), ['target'])
 		assert.deepEqual(byName.file_read.parameters.required, ['target'])
@@ -106,11 +98,6 @@ test('四个工具：名字、参数与分类', async () => {
 		assert.match(metaSchema.properties.tags.description, /\{"item"/, '描述里点名不要用 {item:[...]} 形态')
 		assert.equal(metaSchema.properties.title, undefined, 'title 是 harness 专用字段，已移除')
 		assert.equal(metaSchema.properties.layer, undefined, 'layer 已移除')
-		// JSON 往返不丢字段；混进函数会在这一步消失。
-		assert.deepEqual(JSON.parse(JSON.stringify(catalog)), catalog)
-		// 未登记的工具默认归 write：未知工具更可能改库，误标只读比误标写入更危险。
-		const [unknown] = describeTools([{ name: 'future_tool', description: '未来的工具', parameters: { type: 'object', properties: {} } }])
-		assert.equal(unknown.category, 'write')
 	} finally {
 		await cleanup()
 	}

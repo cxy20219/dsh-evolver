@@ -34,14 +34,10 @@ window.__ModuleLoader__.load({
 			'tab.overview': '概览',
 			'tab.files': '文件',
 			'tab.graph': '图谱',
-			'tab.injection': '注入',
 			'tab.organize': '自衍',
+			'tab.preferences': '偏好',
 			'tab.settings': '设置',
 			'tab.logs': '日志',
-			'injection.static': '系统段：静态纪律',
-			'injection.tab.prompts': '提示词',
-			'injection.tab.tools': '工具',
-			'injection.tab.preferences': '偏好',
 			'preferences.hint': '这里编辑的是 DSH 全局 AGENTS.md 全文：数据统一存在自衍中枢数据目录，DSH 读的 AGENTS.md 链接到它；改这里就是改每个会话开始时注入的规则。',
 			'preferences.file': '数据文件',
 			'preferences.link': 'DSH 读取：{agents}',
@@ -53,19 +49,6 @@ window.__ModuleLoader__.load({
 			'preferences.reset': '撤销修改',
 			'preferences.save': '保存',
 			'preferences.saved': '偏好已保存',
-			'injection.static.hint': '每轮请求都带，约 {tokens} tok；它不发散，但会永久占住前缀。',
-			'injection.runtime.removed': '运行时不再注入文件索引；agent 需要文件时用 file_search 按描述/标签/links 自己搜；项目依赖与约定由项目自己管理，插件不碰。',
-			'injection.tools.hint': '插件向 DSH 注册了 {n} 个工具（每轮请求约 {tokens} tok）；Agent 在任意会话里都能直接调用，工具在会话启动时绑定，换插件版本要重启宿主。',
-			'injection.tools.read': '只读',
-			'injection.tools.write': '写入',
-			'injection.tools.destructive': '危险',
-			'injection.tools.empty': '没有注册任何工具。',
-			'injection.tools.failed': '工具目录读取失败：{error}',
-			'injection.tools.params': '{n} 个参数',
-			'injection.tools.tokens': '约 {n} tok',
-			'injection.tools.noParams': '无参数',
-			'injection.tools.required': '必填',
-			'injection.tools.retry': '重试',
 			'organize.hint': '整理由 agent 作业在会话外运行：作业读会话或库，自己决定写什么。这里只负责选模型、开关自动整理；结果在「最近作业」子标签；注入只有一段静态纪律，不再注入文件索引。',
 			'organize.tab.workbench': '整理台',
 			'organize.tab.prompts': '提示词',
@@ -256,14 +239,9 @@ window.__ModuleLoader__.load({
 			'tab.overview': 'Overview',
 			'tab.files': 'Files',
 			'tab.graph': 'Graph',
-			'tab.injection': 'Injection',
 			'tab.organize': 'Organize',
 			'tab.settings': 'Settings',
 			'tab.logs': 'Logs',
-			'injection.static': 'System section: the fixed discipline',
-			'injection.tab.prompts': 'Prompts',
-			'injection.tab.tools': 'Tools',
-			'injection.tab.preferences': 'Preferences',
 			'preferences.hint': 'This edits the whole DSH global AGENTS.md. The data lives in the 自衍中枢 data directory; the AGENTS.md DSH reads links to it, so changes here are what every session is injected with.',
 			'preferences.file': 'Data file',
 			'preferences.link': 'Read by DSH: {agents}',
@@ -275,19 +253,6 @@ window.__ModuleLoader__.load({
 			'preferences.reset': 'Discard changes',
 			'preferences.save': 'Save',
 			'preferences.saved': 'Preferences saved',
-			'injection.static.hint': 'Sent with every request, ≈ {tokens} tok; it never changes, but it holds the prefix.',
-			'injection.runtime.removed': 'The host no longer injects a file index; when an agent needs files it searches them itself with file_search by description, tags or links. Project dependencies and conventions belong to the project itself.',
-			'injection.tools.hint': 'The plugin registers {n} tools with DSH (≈ {tokens} tok per request); any agent session can call them directly. Tools are bound when a session starts, so plugin changes need a host restart.',
-			'injection.tools.read': 'Read-only',
-			'injection.tools.write': 'Write',
-			'injection.tools.destructive': 'Destructive',
-			'injection.tools.empty': 'No tools are registered.',
-			'injection.tools.failed': 'Failed to load the tool catalog: {error}',
-			'injection.tools.params': '{n} parameters',
-			'injection.tools.tokens': '≈ {n} tok',
-			'injection.tools.noParams': 'No parameters',
-			'injection.tools.required': 'required',
-			'injection.tools.retry': 'Retry',
 			'organize.hint': 'Organize jobs run outside the chat: the agent reads sessions or the library and decides what to write. This page only picks the model and toggles the schedule; results live in the "Recent jobs" sub-tab. Injection is just the static discipline section, with no file index.',
 			'organize.tab.workbench': 'Workbench',
 			'organize.tab.prompts': 'Prompts',
@@ -3134,62 +3099,6 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * 注入页：模型每轮看到的文本，分成「提示词」和「偏好」两栏。
-		 *
-		 * 提示词栏只剩插件注册的那段静态纪律：运行时上下文注入已移除，agent
-		 * 需要库里的文件时自己用 file_search 搜，项目依赖与约定归项目自己
-		 * 管理。偏好栏是写进 `~/.dsh/AGENTS.md` 的那一段，由 DSH 的 AGENTS.md
-		 * 加载器在每次会话开始时注入，所以它跟插件版本无关，改完立刻对下一个
-		 * 会话生效。
-		 */
-		function InjectionTab(props) {
-			var t = props.t;
-			var [section, setSection] = useState('prompts');
-			var options = [
-				['prompts', t('injection.tab.prompts')],
-				['tools', t('injection.tab.tools')],
-				['preferences', t('injection.tab.preferences')]
-			];
-			return h('div', null,
-				h('div', { className: 'ysTabs ysSubtabs', role: 'tablist', 'aria-label': t('tab.injection') },
-					options.map(function (option) {
-						return h('button', {
-							key: option[0],
-							type: 'button',
-							role: 'tab',
-							className: 'ysTab' + (section === option[0] ? ' ysTabActive' : ''),
-							'aria-selected': section === option[0],
-							onClick: function () { setSection(option[0]); }
-						}, option[1]);
-					})),
-				section === 'preferences'
-					? h(PreferencesPane, props)
-					: section === 'tools'
-						? h(ToolsPane, props)
-						: h(PromptsPane, props));
-		}
-
-		/**
-		 * 提示词栏：只剩静态纪律这一段，外加一句「运行时不再注入索引」的说明。
-		 *
-		 * 运行时上下文注入移除后，agent 需要文件时自己用 file_search 按描述/
-		 * 标签/links 搜，项目依赖与约定由项目自己管理。所以这里没有预算
-		 * 条、没有快照信息，也没有重建按钮：已经没有要手动维护的对象了。
-		 */
-		function PromptsPane(props) {
-			var t = props.t;
-			var injection = props.injection;
-			if (injection === null || injection === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
-			var staticTokens = Number(injection.staticTokens) || 0;
-			return h('div', null,
-				h('div', { className: 'ysHint', style: { marginBottom: 10 } }, t('injection.runtime.removed')),
-				h('div', { className: 'ysSection', style: { marginTop: 0 } }, t('injection.static')),
-				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
-					t('injection.static.hint').replace('{tokens}', String(staticTokens))),
-				h('pre', { className: 'ysPre' }, injection.static));
-		}
-
-		/**
 		 * 偏好栏：编辑 `~/.dsh/AGENTS.md` 里插件维护的那一段。
 		 *
 		 * 偏好栏：编辑 DSH 全局 AGENTS.md 的全文。
@@ -3270,103 +3179,6 @@ window.__ModuleLoader__.load({
 							disabled: busy || !dirty || overCap || preferences.readable === false,
 							onClick: save
 						}, t('preferences.save')))));
-		}
-
-		/**
-		 * 工具栏：插件向 DSH 注册的工具目录。
-		 *
-		 * 目录来自宿主（`tools` 接口），面板只读——Agent 在会话里调用工具，
-		 * 这里回答「有哪些工具、各要什么参数」。参数默认折叠：`file_write`
-		 * 一个工具就有四个顶层参数（target/content/meta/from），全展开会把列表拉长，折叠后点一下才看细节。
-		 */
-		function ToolsPane(props) {
-			var t = props.t;
-			var catalog = props.tools;
-			var [open, setOpen] = useState('');
-			if (catalog === null || catalog === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
-			if (catalog.error) {
-				return h('div', null,
-					h('div', { className: 'ysError' },
-						h('span', { style: { flex: 1 } }, t('injection.tools.failed').replace('{error}', String(catalog.error)))),
-					h('div', { className: 'ysActions', style: { borderTop: 'none', paddingTop: 0 } },
-						h('button', { className: 'ysButton', onClick: props.onReload }, t('injection.tools.retry'))));
-			}
-			var tools = Array.isArray(catalog.tools) ? catalog.tools : [];
-			var total = Number(catalog.total);
-			if (!Number.isFinite(total)) total = tools.length;
-			var totalTokens = Number(catalog.tokens);
-			if (!Number.isFinite(totalTokens)) totalTokens = 0;
-			if (tools.length === 0) {
-				return h('div', null,
-					h('div', { className: 'ysEmpty' }, t('injection.tools.empty')),
-					h('div', { className: 'ysActions', style: { borderTop: 'none', paddingTop: 0 } },
-						h('button', { className: 'ysButton', onClick: props.onReload }, t('injection.tools.retry'))));
-			}
-			var groups = [
-				['read', t('injection.tools.read'), 'ysBadgeRead'],
-				['write', t('injection.tools.write'), 'ysBadgeWrite'],
-				['destructive', t('injection.tools.destructive'), 'ysBadgeDestructive']
-			];
-			return h('div', null,
-				h('div', { className: 'ysHint', style: { marginBottom: 4 } },
-					t('injection.tools.hint').replace('{n}', String(total)).replace('{tokens}', String(totalTokens))),
-				groups.map(function (group) {
-					var items = tools.filter(function (tool) { return tool.category === group[0]; });
-					if (items.length === 0) return null;
-					return h('div', { key: group[0] },
-						h('div', { className: 'ysSection' }, group[1]),
-						h('div', { className: 'ysToolGrid' }, items.map(function (tool) {
-							return h(ToolCard, {
-								key: tool.name,
-								t: t,
-								tool: tool,
-								badge: group[2],
-								badgeLabel: group[1],
-								expanded: open === tool.name,
-								onToggle: function () { setOpen(open === tool.name ? '' : tool.name); }
-							});
-						})));
-				}));
-		}
-
-		/**
-		 * 一张工具卡：名字、分类、一句话说明；参数按需展开。
-		 */
-		function ToolCard(props) {
-			var t = props.t;
-			var tool = props.tool;
-			var schema = tool.parameters !== null && typeof tool.parameters === 'object' ? tool.parameters : {};
-			var properties = schema.properties !== null && typeof schema.properties === 'object' ? schema.properties : {};
-			var required = Array.isArray(schema.required) ? schema.required : [];
-			var names = Object.keys(properties);
-			var toolTokens = Number(tool.tokens) || 0;
-			var toggle = (names.length === 0 ? t('injection.tools.noParams')
-				: t('injection.tools.params').replace('{n}', String(names.length)))
-				+ (toolTokens > 0 ? ' · ' + t('injection.tools.tokens').replace('{n}', String(toolTokens)) : '');
-			return h('div', { className: 'ysTool' },
-				h('div', { className: 'ysToolHead' },
-					h('span', { className: 'ysToolName' }, tool.name),
-					h('span', { className: 'ysBadge ' + props.badge }, props.badgeLabel)),
-				h('div', { className: 'ysToolDesc' }, tool.description),
-				h('button', {
-					className: 'ysToolToggle',
-					'aria-expanded': props.expanded,
-					onClick: props.onToggle
-				}, toggle),
-				props.expanded
-					? h('ul', { className: 'ysToolParams' }, names.map(function (name) {
-						var property = properties[name] !== null && typeof properties[name] === 'object' ? properties[name] : {};
-						var type = typeof property.type === 'string' ? property.type : 'string';
-						if (type === 'array' && property.items !== null && typeof property.items === 'object' && typeof property.items.type === 'string') {
-							type = 'array<' + property.items.type + '>';
-						}
-						var isRequired = required.indexOf(name) >= 0;
-						return h('li', { className: 'ysToolParam', key: name },
-							h('span', { className: 'ysToolParamName' }, name),
-							h('span', { className: 'ysToolParamType' }, type + (isRequired ? ' · ' + t('injection.tools.required') : '')),
-							h('span', { className: 'ysToolParamDesc' }, typeof property.description === 'string' ? property.description : ''));
-					}))
-					: null);
 		}
 
 		/**
@@ -4207,11 +4019,9 @@ window.__ModuleLoader__.load({
 			var [draft, setDraft] = useState(null);
 			var [preview, setPreview] = useState(null);
 			var [graph, setGraph] = useState(null);
-			var [injection, setInjection] = useState(null);
 			var [preferences, setPreferences] = useState(null);
 			var [digest, setDigest] = useState(null);
 			var [organizeStatus, setOrganizeStatus] = useState(null);
-			var [toolCatalog, setToolCatalog] = useState(null);
 			var [settings, setSettings] = useState(null);
 			var [mcpStatus, setMcpStatus] = useState(null);
 			var [logs, setLogs] = useState(null);
@@ -4322,14 +4132,6 @@ window.__ModuleLoader__.load({
 				});
 			}, [call, notify]);
 
-			// 工具目录是静态的（宿主在插件加载时注册），失败只影响工具栏，
-			// 所以在 Pane 里内联失败态 + 重试，不弹全局 toast。
-			var loadTools = useCallback(function () {
-				return call('tools').then(setToolCatalog).catch(function (error) {
-					setToolCatalog({ error: messageOf(error), tools: [], total: 0 });
-				});
-			}, [call]);
-
 			useEffect(function () {
 				loadOverview();
 				loadDataStatus();
@@ -4376,15 +4178,12 @@ window.__ModuleLoader__.load({
 			}, [tab, loadMcpStatus]);
 
 			useEffect(function () {
-				if (tab !== 'injection') return undefined;
-				call('injection').then(setInjection).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
+				if (tab !== 'preferences') return undefined;
 				// The preferences file lives outside the library and another
 				// session may have edited it; read it whenever the tab opens.
 				call('preferences').then(setPreferences).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
-				// The tool catalog is served by the host, not the library.
-				loadTools();
 				return undefined;
-			}, [tab, call, notify, loadTools]);
+			}, [tab, call, notify]);
 
 			useEffect(function () {
 				if (tab !== 'organize') return undefined;
@@ -4502,7 +4301,7 @@ window.__ModuleLoader__.load({
 				['overview', t('tab.overview')],
 				['graph', t('tab.graph')],
 				['files', t('tab.files')],
-				['injection', t('tab.injection')],
+				['preferences', t('tab.preferences')],
 				['organize', t('tab.organize')],
 				['settings', t('tab.settings')],
 				['logs', t('tab.logs')]
@@ -4606,21 +4405,13 @@ window.__ModuleLoader__.load({
 											}).catch(function (error) { notify(messageOf(error), true); });
 										}
 									})
-									: tab === 'injection'
-										? h(InjectionTab, {
+									: tab === 'preferences'
+										? h(PreferencesPane, {
 											t: t,
-											injection: injection,
 											preferences: preferences,
-											tools: toolCatalog,
 											call: call,
 											notify: notify,
-											onPreferences: setPreferences,
-											onReloadTools: loadTools,
-											onCopy: function (path) {
-												if (typeof navigator !== 'undefined' && navigator.clipboard) {
-													navigator.clipboard.writeText(String(path || '')).then(function () { notify(t('action.copied')); }).catch(function () { notify('复制失败', true); });
-												}
-											}
+											onPreferences: setPreferences
 										})
 										: tab === 'organize'
 											? h(OrganizeTab, {

@@ -28,7 +28,6 @@ import { dataDirPointerPath, readDataDirPointer } from './src/home.js'
 import { createLogSink } from './src/logs.js'
 import { createMcpService, mintToken } from './src/mcp/server.js'
 import { createOrganizer } from './src/organize-jobs.js'
-import { staticSection } from './src/prompt.js'
 import { createZiyanHandler, ENDPOINTS } from './src/remote.js'
 import { SettingsStore } from './src/settings.js'
 import { FileStore } from './src/store.js'
@@ -78,8 +77,8 @@ async function readVersion() {
  * @returns {Promise<object>} The opened root, store and settings (for tests).
  */
 export async function apply(ctx, config) {
-	if (ctx?.tools === undefined || ctx?.systemPrompt === undefined) {
-		throw new Error('dsh-ziyan: tools/systemPrompt services are not available')
+	if (ctx === undefined || ctx === null) {
+		throw new Error('dsh-ziyan: 需要宿主上下文。')
 	}
 	const configured = typeof config?.dataDir === 'string' ? config.dataDir.trim() : ''
 	if (configured !== '' && !isAbsolute(configured)) {
@@ -146,12 +145,10 @@ export async function apply(ctx, config) {
 	if (current.mcp.enabled) {
 		await mcp.start({ port: current.mcp.port, token: settings.get().mcp.token })
 	}
-	disposers.push(ctx.systemPrompt.section({
-		name: 'dsh-ziyan:discipline',
-		order: 900,
-		interpolate: false,
-		text: () => staticSection(),
-	}))
+	// Nothing is injected any more. The panel is the only thing this host
+	// mounts; an agent learns about the library from the `ziyan-evolver` skill
+	// and reaches it with `ziyan`. There is no system-prompt section left to
+	// keep in sync with the tool surface (see DESIGN 36).
 
 	const connection = ctx.get('connection')
 	if (connection !== undefined) {

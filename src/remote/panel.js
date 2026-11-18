@@ -10,7 +10,6 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { readPreferences, writePreferences } from '../preferences.js'
-import { staticSection } from '../prompt.js'
 import { estimateTokens } from '../tokens.js'
 import { dshHome } from './support.js'
 
@@ -141,22 +140,6 @@ export const panelHandlers = {
 	},
 
 	logs: async (payload, { root }) => logTail(root, payload?.limit),
-
-	injection: async () => {
-		// The panel's injection tab shows the one static section the host
-		// registers, sized in estimated tokens (the unit the model budget uses).
-		// There is no runtime index to size, refresh or date.
-		const staticText = staticSection()
-		return { static: staticText, staticTokens: estimateTokens(staticText) }
-	},
-
-	tools: async (_payload, { catalog }) => ({
-		total: catalog.length,
-		// The tool schemas ride on every request too; the page shows their
-		// estimated token share next to the list.
-		tokens: catalog.reduce((sum, tool) => sum + (Number(tool.tokens) || 0), 0),
-		tools: catalog,
-	}),
 
 	preferences: async (_payload, { root }) => readPreferences({ dshHome: dshHome(), dataDir: root }),
 

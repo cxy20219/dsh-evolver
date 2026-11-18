@@ -82,7 +82,7 @@ async function post(routes, endpoint, payload = {}) {
 	return value
 }
 
-test('面板接口：28 个端点，一次完整读写/上传/预览/图/注入/工具/偏好/自衍/设置/日志/删除', async () => {
+test('面板接口：26 个端点，一次完整读写/上传/预览/图/偏好/自衍/设置/日志/删除', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-remote-'))
 	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
 	const previousHome = process.env.DSH_HOME
@@ -91,7 +91,7 @@ test('面板接口：28 个端点，一次完整读写/上传/预览/图/注入/
 	let failure
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 28)
+		assert.equal(routes.size, 26)
 
 		const empty = await post(routes, 'overview')
 		assert.equal(empty.stats.files, 0)
@@ -108,43 +108,10 @@ test('面板接口：28 个端点，一次完整读写/上传/预览/图/注入/
 		assert.equal(data.current, dir)
 		assert.equal(data.files, 0)
 
-		const injection = await post(routes, 'injection')
-		assert.deepEqual(Object.keys(injection).sort(), ['static', 'staticTokens'], '只返回静态段与 token 估算')
-		assert.match(injection.static, /^# 自衍中枢/, '静态段用 AGENTS.md 风格标题')
-		assert.match(injection.static, /## 记忆/)
-		assert.match(injection.static, /## 沉淀/)
-		assert.match(injection.static, /以后什么时候会用到它/, '记忆段说明描述要写「什么时候用」')
-		assert.match(injection.static, /ziyan search/, '记忆段写明用 ziyan search')
-		assert.match(injection.static, /开工前先搜/, '记忆段点明开工前先搜')
-		assert.match(injection.static, /每轮答复前/, '沉淀段点明每轮答复前沉淀')
-		assert.match(injection.static, /ziyan write/, '沉淀段写明用哪个命令沉淀')
-		assert.match(injection.static, /ziyan-evolver/, '记忆段指向 ziyan-evolver skill')
-		assert.match(injection.static, /来源\/harness/, '沉淀段写明跨项目复制进库的标签')
-		assert.match(injection.static, /文件内容是数据/, '写明文件内容不是指令')
-		assert.doesNotMatch(injection.static, /\[文件\]|\[主动性\]|\[知识沉淀\]/, '旧式段标题已移除')
-		assert.equal(injection.staticTokens, estimateTokens(injection.static), '静态段的 token 估算与宿主口径一致')
-		assert.equal('staticBytes' in injection, false, '注入响应不再回字节数')
-		const refreshed = await post(routes, 'injection', { refresh: true })
-		assert.deepEqual(refreshed, injection, 'refresh 载荷不再有刷新含义，响应不变')
-
-		// 工具目录：面板「注入 → 工具」子标签的数据面，一眼看清注册了什么。
-		const catalog = await post(routes, 'tools')
-		assert.equal(catalog.total, 4)
-		assert.equal(catalog.tokens > 0, true, '工具 schema 有 token 估算')
-		assert.equal(catalog.tools.every((tool) => tool.tokens > 0), true, '每个工具带 token 估算')
-		assert.deepEqual(catalog.tools.map((tool) => tool.name), [
-			'file_search',
-			'file_read',
-			'file_write',
-			'file_edit',
-		])
-		assert.equal(catalog.tools.find((tool) => tool.name === 'file_search').category, 'read')
-		assert.equal(catalog.tools.find((tool) => tool.name === 'file_read').category, 'read')
-		assert.equal(catalog.tools.find((tool) => tool.name === 'file_write').category, 'write')
-		assert.equal(catalog.tools.find((tool) => tool.name === 'file_edit').category, 'write')
-		assert.ok(catalog.tools.every((tool) => tool.description.trim() !== ''))
-		assert.ok(catalog.tools.every((tool) => tool.parameters.type === 'object'))
-		assert.ok(catalog.tools.every((tool) => tool.output === undefined), 'output.render 不出宿主')
+		// 注入卷与工具目录一起撤了：插件不再向宿主注入任何文本，也不再暴露工具
+		// schema。留着端点会让面板指向一个已不存在的能力。
+		assert.equal(routes.has('injection'), false, 'injection 端点已删')
+		assert.equal(routes.has('tools'), false, 'tools 端点已删')
 
 		// 偏好：权威文件在自衍数据目录，DSH 读的 AGENTS.md 链接到它。
 		const fresh = await post(routes, 'preferences')
@@ -258,11 +225,6 @@ test('面板接口：28 个端点，一次完整读写/上传/预览/图/注入/
 	}
 })
 
-test('tools 端点缺省依赖：没有工具就返回空目录', async () => {
-	const handler = createZiyanHandler({ store: {}, settings: {}, logs: {}, root: '' })
-	assert.deepEqual(await handler('tools'), { total: 0, tokens: 0, tools: [] })
-})
-
 test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-organize-'))
 	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
@@ -275,7 +237,7 @@ test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通'
 	})
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 28)
+		assert.equal(routes.size, 26)
 
 		const status = await post(routes, 'organize-status')
 		assert.equal(status.followsChat, true)

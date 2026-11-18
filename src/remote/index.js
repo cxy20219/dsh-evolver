@@ -11,7 +11,6 @@
  * a second list that can drift.
  */
 
-import { describeTools } from '../tools.js'
 import { dataHandlers } from './data.js'
 import { filesHandlers } from './files.js'
 import { organizeHandlers } from './organize.js'
@@ -21,7 +20,7 @@ import { panelHandlers } from './panel.js'
  * The endpoint table: endpoint name → `(payload, deps) => Promise<any>`.
  *
  * `deps` is assembled once per registered handler in `createZiyanHandler`:
- * `{store, settings, logs, root, version, data, catalog, organizer}`.
+ * `{store, settings, logs, root, version, data, organizer}`.
  */
 export const HANDLERS = Object.freeze({
 	...filesHandlers,
@@ -36,13 +35,10 @@ export const ENDPOINTS = Object.keys(HANDLERS)
 /**
  * Create the endpoint handler.
  *
- * @param {{store: object, settings: object, logs: object, root: string, version?: string, data?: object, tools?: object[], mcp?: object, organize?: object}} deps - The open store and its satellites; `tools` is what `createTools` returned, `mcp` the endpoint from `createMcpService`, `organize` the engine from `createOrganizer`.
+ * @param {{store: object, settings: object, logs: object, root: string, version?: string, data?: object, mcp?: object, organize?: object}} deps - The open store and its satellites; `mcp` is the endpoint from `createMcpService`, `organize` the engine from `createOrganizer`.
  * @returns {(endpoint: string, payload: object) => Promise<any>} The handler.
  */
-export function createZiyanHandler({ store, settings, logs, root, version = '', data, tools = [], mcp, organize }) {
-	// Described once, at registration: the catalog is static for the life of
-	// the host process, and a missing `tools` dep yields an empty catalog.
-	const catalog = describeTools(tools)
+export function createZiyanHandler({ store, settings, logs, root, version = '', data, mcp, organize }) {
 	const deps = {
 		store,
 		settings,
@@ -50,7 +46,6 @@ export function createZiyanHandler({ store, settings, logs, root, version = '', 
 		root,
 		version,
 		data,
-		catalog,
 		/**
 		 * The MCP endpoint, or a readable refusal when the host did not mount it.
 		 *

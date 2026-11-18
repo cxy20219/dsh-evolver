@@ -23,7 +23,6 @@ import { isFileId } from './ids.js'
 import { OBJECT_OUTPUT, sanitize, summaryOf } from './json.js'
 import { descriptionAdvice } from './meta.js'
 import { isTextMime, isTextual } from './names.js'
-import { estimateTokens } from './tokens.js'
 
 /** The most a project file read returns inline. */
 const PROJECT_READ_BYTES = 256 * 1024
@@ -614,47 +613,3 @@ async function editProjectFile(location, target, resolved, input, meta, hasPatch
 }
 
 
-
-/**
- * What each tool does to the library, for the panel's tool catalog.
- *
- * The panel groups by this instead of parsing descriptions. An unknown tool
- * defaults to `write`: a tool nobody classified more likely changes something
- * than only reads it, and showing a read-only tool as `write` is a harmless
- * conservative error while showing a mutating tool as `read` invites careless
- * use. `file_edit` is a write: its `meta.remove` is the archive-then-delete
- * action, so the only `destructive` classification is gone.
- */
-const TOOL_CATEGORIES = {
-	file_search: 'read',
-	file_read: 'read',
-	file_write: 'write',
-	file_edit: 'write',
-}
-
-/**
- * Describe the tools as a JSON-serializable catalog.
- *
- * The live definitions carry `output.render`, a function that cannot cross the
- * panel API; only `name`, `description`, `parameters` and `category` go out.
- * `tokens` estimates the model-visible schema share (name + description +
- * parameters, the fields a request serializes), so the panel can show what the
- * tool face costs per request.
- * `parameters` is cloned so a panel that edits its copy cannot mutate the
- * registered tools.
- *
- * @param {object[]} [tools] - The registered tools.
- * @returns {{name: string, description: string, parameters: object, category: string, tokens: number}[]} The catalog, in tool order.
- */
-export function describeTools(tools = []) {
-	return tools.map((tool) => {
-		const parameters = sanitize(tool.parameters ?? { type: 'object', properties: {} })
-		return {
-			name: tool.name,
-			description: tool.description,
-			parameters,
-			category: TOOL_CATEGORIES[tool.name] ?? 'write',
-			tokens: estimateTokens(JSON.stringify({ name: tool.name, description: tool.description, parameters })),
-		}
-	})
-}

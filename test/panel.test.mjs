@@ -96,30 +96,6 @@ const ORGANIZE_KEYS = [
 	'organize.job.kind.all',
 ]
 
-/** Locale keys the injection page's three sub-tabs still need. */
-const INJECTION_KEYS = [
-	'injection.tab.prompts',
-	'injection.tab.tools',
-	'injection.tab.preferences',
-	'injection.static',
-	'injection.static.hint',
-	'injection.runtime.removed',
-]
-
-/** Locale keys the tool catalog sub-tab needs. */
-const INJECTION_TOOL_KEYS = [
-	'injection.tools.hint',
-	'injection.tools.read',
-	'injection.tools.write',
-	'injection.tools.destructive',
-	'injection.tools.empty',
-	'injection.tools.failed',
-	'injection.tools.params',
-	'injection.tools.noParams',
-	'injection.tools.required',
-	'injection.tools.retry',
-]
-
 /** Endpoints the new organize page must register. */
 const ORGANIZE_ENDPOINTS = ['digest', 'organize-status', 'organize-save', 'organize-start', 'organize-jobs', 'organize-cancel']
 
@@ -199,8 +175,6 @@ function assertSource(source, pattern, message) {
 test('词典：自衍页三卡与注入页的中英键一一对应', async () => {
 	const dictionaries = await loadDictionaries()
 	assertLocaleKeys(dictionaries, ORGANIZE_KEYS, '整理台')
-	assertLocaleKeys(dictionaries, INJECTION_KEYS, '注入页')
-	assertLocaleKeys(dictionaries, INJECTION_TOOL_KEYS, '工具子标签')
 	assert.deepEqual(
 		Object.keys(dictionaries.zh).sort(),
 		Object.keys(dictionaries.en).sort(),
@@ -221,7 +195,10 @@ test('词典：旧注入快照键、死键已删除，运行时提示中英同�
 		assert.equal(dictionaries.zh[key], undefined, `zh 仍残留死键 ${key}`)
 		assert.equal(dictionaries.en[key], undefined, `en 仍残留死键 ${key}`)
 	}
-	assertLocaleKeys(dictionaries, ['injection.runtime.removed'], '运行时提示')
+	for (const key of ['injection.runtime.removed', 'injection.static', 'injection.tab.prompts']) {
+		assert.equal(dictionaries.zh[key], undefined, `注入卷已删，zh 不该再有 ${key}`)
+		assert.equal(dictionaries.en[key], undefined, `注入卷已删，en 不该再有 ${key}`)
+	}
 })
 
 test('源码契约：整理台只调 organize-* 与 digest，手动维护入口已删除', async () => {
@@ -230,8 +207,12 @@ test('源码契约：整理台只调 organize-* 与 digest，手动维护入口�
 		assert.ok(ENDPOINTS.includes(endpoint), `src/remote.js 的 ENDPOINTS 缺 ${endpoint}`)
 		assertSource(source, new RegExp(`\\bcall\\(\\s*'${endpoint}'`), `client.js 没有注册 call('${endpoint}')`)
 	}
-	// `injection` is still read on tab entry (the panel's only snapshot source).
-	assertSource(source, /\bcall\('injection'\)/, '注入页仍读取 injection')
+	// The injection卷 is gone with the tool face: the plugin injects nothing, so
+	// there is no text to fetch and no tool catalog to show.
+	assert.equal(ENDPOINTS.includes('injection'), false, 'injection 端点已删除')
+	assert.equal(ENDPOINTS.includes('tools'), false, 'tools 端点已删除')
+	assert.doesNotMatch(source, /call\('injection'\)/, '不再读取 injection')
+	assert.doesNotMatch(source, /call\('tools'\)/, '不再读取工具目录')
 	assert.equal(ENDPOINTS.includes('rebuild'), false, 'rebuild 端点已删除')
 
 	// Every manual maintenance action is gone, including the payload flags that
@@ -846,42 +827,6 @@ async function mountPanel(overrides = {}) {
 	return panel
 }
 
-test('注入页提示词：只剩静态段与一句说明，没有预算/索引/快照', async () => {
-	const panel = await mountPanel({
-		injection: { static: '静态纪律：先读 AGENTS.md。', staticTokens: 30 },
-	})
-	try {
-		await click(panel, '注入')
-		const text = textOf(panel.tree())
-		assert.match(text, /静态纪律：先读 AGENTS\.md/, '静态段照旧展示')
-		assert.match(text, /30 tok/, '静态段 token 估算来自 staticTokens')
-		assert.doesNotMatch(text, /\d+ 字节/, '不再显示字节数')
-		assert.match(text, /运行时不再注入/, '说明运行时不再注入索引')
-		assert.match(text, /按描述/, '说明 agent 需要文件时自己按描述搜')
-		assert.match(text, /项目自己/, '说明项目约定由项目自己管理，插件不再托管')
-		// 新提示用「不再注入文件索引」点名被移除的东西；除这一句外，提示词栏
-		// 不应再有任何索引/快照/预算相关文案。
-		const notice = '运行时不再注入文件索引'
-		assert.ok(text.includes(notice), '出现「运行时不再注入」提示')
-		assert.doesNotMatch(text.replace(notice, ''), /文件索引/, '除说明外不再出现文件索引文案')
-		assert.doesNotMatch(text, /运行时上下文/, '不再有「运行时上下文」分栏')
-		assert.doesNotMatch(text, /快照/, '不再有快照信息')
-		assert.doesNotMatch(text, /预算/, '不再有预算文案')
-		assert.doesNotMatch(text, /\d+ \/ \d+ B/, '不再有预算条读数')
-		const meters = []
-		walk(panel.tree(), (node) => {
-			if (node.props && typeof node.props.className === 'string' && node.props.className.indexOf('ysMeter') !== -1) meters.push(node)
-		})
-		assert.deepEqual(meters, [], '不再渲染预算条')
-		assert.equal(findButton(panel.tree(), '重建快照'), undefined, '不再有重建快照按钮')
-		const injection = panel.calls.filter((item) => item.endpoint === 'injection').pop()
-		assert.ok(injection !== undefined, '面板读取 injection')
-		assert.equal(injection.payload.refresh, undefined, '不再传 refresh:true')
-	} finally {
-		panel.dispose()
-	}
-})
-
 test('设置页：不再有注入预算字段，保存只带三项限额', async () => {
 	const settings = { dataDir: 'C:\\ziyan', descriptionMaxChars: 160, maxFileBytes: 25 * 1024 * 1024, readTextBytes: 256 * 1024 }
 	const panel = await mountPanel({
@@ -900,25 +845,6 @@ test('设置页：不再有注入预算字段，保存只带三项限额', async
 			maxFileBytes: 25 * 1024 * 1024,
 			readTextBytes: 256 * 1024,
 		})
-	} finally {
-		panel.dispose()
-	}
-})
-
-test('注入页工具子标签仍展示分类与参数折叠', async () => {
-	const panel = await mountPanel()
-	try {
-		await click(panel, '注入')
-		await click(panel, '工具')
-		let text = textOf(panel.tree())
-		assert.match(text, /file_search/)
-		assert.match(text, /只读/)
-		assert.match(text, /每轮请求约 120 tok/, '工具 schema 的 token 估算来自 tools.tokens')
-		assert.doesNotMatch(text, /检索词/, '参数默认折叠')
-		await click(panel, '1 个参数')
-		text = textOf(panel.tree())
-		assert.match(text, /检索词/, '展开后显示参数说明')
-		assert.match(text, /约 120 tok/, '工具卡显示自身 token 估算')
 	} finally {
 		panel.dispose()
 	}
