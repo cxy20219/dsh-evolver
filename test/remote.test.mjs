@@ -82,7 +82,7 @@ async function post(routes, endpoint, payload = {}) {
 	return value
 }
 
-test('面板接口：27 个端点，一次完整读写/上传/预览/图/偏好/自衍/设置/日志/删除', async () => {
+test('面板接口：25 个端点，一次完整读写/上传/预览/图/自衍/设置/日志/删除', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-remote-'))
 	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
 	const previousHome = process.env.DSH_HOME
@@ -91,7 +91,7 @@ test('面板接口：27 个端点，一次完整读写/上传/预览/图/偏好/
 	let failure
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 27)
+		assert.equal(routes.size, 25)
 
 		const empty = await post(routes, 'overview')
 		assert.equal(empty.stats.files, 0)
@@ -113,21 +113,10 @@ test('面板接口：27 个端点，一次完整读写/上传/预览/图/偏好/
 		assert.equal(routes.has('injection'), false, 'injection 端点已删')
 		assert.equal(routes.has('tools'), false, 'tools 端点已删')
 
-		// 偏好：权威文件在自衍数据目录，DSH 读的 AGENTS.md 链接到它。
-		const fresh = await post(routes, 'preferences')
-		assert.equal(fresh.exists, true)
-		assert.equal(fresh.content, '')
-		assert.equal(fresh.path, join(dir, 'system', 'AGENTS.md'), '数据文件在自衍数据目录')
-		assert.equal(fresh.agentsPath, join(home, 'AGENTS.md'), 'DSH 读取入口在 DSH home')
-		assert.ok(fresh.mode === 'link' || fresh.mode === 'copy', 'AGENTS.md 与数据文件已对齐')
-		assert.equal('hasBlock' in fresh, false, '不再有受管段概念')
-		const savedPreferences = await post(routes, 'preferences-save', { content: '- 先读再改' })
-		assert.equal(savedPreferences.content, '- 先读再改')
-		const reread = await post(routes, 'preferences')
-		assert.equal(reread.content, '- 先读再改')
-		const agentsInfo = await lstat(join(home, 'AGENTS.md'))
-		assert.equal(agentsInfo.isSymbolicLink(), fresh.mode === 'link', '软链能力与报告的 mode 一致')
-		assert.equal(await readFile(join(home, 'AGENTS.md'), 'utf8'), '- 先读再改\n', 'DSH 读到的就是保存的内容')
+		// 偏好的编辑入口交给管理器插件了；这里只确认端点真的没了，别让面板
+		// 继续指向一个已迁走的责任。
+		assert.equal(routes.has('preferences'), false, 'preferences 端点已删')
+		assert.equal(routes.has('preferences-save'), false, 'preferences-save 端点已删')
 
 		const digest = await post(routes, 'digest')
 		assert.deepEqual(digest.sessions, [])
@@ -240,7 +229,7 @@ test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通'
 	})
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 27)
+		assert.equal(routes.size, 25)
 
 		const status = await post(routes, 'organize-status')
 		assert.equal(status.followsChat, true)

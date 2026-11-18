@@ -35,20 +35,8 @@ window.__ModuleLoader__.load({
 			'tab.files': '文件',
 			'tab.graph': '图谱',
 			'tab.organize': '自衍',
-			'tab.preferences': '偏好',
 			'tab.settings': '设置',
 			'tab.logs': '日志',
-			'preferences.hint': '这里编辑的是 DSH 全局 AGENTS.md 全文：数据统一存在自衍中枢数据目录，DSH 读的 AGENTS.md 链接到它；改这里就是改每个会话开始时注入的规则。',
-			'preferences.file': '数据文件',
-			'preferences.link': 'DSH 读取：{agents}',
-			'preferences.mode.link': '已软链到数据文件，改这里等于改 DSH 读到的内容。',
-			'preferences.mode.copy': '不能建软链，已退化为两边同步写：数据文件与 DSH 的 AGENTS.md 保持同一份内容。',
-			'preferences.unreadable': '偏好文件读取失败，为避免覆盖原文件，保存已禁用；请检查文件权限后刷新。',
-			'preferences.dirty': '未保存',
-			'preferences.size': '约 {tokens} tok · 字节 {bytes} / {cap}',
-			'preferences.reset': '撤销修改',
-			'preferences.save': '保存',
-			'preferences.saved': '偏好已保存',
 			'organize.hint': '整理由 agent 作业在会话外运行：作业读会话或库，自己决定写什么。这里只负责选模型、开关自动整理；结果在「最近作业」子标签；注入只有一段静态纪律，不再注入文件索引。',
 			'organize.tab.workbench': '整理台',
 			'organize.tab.prompts': '提示词',
@@ -253,17 +241,6 @@ window.__ModuleLoader__.load({
 			'tab.organize': 'Organize',
 			'tab.settings': 'Settings',
 			'tab.logs': 'Logs',
-			'preferences.hint': 'This edits the whole DSH global AGENTS.md. The data lives in the 自衍中枢 data directory; the AGENTS.md DSH reads links to it, so changes here are what every session is injected with.',
-			'preferences.file': 'Data file',
-			'preferences.link': 'Read by DSH: {agents}',
-			'preferences.mode.link': 'It is symlinked to the data file, so editing here edits what DSH reads.',
-			'preferences.mode.copy': 'Symlinks are unavailable, so the data file and the DSH AGENTS.md are kept in sync as two copies.',
-			'preferences.unreadable': 'The preferences file could not be read. Saving is disabled so the original is not overwritten; check the file permissions and refresh.',
-			'preferences.dirty': 'unsaved',
-			'preferences.size': '≈ {tokens} tok · {bytes} / {cap} bytes',
-			'preferences.reset': 'Discard changes',
-			'preferences.save': 'Save',
-			'preferences.saved': 'Preferences saved',
 			'organize.hint': 'Organize jobs run outside the chat: the agent reads sessions or the library and decides what to write. This page only picks the model and toggles the schedule; results live in the "Recent jobs" sub-tab. Injection is just the static discipline section, with no file index.',
 			'organize.tab.workbench': 'Workbench',
 			'organize.tab.prompts': 'Prompts',
@@ -3121,89 +3098,6 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * 偏好栏：编辑 `~/.dsh/AGENTS.md` 里插件维护的那一段。
-		 *
-		 * 偏好栏：编辑 DSH 全局 AGENTS.md 的全文。
-		 *
-		 * 数据统一存在自衍中枢数据目录（system/AGENTS.md）；DSH 读的
-		 * `~/.dsh/AGENTS.md` 链接到它（不能建链接时两边同步写），所以这里显示
-		 * 的就是每个会话实际注入的规则。读失败时禁用保存，免得把空串写回去
-		 * 把用户的规则清空。
-		 */
-		function PreferencesPane(props) {
-			var t = props.t;
-			var preferences = props.preferences;
-			var [draft, setDraft] = useState('');
-			var [busy, setBusy] = useState(false);
-			var [loadedAt, setLoadedAt] = useState('');
-			useEffect(function () {
-				if (preferences === null || preferences === undefined) return;
-				setDraft(String(preferences.content ?? ''));
-				setLoadedAt(String(preferences.content ?? ''));
-			}, [preferences]);
-			if (preferences === null || preferences === undefined) return h('div', { className: 'ysEmpty' }, t('state.loading'));
-			var dirty = draft !== loadedAt;
-			var cap = Number(preferences.cap) || 0;
-			var bytes = typeof TextEncoder === 'function' ? new TextEncoder().encode(draft).length : draft.length;
-			var tokens = estimateTokens(draft);
-			var overCap = cap > 0 && bytes > cap;
-			function save() {
-				setBusy(true);
-				props.call('preferences-save', { content: draft }).then(function (value) {
-					props.onPreferences(value);
-					setDraft(String(value.content ?? ''));
-					setLoadedAt(String(value.content ?? ''));
-					props.notify(t('preferences.saved'));
-				}).catch(function (error) {
-					props.notify(messageOf(error), true);
-				}).then(function () { setBusy(false); });
-			}
-			return h('div', null,
-				h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.hint')),
-				h('div', { className: 'ysField' },
-					h('label', { className: 'ysLabel' }, t('preferences.file')),
-					h('div', { style: { display: 'flex', gap: 6, alignItems: 'center' } },
-						h('code', { style: { fontSize: 11, wordBreak: 'break-all', flex: 1 } }, preferences.path || ''),
-						h('button', { className: 'ysButton', onClick: function () { props.onCopy(preferences.path); } }, t('action.copy')))),
-				h('div', { className: 'ysHint', style: { marginBottom: 8 } },
-					t('preferences.link').replace('{agents}', String(preferences.agentsPath || ''))),
-				preferences.mode === 'link'
-					? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.mode.link'))
-					: preferences.mode === 'copy'
-						? h('div', { className: 'ysHint', style: { marginBottom: 8 } }, t('preferences.mode.copy'))
-						: null,
-				preferences.readable === false
-					? h('div', { className: 'ysIssue' }, t('preferences.unreadable'))
-					: null,
-				h('textarea', {
-					className: 'ysTextarea',
-					rows: 18,
-					style: { fontFamily: 'var(--dsw-font-family-mono,ui-monospace,monospace)', fontSize: 12, lineHeight: '18px' },
-					value: draft,
-					disabled: preferences.readable === false,
-					onChange: function (event) { setDraft(event.target.value); }
-				}),
-				h('div', { className: 'ysActions', style: { justifyContent: 'space-between' } },
-					h('span', { className: 'ysHint' },
-						t('preferences.size')
-							.replace('{tokens}', String(tokens))
-							.replace('{bytes}', String(bytes))
-							.replace('{cap}', String(cap))
-						+ (dirty ? ' · ' + t('preferences.dirty') : '')),
-					h('span', { style: { display: 'flex', gap: 8 } },
-						h('button', {
-							className: 'ysButton',
-							disabled: !dirty,
-							onClick: function () { setDraft(loadedAt); }
-						}, t('preferences.reset')),
-						h('button', {
-							className: 'ysButton ysButtonPrimary',
-							disabled: busy || !dirty || overCap || preferences.readable === false,
-							onClick: save
-						}, t('preferences.save')))));
-		}
-
-		/**
 		 * 自衍页：整理台 / 最近作业 / 提示词三个子标签。
 		 *
 		 * 整理台保持旧 evolver 的三卡形态（模型、会话整理、文件整理），只负责
@@ -4132,7 +4026,6 @@ window.__ModuleLoader__.load({
 			var [draft, setDraft] = useState(null);
 			var [preview, setPreview] = useState(null);
 			var [graph, setGraph] = useState(null);
-			var [preferences, setPreferences] = useState(null);
 			var [digest, setDigest] = useState(null);
 			var [organizeStatus, setOrganizeStatus] = useState(null);
 			var [settings, setSettings] = useState(null);
@@ -4291,14 +4184,6 @@ window.__ModuleLoader__.load({
 			}, [tab, loadMcpStatus]);
 
 			useEffect(function () {
-				if (tab !== 'preferences') return undefined;
-				// The preferences file lives outside the library and another
-				// session may have edited it; read it whenever the tab opens.
-				call('preferences').then(setPreferences).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
-				return undefined;
-			}, [tab, call, notify]);
-
-			useEffect(function () {
 				if (tab !== 'organize') return undefined;
 				call('digest').then(setDigest).catch(function (error) { setLoadError(messageOf(error)); notify(messageOf(error), true); });
 				loadOrganizeStatus();
@@ -4414,7 +4299,6 @@ window.__ModuleLoader__.load({
 				['overview', t('tab.overview')],
 				['graph', t('tab.graph')],
 				['files', t('tab.files')],
-				['preferences', t('tab.preferences')],
 				['organize', t('tab.organize')],
 				['settings', t('tab.settings')],
 				['logs', t('tab.logs')]
@@ -4518,14 +4402,6 @@ window.__ModuleLoader__.load({
 											}).catch(function (error) { notify(messageOf(error), true); });
 										}
 									})
-									: tab === 'preferences'
-										? h(PreferencesPane, {
-											t: t,
-											preferences: preferences,
-											call: call,
-											notify: notify,
-											onPreferences: setPreferences
-										})
 										: tab === 'organize'
 											? h(OrganizeTab, {
 												t: t,

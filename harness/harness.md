@@ -23,7 +23,7 @@ DSH 插件：**一切皆文件**的知识库。每个文件是一等实体（唯
 | `src/remote/` | 面板接口：`index.js` 的 `HANDLERS` 表 → `ENDPOINTS` 派生 + dispatch；`files.js`/`panel.js`/`organize.js`/`data.js` 四个域模块；`src/remote.js` 是薄 re-export（保持旧 import 路径） |
 | `src/organize/` | 会话外整理引擎：`index.js` 组装 `createOrganizer`，`budget.js`（预算/记账）、`prompts.js`、`loop.js`（工具循环）、`jobs-store.js`（作业落盘/台账）、`scheduler.js`（自动调度）、`executor.js`（作业执行/状态）；`src/organize-jobs.js` 是薄 re-export |
 | `src/json.js` | `render`/`OBJECT_OUTPUT`/`sanitize`/`summaryOf`，四个工具共用 |
-| `src/` | `store.js`（边车 + 索引）、`db.js`（SQLite schema 3 + FTS rowid/部分索引）、`ids.js`（增量短 id）、`day.js`、`preferences.js`、`tools.js`、`prompt.js`、`sessions.js`、`organize.js`（模型选择/目录）、`archive.js`、`data-jobs.js`、`home.js` 等 |
+| `src/` | `store.js`（边车 + 索引）、`db.js`（SQLite schema 3 + FTS rowid/部分索引）、`ids.js`（增量短 id）、`day.js`、`llm/openai.js`（模型路由）、`tools.js`、`sessions.js`、`organize.js`（模型选择/目录）、`archive.js`、`data-jobs.js`、`home.js` 等 |
 | `test/` | `node --test`（全量，213 条） |
 | `scripts/` | `bench.mjs` / `seed-demo.mjs`（合成测试库）/ `scale.mjs`（10k/100k 真实 FS + 1M 合成规模基准）/ `stress.mjs`（并发/崩溃/泄漏压测） |
 | `harness/` | 本项目的长期记忆：流程、经验、脚本、资料。**插件不再托管它**：没有边车、没有生成的索引、没有校验，写进去就是普通文件。项目根的 `AGENTS.md` 由本项目自己维护 |
@@ -60,10 +60,10 @@ dsh --profile ziyan --patch .scratch/verify-patch.yml --no-open --port 0   # std
 - **FTS 必须用 rowid**：`files_fts.id` 是 UNINDEXED，按 id 删除会全表扫描（单写 O(N)、rebuild O(N²)，1M 冷建曾外推 ~60h）。写/删按 `rowid`（= files.rowid），rebuild 走一条 `INSERT ... SELECT`；`test/store.test.mjs` 守 rowid 一致。
 - **派生冗余列由写路径维护**：`tags.archived`、`files.suffix/created_day`、`linked_ids` 是为 100k/1M 聚合准备的覆盖索引数据，写文件时必须同步更新；schema 版本（`INDEX_SCHEMA`）变更 = 不匹配的旧库会被隔离并从边车重建，不需要写迁移代码。
 - **不注入运行时索引**：宿主只注册一段静止的 `systemPrompt.section`（`dsh-ziyan:discipline`），**没有** `systemPrompt.context`、没有每日文件索引快照、没有 `system/index.json`、没有注入预算。agent 需要文件时自己 `ziyan search` 按描述/标签/links 搜。不要再引入 context/快照/预算机制。
-- **注入规模按 token 估算显示**：`src/tokens.js` 的口径是 CJK/全角约 1 字 1 tok、其余约 4 字符 1 tok（`client.js` 内有同口径 `estimateTokens` 给偏好草稿实时估算）。静态段、整理提示词、工具 schema、偏好草稿都显示 token 估算，不再回字节数；`injection` 端点返回 `staticTokens`，`organize-prompts` 每段返回 `tokens`，`describeTools` 每个工具带 `tokens`。这是预算展示，不是计费数字，不要把它当真 tokenizer。
+- **注入规模按 token 估算显示**：`src/tokens.js` 的口径是 CJK/全角约 1 字 1 tok、其余约 4 字符 1 tok。整理提示词与模型调用预算都用这个口径；`organize-prompts` 每段返回 `tokens`。这是预算展示，不是计费数字，不要把它当真 tokenizer。
 - **静态注入按全局 AGENTS.md 的风格写**：`src/prompt.js` 只有一段 `# 自衍中枢`，下分 `## 记忆` / `## 沉淀`，短 bullet、一条一个规则；不重复工具描述里的参数，也不重复全局 AGENTS.md 的通用原则（思考/执行/交付）。两个动作要写成**带命令名的可执行指令**：`## 记忆` 的「开工前先搜」（`ziyan search` → `ziyan read`）、`## 沉淀` 的「每轮答复前问一句…值得就用 `ziyan write` 沉淀」（项目内写项目自己的目录、跨项目进库、不值得就跳过）。改静态段要同步 `test/plugin.test.mjs` 与 `test/remote.test.mjs` 的断言和 README/DESIGN 的段名引用。
 - **派生缓存要带 SQLite data_version**：`FileStore.stats()` / `tagCounts()` 的缓存 key 是 `db.version + db.dataVersion()`。`db.version` 只统计本连接写入；外部维护脚本、第二实例写同一个数据目录时，靠 `PRAGMA data_version`（别的连接提交时递增）失效。新增缓存不要只 key 在 `db.version` 上。
-- **全局偏好统一存数据目录**：`~/.dsh/AGENTS.md` 只是 DSH 的注入入口，权威文件是 `<dataDir>/system/AGENTS.md`；`readPreferences`/`writePreferences` 负责把入口软链到权威文件（无建链权限时退化为两边双写，**双写时入口必须与权威文件同内容**——入口就是 DSH 真正注入的那份）。首次接管迁移现有全文、只删旧 ziyan 段标记行、旧目标不删；面板编辑的是**整份 AGENTS.md**，不再有受管段概念。读失败必须标 `readable:false` 并禁用保存，不能把空串写回。
+- **全局 AGENTS.md 不归本插件管**：编辑入口已交给管理器插件（`~/.dsh/AGENTS.md` 指向 `~/.dsh/manager/system/AGENTS.md`）。自衍中枢不再提供偏好页签与 `preferences*` 端点；`src/preferences.js` 已删除。**不要再把这份文件的读写加回来**——两份插件同时维护同一个注入入口只会互相覆盖。
 - **动词只有四个，出口有三个，工具面为零**：search / read / write / edit 由 `src/tools.js` 实现，CLI（`bin/ziyan.mjs`）、MCP、面板共用同一份。**不再向 DSH 注册工具**——常驻请求里只剩那段注入，动词靠 `ziyan-evolver` skill 按需加载。新增能力优先扩展现有 `target`/`meta` 语义，不加第五个动词，也不要把注册加回去：注册一次就是每轮一次 ~1200 tok。
 - **工具描述是模型唯一的能力面**：能力写进实现还不够，必须在工具描述里写出「目标 × 能力」矩阵（例如 old+new 对库文件和项目文件都适用）；描述没露出的能力等于不存在，模型会退回整篇重写或绕道 bash/python。报错文案要给下一步动作，不要只陈述限制——只说限制的那句会把模型推去自创旁路。
 - **安全边界（审计后新增）**：项目路径操作允许从会话 cwd 上溯到项目根（`isWithin` realpath 判定），越出项目根拒绝；`ziyan write --from` 绝对路径导入允许读宿主文件但先 stat/realpath/isFile/大小预检，拒绝目录/设备/管道/越界符号链接（H-2 OOM 防护）；`meta.json` 保留名必须拒绝（`isReservedName`）；导入归档的 settings 只采纳 limits，`organize.auto` 强制关、`organize.model` 用本机。
@@ -93,5 +93,4 @@ dsh --profile ziyan --patch .scratch/verify-patch.yml --no-open --port 0   # std
 - `harness/experience/library-scope-decoupled-from-projects.md`：为什么把项目 harness 从自衍中枢里解耦出去、解耦前后各失去什么、以后别再把它加回来。
 - `harness/experience/parallel-sessions-one-repo.md`：同一仓库并行会话的认知分叉与隔离做法。
 - `harness/experience/contract-change-by-options.md`：契约与提示词改动先给选项再动手的协作规矩。
-- `harness/experience/preferences-copy-mode.md`：偏好的双写模式——入口与权威文件必须同内容，含修法与测试缝。
 - `harness/tool/verify-repo.mjs`：一条命令跑完全量语法与全量测试的自检闸门。

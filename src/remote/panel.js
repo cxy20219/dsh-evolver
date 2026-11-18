@@ -1,6 +1,8 @@
 /**
- * The panel endpoints: overview, graph, settings, logs, injection, tools and
- * the global preferences block.
+ * The panel endpoints: overview, graph, settings, logs and the organize page.
+ *
+ * Editing `~/.dsh/AGENTS.md` used to live here too; it belongs to the manager
+ * plugin now, which owns the global instruction file for the whole profile.
  *
  * These read the store's aggregate views and the host-side settings; the
  * organize page gets its own data from the organize endpoints, not from here.
@@ -9,8 +11,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { readPreferences, writePreferences } from '../preferences.js'
-import { estimateTokens } from '../tokens.js'
 import { dshHome } from './support.js'
 
 /**
@@ -170,7 +170,4 @@ export const panelHandlers = {
 
 	logs: async (payload, { root }) => logTail(root, payload?.limit),
 
-	preferences: async (_payload, { root }) => readPreferences({ dshHome: dshHome(), dataDir: root }),
-
-	'preferences-save': async (payload, { root }) => writePreferences({ dshHome: dshHome(), dataDir: root }, payload?.content),
 }
