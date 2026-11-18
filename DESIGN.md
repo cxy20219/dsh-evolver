@@ -879,3 +879,48 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 - 真实库副本端到端：从文件里挑 3 个「描述里没有、正文里有」的词检索，3/3 命中目标文件。
 - 注入段与工具描述的文案同步改口径；`test/plugin.test.mjs`、`test/remote.test.mjs` 的断言跟着改。
 - 全量 `node harness/tool/verify-repo.mjs`：187 用例 / 187 通过 / 0 失败，187/187 文件语法通过。
+
+## 35. 独立桌面版：装配层替换，核心不动（2026-11-18）
+
+目标变了：从「DSH 插件」变成「可安装的桌面应用，自带 agent 内核，多设备同步」。第一步只做外壳，验证「同一套库能在没有 DSH 的进程里跑起来」。
+
+### 35.1 关键发现：核心本来就没耦合
+
+`src/` 下 38 个模块，**依赖 DSH `ctx` 的有 0 个**。宿主依赖只在两处：
+
+| 文件 | 角色 |
+|---|---|
+| `index.js`（261 行） | 装配：开库、接卫星、把工具/注入/端点注册给 DSH |
+| `client.js`（4,714 行） | 前端：通过 `__ModuleLoader__` 拿 slots / locale / connection |
+
+`createZiyanHandler` 是纯函数 `(endpoint, payload) => Promise`，`FileStore` 只吃一个 `dataDir`。所以「解耦」不是重写，是**再写一个装配层**。
+
+### 35.2 新增的三个文件
+
+| 文件 | 顶替了什么 |
+|---|---|
+| `desktop/server.js` | `index.js` 的装配 + DSH 的 `connection.fetch`。loopback HTTP，同时伺服 JSON API 与浏览器半边 |
+| `desktop/renderer/shim.js` | DSH 的 client host：`__ModuleLoader__`、`slots`、`locale`、`connection`。**它决定组件渲染在哪，不决定数据是什么** |
+| `desktop/main.cjs` | Electron 窗口。CommonJS 是硬要求，见 §35.3 |
+
+`client.js` **一行没改**。
+
+### 35.3 三个环境陷阱（详版见 `harness/experience/electron-inside-a-host.md`）
+
+1. **`ELECTRON_RUN_AS_NODE=1`**：宿主注入的环境变量让 Electron 退化为纯 Node，不注入内置模块，`--version` 输出 Node 版本。必须 `env -u`。
+2. **ESM 具名导入不成立**：`import { app } from 'electron'` 解析失败；npm 包导出的是路径字符串。主进程必须 CJS，ESM 业务模块用动态 `import()`。
+3. **Chromium 沙箱与宿主文件沙箱冲突**：受限环境需要 `--no-sandbox`；发布给终端时不能带。
+
+### 35.4 验证
+
+- 真实 165 文件库副本：七个页签全部渲染，概览无报错，搜索返回结果，标签树正常；Electron 窗口截图确认是真实面板。
+- `test/desktop.test.mjs` 7 个用例：实际绑定端口、路径穿越拒绝、未知端点/坏 JSON 是 400 而非 500、关闭后端口可重绑、相对 dataDir 拒绝、**删掉索引后从文件夹重建**（多设备场景）。
+- 闸门：192 个文件语法通过，194 个用例通过。
+
+### 35.5 还没接
+
+整理引擎（需要 LLM）、工具注册（这个进程不是 agent）、系统提示注入。三者都是**明确拒绝**而不是假装可用：`organize-*` 端点返回「整理引擎不可用：宿主装配没有提供 organize 依赖」。
+
+### 35.6 下一阶段的前提
+
+`system/`（含 `ziyan.db`）**必须排除在任何同步之外**——SQLite 在同步盘上多设备同时打开会损坏，而索引重建只要 25 ms，所以每台设备各建各的。库目录结构见 `desktop/README.md`。
