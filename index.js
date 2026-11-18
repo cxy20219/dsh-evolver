@@ -74,7 +74,7 @@ async function readVersion() {
  *
  * @param {object} ctx - The Cordis context.
  * @param {object} [config] - The composition config (`dataDir`).
- * @returns {Promise<object>} The opened root, store and settings (for tests).
+ * @returns {Promise<void>} Resolves once the plugin is mounted.
  */
 export async function apply(ctx, config) {
 	if (ctx === undefined || ctx === null) {
@@ -212,8 +212,10 @@ export async function apply(ctx, config) {
 		})()
 	}, 'dsh-ziyan: resources')
 
-	// The JSDoc above promises these and the tests use them; the panel and the
-	// CLI read the same store, so handing it back is also the cheapest way to
-	// prove the assembly wired one library rather than three.
-	return { root, store, settings, tools }
+	// Deliberately returns nothing. A cordis plugin function's return value is
+	// treated as an effect, and only a function (cleanup), null/undefined, a
+	// thenable or an iterator are valid — a plain object throws `Invalid
+	// effect`, which fails the load and rolls back every registration. Handing
+	// { root, store } back to a caller cost the panel all 26 routes once; the
+	// tests assert against the disk and the registrations instead.
 }

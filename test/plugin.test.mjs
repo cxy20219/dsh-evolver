@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { apply, resolveDshHome } from '../index.js'
+import { FileStore } from '../src/store.js'
+import { createTools } from '../src/tools.js'
 import { removeDir } from './helpers.mjs'
 
 /**
@@ -79,7 +81,7 @@ test('apply：所有数据在一个目录，不注册任何工具，只有一段
 	await withHome(async (home) => {
 		const { ctx, tools, sections, contexts, effects } = fakeContext()
 		const root = join(home, 'ziyan')
-		const applied = await apply(ctx, {})
+		await apply(ctx, {})
 		assert.equal(root, join(home, 'ziyan'))
 		assert.equal(resolveDshHome(), home)
 
@@ -87,7 +89,8 @@ test('apply：所有数据在一个目录，不注册任何工具，只有一段
 		// 常驻上下文里只剩这段注入。四个动词仍由 `tools` 提供，读者是面板与
 		// MCP，不是宿主。
 		assert.equal(tools.length, 0, '不向宿主注册工具')
-		assert.deepEqual(applied.tools.map((tool) => tool.name).sort(), [
+		// 四个动词仍在 createTools 里，读者是 CLI、MCP 与面板，不是宿主。
+		assert.deepEqual(createTools({ paths: async () => ({}) }).map((tool) => tool.name).sort(), [
 			'file_edit',
 			'file_read',
 			'file_search',
@@ -95,14 +98,6 @@ test('apply：所有数据在一个目录，不注册任何工具，只有一段
 		])
 		assert.equal(sections.length, 0, '不再向宿主注入任何文本')
 		assert.equal(contexts.length, 0, '不再注册运行时上下文')
-
-		const file = await applied.store.create({
-			content: '正文',
-			name: 'plugin.md',
-			description: '插件装配测试：一个数据目录',
-			tags: ['测试/插件'],
-		})
-		assert.match(file.id, /^file-/)
 
 		await assert.rejects(
 			() => readFile(join(root, 'system', 'index.json'), 'utf8'),
@@ -120,6 +115,18 @@ test('apply：所有数据在一个目录，不注册任何工具，只有一段
 
 		const disposer = await effects[0]()
 		await disposer()
+
+		// 装配关掉之后，同一目录仍是一份可用的库：这是 panal/CLI 会看到的东西。
+		const store = new FileStore({ dataDir: root })
+		await store.open()
+		const file = await store.create({
+			content: '正文',
+			name: 'plugin.md',
+			description: '插件装配测试：一个数据目录',
+			tags: ['测试/插件'],
+		})
+		assert.match(file.id, /^file-/)
+		store.close()
 		const log = await readFile(join(root, 'system', 'logs', 'plugin.log'), 'utf8')
 		assert.match(log, /数据目录/)
 	})
@@ -143,17 +150,20 @@ test('apply：坏 DB 不让插件加载失败——隔离坏库、从边车重�
 			// 注入段照常注册，插件没有因为索引坏掉而拒绝加载；工具本来就不再注册。
 			assert.equal(tools.length, 0)
 			assert.equal(sections.length, 0, '注入已撤，坏库也不影响这一点')
-			const written = await applied.store.create({
+			const dispose = await effects[0]()
+			await dispose()
+			const store = new FileStore({ dataDir: dir })
+			await store.open()
+			const written = await store.create({
 				content: 'ok',
 				name: 'after-corrupt.md',
 				description: '坏库恢复后仍能写入的文件',
 				tags: ['测试/坏库'],
 			})
+			store.close()
 			assert.match(written.id, /^file-/)
 			const system = await readdir(join(dir, 'system'))
 			assert.ok(system.some((name) => name.startsWith('ziyan.db.corrupt-')), '坏库以新名保留')
-			const dispose = await effects[0]()
-			await dispose()
 		} finally {
 			await removeDir(dir)
 		}
