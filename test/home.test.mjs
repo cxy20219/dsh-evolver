@@ -48,7 +48,7 @@ test('apply 读取指针目录，而不是默认目录', async () => {
 			effect(effect) { effects.push(effect); return () => {} },
 		}
 		await apply(ctx, {})
-		assert.equal(tools.length, 4)
+		assert.equal(tools.length, 0, '工具不再注册给宿主')
 		assert.match(await readFile(join(pointed, 'system', 'settings.json'), 'utf8'), /descriptionMaxChars/)
 		assert.ok(effects.length > 0)
 		// `ctx.effect` stores the callback; calling it once hands back the

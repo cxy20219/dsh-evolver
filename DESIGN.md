@@ -924,3 +924,48 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_versio
 ### 35.6 下一阶段的前提
 
 `system/`（含 `ziyan.db`）**必须排除在任何同步之外**——SQLite 在同步盘上多设备同时打开会损坏，而索引重建只要 25 ms，所以每台设备各建各的。库目录结构见 `desktop/README.md`。
+
+## 36. 工具面归零：动词由 CLI 与 skill 承载（2026-11-18）
+
+用户决策：**不再为 DSH 注册工具**，把工具也解耦出去，改为提供一个 `ziyan-evolver` skill（与 `harness-evolver` 并列）。
+
+### 36.1 为什么
+
+四个工具的描述常驻在每一轮请求里，实测 **1,214 tok**。这是「能力可见性」的代价：不写清楚，模型就用错或绕道；写了，就等于每个请求都为四个动词付一次税。而 agent 真正需要这四个动词的时刻很少——大部分轮次根本不碰库。
+
+Pi 的答案已经论证过：CLI + README 是**按需付费**，工具 schema 是**按轮订阅**。
+
+### 36.2 改成什么
+
+| 出口 | 读者 | 成本 |
+|---|---|---|
+| `bin/ziyan.mjs` | 任何有 shell 的 agent | **0 常驻**，用到时才读 help |
+| `skill/ziyan-evolver/SKILL.md` | 需要知道「何时、怎么写」的 agent | 0，skill 按需加载 |
+| MCP | 原生支持 MCP 的客户端 | 各自客户端的成本 |
+| 面板 28 端点 | 人 | 不进入模型 |
+
+**一份实现，三个出口**：`src/tools.js` 的四个动词仍被 CLI、MCP、面板共用，所以行为不会各自漂移。
+
+### 36.3 注入段跟着改口径
+
+工具没了，"用 `file_search` 搜"就是错的。注入段改成 `ziyan search` / `ziyan read` / `ziyan write`，并指向 `ziyan-evolver` skill 取细节。这是注入段与能力面必须同时改的又一例（参见 §30）。
+
+### 36.4 删掉的东西
+
+- `ctx.tools.register` 调用与 `pathsOf`/`cwdFor`/`projectCache`（约 40 行）——项目路径解析随工具一起消失。
+- `test/plugin.test.mjs` 三个项目路径用例、`home.test.mjs` 的「注册 4 个工具」断言。
+- 注入段里的 `file_*` 全部换成 `ziyan *`。
+
+`apply` 现在返回 `{root, store, settings, tools}`——JSDoc 早就这么承诺，实现一直没做，这次补上了。
+
+### 36.5 验证
+
+- `test/cli.test.mjs` 11 个用例，跑真实进程：退出码、stderr 归属、`--json` 可解析、缺 `--desc` 不留半成品、`old` 不匹配退出 1、相对 `--data-dir` 拒绝、源文件名被采用。
+- 全量闸门：194 个文件语法通过，202 个用例通过。
+- 常驻成本：从 **1,214 tok 降到 0**（工具面），只剩那段约 500 tok 的注入。
+
+### 36.6 边界
+
+- 不注册工具 ≠ 没有能力。能力在 CLI 里，agent 通过 bash 调；MCP 与面板照旧。
+- skill 是**指南**不是实现：它教什么时候用、描述怎么写，命令本身在 `bin/ziyan.mjs`。
+- 别把工具注册加回来。加一次就是每轮一次 ~1200 tok；如果未来确实需要常驻的工具面，必须先证明「按轮订阅」比「按需加载」更划算。

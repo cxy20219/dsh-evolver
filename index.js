@@ -24,7 +24,6 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 
 import { createDataJobs } from './src/data-jobs.js'
-import { projectRootOf } from './src/project.js'
 import { dataDirPointerPath, readDataDirPointer } from './src/home.js'
 import { createLogSink } from './src/logs.js'
 import { createMcpService, mintToken } from './src/mcp/server.js'
@@ -131,55 +130,13 @@ export async function apply(ctx, config) {
 		sessionsRoot: join(dshHome, 'sessions'),
 	})
 
-	/**
-	 * Where a tool call is: the session cwd and its project root.
-	 *
-	 * Tools do not receive a working directory — the run context carries only
-	 * the agent id — so it is read back from the session header, which the host
-	 * records when the session starts. `sessionQuery` is optional: a host
-	 * without it still loads, and the library verbs keep working; only the
-	 * project-path verbs refuse, because they cannot prove where they are.
-	 *
-	 * @param {{agent?: {id?: string}}} exec - The call context.
-	 * @returns {Promise<{cwd?: string, root?: string}>} The location.
-	 */
-	// One entry per agent id; a long-lived host would otherwise keep every id
-	// it has ever seen. Small enough to make the lookup still worth it.
-	const projectCache = new Map()
-	const PROJECT_CACHE_MAX = 64
-	async function cwdFor(exec) {
-		const id = String(exec?.agent?.id ?? '')
-		if (id === '') return undefined
-		if (projectCache.has(id)) return projectCache.get(id)
-		let resolved
-		const query = ctx.get('sessionQuery')
-		if (query !== undefined && typeof query.filterSessions === 'function') {
-			const records = await query.filterSessions([{ kind: 'id', values: [id] }]).catch(() => [])
-			const cwd = records?.[0]?.header?.cwd
-			resolved = typeof cwd === 'string' && cwd !== '' && isAbsolute(cwd) ? resolve(cwd) : undefined
-		}
-		// A "looked, no cwd" result is cached too: the host header does not
-		// change under a live session, and without the cache every call would
-		// query the session table again.
-		if (projectCache.size >= PROJECT_CACHE_MAX) projectCache.delete(projectCache.keys().next().value)
-		projectCache.set(id, resolved)
-		return resolved
-	}
-	async function pathsOf(exec) {
-		const cwd = await cwdFor(exec)
-		if (cwd === undefined) return {}
-		// A session opened inside a repository still resolves paths against the
-		// repository root; a folder with no project marker is its own root.
-		const root = await projectRootOf(cwd)
-		return { cwd, root: root ?? cwd }
-	}
-
 	const disposers = []
-	// One array goes to both places on purpose: registering and describing must
-	// stay the same set, so the panel cannot show a tool the model does not have
-	// (or miss one it does).
-	const tools = createTools({ store, paths: pathsOf })
-	for (const tool of tools) disposers.push(ctx.tools.register(tool))
+	// The verbs are no longer registered with the host: an agent reaches the
+	// library through `ziyan` (bin/ziyan.mjs) or the ziyan-evolver skill, not
+	// through four tools that ride on every request. `tools` still exists for
+	// two readers that must not drift from the CLI — the panel's tool page and
+	// the MCP endpoint — so both describe the same verbs the CLI exposes.
+	const tools = createTools({ store, paths: async () => ({}) })
 
 	// The MCP endpoint hands the same four verbs to other agents. It is off
 	// unless the settings say otherwise, and it only ever binds 127.0.0.1; the
@@ -258,4 +215,8 @@ export async function apply(ctx, config) {
 		})()
 	}, 'dsh-ziyan: resources')
 
+	// The JSDoc above promises these and the tests use them; the panel and the
+	// CLI read the same store, so handing it back is also the cheapest way to
+	// prove the assembly wired one library rather than three.
+	return { root, store, settings, tools }
 }

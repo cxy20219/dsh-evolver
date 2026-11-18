@@ -4,6 +4,7 @@
 > 本索引由项目自己维护：自衍中枢不再生成它，也不再拒绝手写。改 `harness/` 时记得同步这里。
 
 - [自衍中枢 · 项目总览](harness/harness.md)：自衍中枢插件的项目总览：插件是什么、README 与 DESIGN 的分工、源码布局、常用命令与关键约束；改这个仓库的代码或要了解它的设计取舍前先读它。
+- [ziyan 命令行与 skill：agent 的接入面](skill/ziyan-evolver/SKILL.md)：四个动词怎么调、描述怎么写、与 harness-evolver 的范围分工（跨项目 vs 项目内）。插件已不向 DSH 注册工具，agent 走 `ziyan` 命令或这个 skill；改接入方式、排查「agent 不知道有这个库」时先看。
 - [独立桌面版：复用而非重写](desktop/README.md)：把库从 DSH 插件变成可独立启动的桌面应用：`desktop/server.js` 顶替装配层、`shim.js` 让 `client.js` 零改动、`main.cjs` 只是窗口。启动方式、还没接的整理引擎、以及 `system/` 绝不进同步盘的原因。
 - [在宿主应用里启动 Electron 的三个坑](harness/experience/electron-inside-a-host.md)：`ELECTRON_RUN_AS_NODE=1` 让 Electron 退化成纯 Node、ESM 具名导入拿不到 `app`（必须 CJS 主进程 + 动态 import）、Chromium 沙箱与宿主文件沙箱冲突。排查「Electron 明明启动了但内置模块是 undefined」时先看。
 - [为什么把项目 harness 解耦出去](harness/experience/library-scope-decoupled-from-projects.md)：自衍中枢只管库（存文件、找得到、直接可用），项目 harness 归项目自己；解耦删掉了什么、留下什么、失去的三条保证，以及「以后别再把托管加回来」的判断边界。想重新引入边车/索引/校验前先读。
