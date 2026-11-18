@@ -21,7 +21,9 @@ import { fileURLToPath } from 'node:url'
 
 import { createDataJobs } from '../src/data-jobs.js'
 import { createLogSink } from '../src/logs.js'
+import { createOpenAiLlm } from '../src/llm/openai.js'
 import { createMcpService, mintToken } from '../src/mcp/server.js'
+import { createOrganizer } from '../src/organize-jobs.js'
 import { createZiyanHandler } from '../src/remote.js'
 import { SettingsStore } from '../src/settings.js'
 import { FileStore } from '../src/store.js'
@@ -148,6 +150,33 @@ export async function startService({ dataDir, port = DEFAULT_PORT, onLog } = {})
 	if (current.mcp.token === '') await settings.save({ mcp: { token: mintToken() } })
 	if (current.mcp.enabled) await mcp.start({ port: current.mcp.port, token: settings.get().mcp.token })
 
+	// The organizer is the built-in agent: the same loop the plugin runs, wired
+	// to an OpenAI-compatible endpoint instead of a host service. A library with
+	// no key still loads — the status page says so, and a run refuses with the
+	// reason — because refusing to open the library over a missing credential
+	// would make the app useless offline.
+	// Read through the live settings so a save takes effect without a restart.
+	const llm = createOpenAiLlm({ config: () => settings.get().llm })
+	const organizer = createOrganizer({
+		store,
+		settings,
+		llm,
+		// "Follow the chat" has no meaning standalone — there is no chat — so it
+		// falls back to the configured route instead of an empty selection that
+		// would leave the organize page unable to run anything.
+		modelSelection: {
+			currentSelection: () => {
+				const block = settings.get().llm
+				return block.model === '' ? {} : { provider: 'compatible', model: block.model }
+			},
+		},
+		logs,
+		root,
+		// Standalone has no DSH sessions to organize; the folder is empty so the
+		// sessions mode finds nothing and the files mode is the real one.
+		sessionsRoot: join(root, 'system', 'sessions'),
+	})
+
 	const handler = createZiyanHandler({
 		store,
 		settings,
@@ -155,8 +184,8 @@ export async function startService({ dataDir, port = DEFAULT_PORT, onLog } = {})
 		root,
 		version,
 		data,
-		tools,
 		mcp,
+		organize: organizer,
 	})
 
 	const server = createServer(async (request, response) => {
@@ -226,6 +255,7 @@ export async function startService({ dataDir, port = DEFAULT_PORT, onLog } = {})
 		settings,
 		mcp,
 		close: async () => {
+			organizer.close()
 			await mcp.stop().catch(() => {})
 			await new Promise((done) => server.close(() => done()))
 			store.close()

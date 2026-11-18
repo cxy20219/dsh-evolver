@@ -35,6 +35,11 @@ const READ_BYTES_DEFAULT = 256 * 1024
 /** The longest provider/model id an organize run may name. */
 const MODEL_ID_MAX = 200
 
+/** Defaults and bounds for the model route. */
+const LLM_BASE_URL_DEFAULT = 'https://api.openai.com/v1'
+const LLM_MODEL_DEFAULT = ''
+const LLM_URL_MAX = 500
+
 /** Defaults and bounds for the MCP endpoint. */
 const MCP_PORT_DEFAULT = 3199
 const MCP_PORT_MIN = 1024
@@ -132,6 +137,26 @@ function normalizeMcp(raw) {
 }
 
 /**
+ * The model route an organize run uses.
+ *
+ * Kept as its own block rather than folded into `organize` because it is a
+ * connection, not a schedule: the key belongs to the machine, the switches
+ * belong to the habit. A library imported from an archive never carries it —
+ * see `SAFE_SETTINGS_KEYS` below.
+ *
+ * @param {unknown} raw - The raw `llm` block.
+ * @returns {{baseUrl: string, apiKey: string, model: string}} The block.
+ */
+function normalizeLlm(raw) {
+	const baseUrl = typeof raw?.baseUrl === 'string' ? raw.baseUrl.trim() : ''
+	return {
+		baseUrl: (baseUrl === '' ? LLM_BASE_URL_DEFAULT : baseUrl).slice(0, LLM_URL_MAX),
+		apiKey: typeof raw?.apiKey === 'string' ? raw.apiKey.trim() : '',
+		model: (typeof raw?.model === 'string' ? raw.model.trim() : LLM_MODEL_DEFAULT).slice(0, MODEL_ID_MAX),
+	}
+}
+
+/**
  * The organize defaults.
  *
  * The model is the selection every run uses ("follow the chat" is `null`); the
@@ -192,6 +217,7 @@ function normalizeSettings(raw) {
 		maxFileBytes: clamp(raw?.maxFileBytes, MAX_BYTES_DEFAULT, MAX_BYTES_MIN, MAX_BYTES_MAX),
 		readTextBytes: clamp(raw?.readTextBytes, READ_BYTES_DEFAULT, READ_BYTES_MIN, READ_BYTES_MAX),
 		mcp: normalizeMcp(raw?.mcp),
+		llm: normalizeLlm(raw?.llm),
 		organize: normalizeOrganize(raw?.organize),
 	}
 }
@@ -294,6 +320,9 @@ export class SettingsStore {
 		// the token, so this block merges instead of replacing.
 		if (patch !== null && typeof patch === 'object' && Object.prototype.hasOwnProperty.call(patch, 'mcp')) {
 			next.mcp = { ...this.values.mcp, ...(patch.mcp ?? {}) }
+		}
+		if (patch !== null && typeof patch === 'object' && Object.prototype.hasOwnProperty.call(patch, 'llm')) {
+			next.llm = { ...this.values.llm, ...(patch.llm ?? {}) }
 		}
 		if (patch !== null && typeof patch === 'object' && Object.prototype.hasOwnProperty.call(patch, 'organize')) {
 			next.organize = mergeOrganize(this.values.organize, patch.organize)

@@ -187,6 +187,17 @@ window.__ModuleLoader__.load({
 			'settings.maxFileMb': '单文件上限（MB）',
 			'settings.readTextKb': '单次读取上限（KB）',
 			'settings.tab.general': '常规',
+			'settings.tab.model': '模型',
+			'settings.llm.baseUrl': '接口地址',
+			'settings.llm.baseUrl.hint': '任何 OpenAI 兼容的 /chat/completions 端点：官方、网关或本地服务。',
+			'settings.llm.apiKey': '密钥',
+			'settings.llm.apiKey.keep': '留空表示不修改',
+			'settings.llm.apiKey.saved': '已配置一个密钥（不会回显）。留空保存表示保持原样。',
+			'settings.llm.apiKey.empty': '还没有配置密钥。',
+			'settings.llm.model': '模型名',
+			'settings.llm.probe': '测试连接',
+			'settings.llm.probing': '测试中…',
+			'settings.llm.note': '这条路由只给「自衍」页的整理作业用；本地服务（llama.cpp / Ollama / LM Studio）填各自的地址即可，密钥留空。',
 			'settings.tab.data': '数据',
 			'settings.tab.service': '服务',
 			'service.hint': '给别的 agent 开一个 MCP 端点，让它们调用同一套 file_search / file_read / file_write / file_edit。默认关闭，只监听 127.0.0.1；令牌必须带上，写入能力不会裸奔。',
@@ -391,6 +402,17 @@ window.__ModuleLoader__.load({
 			'settings.maxFileMb': 'File cap (MB)',
 			'settings.readTextKb': 'Read cap (KB)',
 			'settings.tab.general': 'General',
+			'settings.tab.model': 'Model',
+			'settings.llm.baseUrl': 'Endpoint',
+			'settings.llm.baseUrl.hint': 'Any OpenAI-compatible /chat/completions endpoint: hosted, gateway or local.',
+			'settings.llm.apiKey': 'API key',
+			'settings.llm.apiKey.keep': 'Leave empty to keep',
+			'settings.llm.apiKey.saved': 'A key is configured (never echoed). Saving with an empty field keeps it.',
+			'settings.llm.apiKey.empty': 'No key configured yet.',
+			'settings.llm.model': 'Model',
+			'settings.llm.probe': 'Test connection',
+			'settings.llm.probing': 'Testing…',
+			'settings.llm.note': 'This route is only used by the organize jobs on the 自衍 tab; point it at a local server (llama.cpp / Ollama / LM Studio) and leave the key empty when there is none.',
 			'settings.tab.data': 'Data',
 			'settings.tab.service': 'Service',
 			'service.hint': 'Expose an MCP endpoint so other agents can call the same file_search / file_read / file_write / file_edit. Off by default, loopback only; the token is required, so write access is never bare.',
@@ -3810,6 +3832,91 @@ window.__ModuleLoader__.load({
 		 * @param {object} props - 面板上下文。
 		 * @returns {object} The pane.
 		 */
+		/**
+		 * 设置 → 模型：整理引擎调用的那条路由。
+		 *
+		 * 独立版的「内置 agent」就是这条路由——没有它，整理页只能说「不可用」。
+		 * 三件事：地址、密钥、模型名。密钥永不回显，只报「已配置 / 未配置」；
+		 * 保存后可以就地探测一次，把「密钥错」和「模型名错」分开。
+		 */
+		function ModelSection(props) {
+			var t = props.t;
+			var settings = props.settings;
+			var call = props.call;
+			var notify = props.notify;
+			var [draft, setDraft] = useState(null);
+			var [probing, setProbing] = useState(false);
+			var [probe, setProbe] = useState(null);
+			useEffect(function () {
+				if (settings === null || settings === undefined) return;
+				// A panel talking to an older host may not get an llm block at
+				// all; defaulting keeps the form usable instead of crashing.
+				var llm = settings.llm || {};
+				setDraft({
+					baseUrl: String(llm.baseUrl || ''),
+					model: String(llm.model || ''),
+					apiKey: '',
+					savedKey: Boolean(llm.hasKey)
+				});
+			}, [settings]);
+			if (draft === null) return h('div', { className: 'ysEmpty' }, t('state.loading'));
+			var save = function () {
+				var patch = { llm: { baseUrl: draft.baseUrl, model: draft.model } };
+				// 空串表示「不动」：面板不回显密钥，用户没输入就不该把它清掉。
+				if (draft.apiKey !== '') patch.llm.apiKey = draft.apiKey;
+				props.onSave(patch);
+			};
+			var runProbe = function () {
+				setProbing(true);
+				setProbe(null);
+				call('llm-probe', {}).then(function (value) {
+					setProbe(value);
+				}).catch(function (error) {
+					setProbe({ ok: false, message: String(error && error.message ? error.message : error) });
+				}).then(function () { setProbing(false); });
+			};
+			return h('div', null,
+				h('div', { className: 'ysField' },
+					h('label', { className: 'ysLabel' }, t('settings.llm.baseUrl')),
+					h('input', {
+						className: 'ysInput',
+						type: 'text',
+						placeholder: 'https://api.openai.com/v1',
+						value: draft.baseUrl,
+						onChange: function (event) { setDraft(Object.assign({}, draft, { baseUrl: event.target.value })); }
+					}),
+					h('div', { className: 'ysHint', style: { marginTop: 4 } }, t('settings.llm.baseUrl.hint'))),
+				h('div', { className: 'ysField' },
+					h('label', { className: 'ysLabel' }, t('settings.llm.apiKey')),
+					h('input', {
+						className: 'ysInput',
+						type: 'password',
+						placeholder: draft.savedKey ? t('settings.llm.apiKey.keep') : 'sk-…',
+						value: draft.apiKey,
+						onChange: function (event) { setDraft(Object.assign({}, draft, { apiKey: event.target.value })); }
+					}),
+					h('div', { className: 'ysHint', style: { marginTop: 4 } },
+						draft.savedKey ? t('settings.llm.apiKey.saved') : t('settings.llm.apiKey.empty'))),
+				h('div', { className: 'ysField' },
+					h('label', { className: 'ysLabel' }, t('settings.llm.model')),
+					h('input', {
+						className: 'ysInput',
+						type: 'text',
+						placeholder: 'gpt-4o-mini',
+						value: draft.model,
+						onChange: function (event) { setDraft(Object.assign({}, draft, { model: event.target.value })); }
+					})),
+				h('div', { className: 'ysActions' },
+					h('button', { className: 'ysButton ysButtonPrimary', onClick: save }, t('action.save')),
+					h('button', { className: 'ysButton', disabled: probing, onClick: runProbe },
+						probing ? t('settings.llm.probing') : t('settings.llm.probe'))),
+				probe === null ? null : h('div', {
+					className: 'ysHint',
+					style: { marginTop: 10, color: probe.ok ? '#3fb950' : '#f85149' }
+				}, (probe.ok ? '✓ ' : '✗ ') + String(probe.message || '')),
+				h('div', { className: 'ysHint', style: { marginTop: 12 } }, t('settings.llm.note')));
+		}
+
 		function ServiceSection(props) {
 			var t = props.t;
 			var status = props.mcpStatus;
@@ -3937,12 +4044,18 @@ window.__ModuleLoader__.load({
 					h('button', {
 						className: 'ysTab' + (subTab === 'service' ? ' ysTabActive' : ''),
 						onClick: function () { setSubTab('service'); }
-					}, t('settings.tab.service'))),
+					}, t('settings.tab.service')),
+					h('button', {
+						className: 'ysTab' + (subTab === 'model' ? ' ysTabActive' : ''),
+						onClick: function () { setSubTab('model'); }
+					}, t('settings.tab.model'))),
 				h('div', { style: { display: subTab === 'general' ? 'block' : 'none' } }, general),
 				h('div', { style: { display: subTab === 'data' ? 'block' : 'none' } },
 					h(DataSection, props)),
 				h('div', { style: { display: subTab === 'service' ? 'block' : 'none' } },
-					h(ServiceSection, props)));
+					h(ServiceSection, props)),
+				h('div', { style: { display: subTab === 'model' ? 'block' : 'none' } },
+					h(ModelSection, props)));
 		}
 
 		function LogsTab(props) {

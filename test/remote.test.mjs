@@ -82,7 +82,7 @@ async function post(routes, endpoint, payload = {}) {
 	return value
 }
 
-test('面板接口：26 个端点，一次完整读写/上传/预览/图/偏好/自衍/设置/日志/删除', async () => {
+test('面板接口：27 个端点，一次完整读写/上传/预览/图/偏好/自衍/设置/日志/删除', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'ys-remote-'))
 	const home = await mkdtemp(join(tmpdir(), 'ys-home-'))
 	const previousHome = process.env.DSH_HOME
@@ -91,7 +91,7 @@ test('面板接口：26 个端点，一次完整读写/上传/预览/图/偏好/
 	let failure
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 26)
+		assert.equal(routes.size, 27)
 
 		const empty = await post(routes, 'overview')
 		assert.equal(empty.stats.files, 0)
@@ -173,10 +173,13 @@ test('面板接口：26 个端点，一次完整读写/上传/预览/图/偏好/
 		assert.equal(saved.descriptionMaxChars, 200)
 		assert.equal('injectionBudget' in saved, false, 'settings-save 白名单不再含注入预算')
 		// The panel reads exactly these: the three limits, where the library lives,
-		// and the MCP switch. The token is absent on purpose — `mcp-status` hands
-		// it out together with whether the endpoint is actually listening.
-		assert.deepEqual(Object.keys(saved).sort(), ['dataDir', 'descriptionMaxChars', 'maxFileBytes', 'mcp', 'readTextBytes'], '面板只拿它读的字段')
+		// the MCP switch and the model route. Both secrets are absent on purpose —
+		// `mcp-status` hands out the token with whether the endpoint is up, and the
+		// model key is only ever reported as configured-or-not.
+		assert.deepEqual(Object.keys(saved).sort(), ['dataDir', 'descriptionMaxChars', 'llm', 'maxFileBytes', 'mcp', 'readTextBytes'], '面板只拿它读的字段')
 		assert.deepEqual(Object.keys(saved.mcp).sort(), ['enabled', 'port'], 'mcp 视图不含 token')
+		assert.deepEqual(Object.keys(saved.llm).sort(), ['baseUrl', 'hasKey', 'model'], 'llm 视图只有地址/模型/有没有密钥')
+		assert.equal(saved.llm.hasKey, false, '没有密钥时报 false，不报密钥本身')
 		assert.equal(saved.mcp.enabled, false, 'MCP 默认关闭')
 		const settingsView = await post(routes, 'settings')
 		assert.deepEqual(settingsView, saved, 'settings 与 settings-save 返回同一个窄视图')
@@ -237,7 +240,7 @@ test('整理接口：状态/保存/会话作业/轮询/取消五个端点走通'
 	})
 	try {
 		await apply(ctx, { dataDir: dir })
-		assert.equal(routes.size, 26)
+		assert.equal(routes.size, 27)
 
 		const status = await post(routes, 'organize-status')
 		assert.equal(status.followsChat, true)

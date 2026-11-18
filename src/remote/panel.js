@@ -31,6 +31,13 @@ function panelSettings(settings) {
 		// The token is deliberately absent: it is handed out by `mcp-status`,
 		// the one place that also says whether the endpoint is actually up.
 		mcp: { enabled: view.mcp.enabled === true, port: view.mcp.port },
+		// The key never leaves the machine: the panel needs to know whether one
+		// is set (to show "已配置") but never what it is.
+		llm: {
+			baseUrl: view.llm.baseUrl,
+			model: view.llm.model,
+			hasKey: view.llm.apiKey !== '',
+		},
 		dataDir: view.dataDir,
 	}
 }
@@ -101,6 +108,14 @@ export const panelHandlers = {
 			}
 			patch.mcp = wantedMcp
 		}
+		if (payload?.llm !== undefined && payload.llm !== null && typeof payload.llm === 'object') {
+			const wanted = {}
+			if (typeof payload.llm.baseUrl === 'string' && payload.llm.baseUrl.trim() !== '') wanted.baseUrl = payload.llm.baseUrl.trim()
+			if (typeof payload.llm.model === 'string') wanted.model = payload.llm.model.trim()
+			// An empty string clears the key; an absent key leaves it alone.
+			if (typeof payload.llm.apiKey === 'string') wanted.apiKey = payload.llm.apiKey
+			patch.llm = wanted
+		}
 		const saved = await settings.save(patch)
 		store.setLimits({
 			maxBytes: saved.maxFileBytes,
@@ -120,6 +135,20 @@ export const panelHandlers = {
 			}
 		}
 		return panelSettings(settings)
+	},
+
+	/**
+	 * Try the configured model route once, so a person can tell "wrong key" from
+	 * "wrong model" without running a whole organize job.
+	 *
+	 * The key is read from the saved settings, never from the payload: a probe
+	 * must not be a way to send a credential through the panel API.
+	 */
+	'llm-probe': async (_payload, { settings }) => {
+		const block = settings.get().llm
+		if (block.model === '') return { ok: false, message: '还没有填模型名。' }
+		const verdict = await probeOpenAi({ baseUrl: block.baseUrl, apiKey: block.apiKey, model: block.model })
+		return { ok: verdict.ok === true, message: verdict.message, model: block.model, baseUrl: block.baseUrl }
 	},
 
 	'mcp-status': async (_payload, { settings, mcp }) => {

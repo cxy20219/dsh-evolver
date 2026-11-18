@@ -1039,3 +1039,46 @@ async 躲不掉：Promise 本身合法，但它 resolve 出来的值还要再过
 ### 38.5 教训
 
 给测试留后门时，要确认后门本身不违反框架的协议。这里是「方便测试」直接换掉了 26 条路由。经验写在 `harness/experience/plugin-return-value-is-an-effect.md`。
+
+## 39. 接上内核：一条可配置的模型路由（2026-11-18）
+
+独立版最要紧的缺口不是打包，是**它还没有「内置 agent」**：`自衍` 页签的整理引擎在独立宿主里返回「不可用」，因为没有 `llm`。
+
+### 39.1 契约：`llm.stream` 返回什么
+
+organizer 只依赖一个方法（`src/organize/loop.js:263`），返回**异步可迭代**的 chunk：
+
+| chunk | 含义 |
+|---|---|
+| `{type:'text-delta', text}` | 文本增量 |
+| `{type:'block-end', block}` | 一个完成的块：`{type:'text', text}` 或 `{type:'tool-call', id, name, arguments}` |
+| `{type:'finish', reason:{kind, failure?}}` | `stop` / `max-tokens` / `error` / `aborted` |
+
+模型选择器还另要 `listProviders()` / `listModels(provider)` / `resolveModelInfo()`。
+
+### 39.2 实现：一个 OpenAI 兼容适配器
+
+`src/llm/openai.js`，零依赖（原生 fetch）。最费工的是把 SSE 还原成块：**OpenAI 的工具调用是分片的**——`id`、`name`、`arguments` 三样分别按 `index` 增量到达，必须拼完才是合法的 `tool-call` 块。
+
+关键决定：**配置通过 `config()` 每次读取，不在构造时快照**。否则「设置里保存了模型，整理还是用旧的」会被当成 bug——事实上第一次验证时就撞上了。
+
+### 39.3 装配
+
+| 项 | 做法 |
+|---|---|
+| 设置 | 新增 `llm: {baseUrl, apiKey, model}`，`save()` 按块合并（部分保存不丢密钥） |
+| 面板 | 设置 → **模型** 子标签：地址 / 密钥 / 模型名 / 测试连接 |
+| 密钥 | 只写不读。面板视图给 `hasKey: boolean`，`llm-probe` 从**已保存设置**读密钥，不接受 payload 传密钥 |
+| 「跟随 chat」 | 独立版没有 chat，`modelSelection.currentSelection()` 回落到配置的模型，否则 `current` 恒为 null、什么也跑不了 |
+| 会话整理 | `sessionsRoot` 指向空目录——独立版没有 DSH 会话，真正生效的是 files 模式 |
+
+### 39.4 验证
+
+- `test/llm.test.mjs` 9 个用例，用真实 SSE 字节驱动解析器：文本增量、**工具调用分片拼接**、`length → max-tokens`、HTTP 401 变可读失败、无模型名报错、`/models` 失败回落、**每次调用重读配置**、消息格式转换、探测端点。
+- 端到端：保存配置 → `organize-status.current` 变成 `{provider:'compatible', model:'qwen2.5:7b'}`；发起作业 → 无本地服务时失败并报 `模型请求失败：fetch failed`（**具体原因**，不再是「引擎不可用」）。
+- 全量闸门：195 个文件，208 个用例通过。
+
+### 39.5 还没做
+
+- files 模式的真实整理效果（需要接真模型跑一遍）。
+- 会话整理需要 DSH 的会话格式，独立版不做。
