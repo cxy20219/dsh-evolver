@@ -6,15 +6,86 @@
 	<title>自衍中枢</title>
 	<link rel="icon" href="/icon.svg">
 	<style>
+		/*
+		 * The panel is written against the host's theme tokens (`--dsw-*`) and
+		 * uses no colours of its own, which is why it rendered as a black page
+		 * here: the variables did not exist, so every background fell through
+		 * to the body colour. Defining them — light by default, dark under
+		 * `prefers-color-scheme` — is the whole fix, and it keeps one panel for
+		 * both hosts instead of two stylesheets.
+		 */
+		:root {
+			color-scheme: light dark;
+
+			--dsw-alias-bg-base: #ffffff;
+			--dsw-alias-bg-layer-1: #f6f8fa;
+			--dsw-alias-bg-layer-2: #eef1f4;
+			--dsw-alias-bg-layer-3: #e5e9ee;
+
+			--dsw-alias-border-l1: #d8dee4;
+			--dsw-alias-border-l2: #c8d0d8;
+			--dsw-alias-border-l3: #b6bfc9;
+
+			--dsw-alias-label-primary: #1f2328;
+			--dsw-alias-label-primary-inverted: #ffffff;
+			--dsw-alias-label-secondary: #59636e;
+			--dsw-alias-label-tertiary: #8b949e;
+			--dsw-alias-label-warning: #9a6700;
+
+			--dsw-alias-interactive-bg-hover: rgba(0, 0, 0, 0.05);
+			--dsw-alias-interactive-bg-active: rgba(0, 0, 0, 0.09);
+			--dsw-alias-button-primary-fill: #1f883d;
+			--dsw-alias-button-primary-hover: #1a7f37;
+			--dsw-alias-state-business-primary: #0969da;
+			--dsw-alias-state-error-primary: #cf222e;
+
+			--dsw-elevation-soft: 0 1px 2px rgba(0, 0, 0, 0.06), 0 3px 8px rgba(0, 0, 0, 0.05);
+
+			--dsw-radius-sm: 4px;
+			--dsw-radius-md: 6px;
+			--dsw-radius-lg: 10px;
+
+			--dsw-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+			--dsw-font-family-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+		}
+
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--dsw-alias-bg-base: #0f1115;
+				--dsw-alias-bg-layer-1: #161a20;
+				--dsw-alias-bg-layer-2: #1c2128;
+				--dsw-alias-bg-layer-3: #222831;
+
+				--dsw-alias-border-l1: #2b323c;
+				--dsw-alias-border-l2: #38414d;
+				--dsw-alias-border-l3: #4a5563;
+
+				--dsw-alias-label-primary: #e6e8eb;
+				--dsw-alias-label-primary-inverted: #0f1115;
+				--dsw-alias-label-secondary: #a3adba;
+				--dsw-alias-label-tertiary: #7d8794;
+				--dsw-alias-label-warning: #d29922;
+
+				--dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.07);
+				--dsw-alias-interactive-bg-active: rgba(255, 255, 255, 0.12);
+				--dsw-alias-button-primary-fill: #238636;
+				--dsw-alias-button-primary-hover: #2ea043;
+				--dsw-alias-state-business-primary: #58a6ff;
+				--dsw-alias-state-error-primary: #f85149;
+
+				--dsw-elevation-soft: 0 1px 2px rgba(0, 0, 0, 0.4), 0 3px 8px rgba(0, 0, 0, 0.3);
+			}
+		}
+
 		html, body { margin: 0; height: 100%; }
 		body {
-			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-			background: #0f1115;
-			color: #e6e8eb;
+			font-family: var(--dsw-font-family);
+			background: var(--dsw-alias-bg-base);
+			color: var(--dsw-alias-label-primary);
 			overflow: hidden;
 		}
 		#root { height: 100vh; display: flex; flex-direction: column; min-height: 0; }
-		#boot { padding: 24px; font-size: 13px; color: #8b949e; }
+		#boot { padding: 24px; font-size: 13px; color: var(--dsw-alias-label-tertiary); }
 	</style>
 </head>
 <body>
@@ -31,7 +102,7 @@
 				root.innerHTML = ''
 				window.__mountZiyan(root)
 			} catch (error) {
-				root.innerHTML = '<pre style="padding:24px;color:#f85149;white-space:pre-wrap">启动失败：' +
+				root.innerHTML = '<pre style="padding:24px;color:#cf222e;white-space:pre-wrap">启动失败：' +
 					String(error && error.stack ? error.stack : error).replace(/[<>&]/g, '') + '</pre>'
 			}
 		})()

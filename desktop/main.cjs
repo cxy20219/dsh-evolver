@@ -14,7 +14,7 @@
  * the same machine reach it, and nothing outside does.
  */
 
-const { app, BrowserWindow, Menu, shell } = require('electron')
+const { app, BrowserWindow, Menu, nativeTheme, shell } = require('electron')
 
 /** The library directory, or undefined when the user has not chosen one. */
 let dataDir
@@ -55,7 +55,8 @@ async function createWindow(url) {
 		minHeight: 560,
 		title: '自衍中枢',
 		titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-		backgroundColor: '#0f1115',
+		// Matches the light theme's base; the page paints over it immediately.
+		backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f1115' : '#ffffff',
 		webPreferences: {
 			// The panel is plain web code; it needs no Node access.
 			nodeIntegration: false,

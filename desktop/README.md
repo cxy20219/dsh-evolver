@@ -22,6 +22,10 @@ node desktop/server.js --data-dir /path/to/library --port 3198
 npm run desktop -- --data-dir ~/.dsh/ziyan
 ```
 
+## 外观
+
+面板本身不写颜色，全部走宿主的主题变量（`--dsw-*`）。独立版在 `desktop/renderer/index.html` 里定义了这套变量：默认浅色，`prefers-color-scheme: dark` 时切深色。缺了它，每个背景都会落回 body 颜色——面板会显示成一整块黑。
+
 ## 它复用的是什么
 
 没有重写任何逻辑，三条都是现成的：
