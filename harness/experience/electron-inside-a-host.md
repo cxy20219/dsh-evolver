@@ -51,6 +51,22 @@ Electron main.cjs --no-sandbox --user-data-dir=/tmp/....
 
 **发布给终端的应用不要带 `--no-sandbox`**，那会真的降低安全性。它只是「在沙箱里再开一个沙箱」时的临时开关。
 
+### 4. 沙箱里 `npm install electron` 装不上
+
+`@electron/get` 会把下载的 zip 写进 `~/Library/Caches/electron/<hash>/`。在文件沙箱里这一步是 `EPERM`，表现是 `Electron failed to install correctly`，而 `npm install` 本身**返回成功**——依赖树装好了，二进制没有。
+
+修法（仅限自己验证时）：把已缓存版本的 zip 手动解压到 `node_modules/electron/dist/`，并写入 `path.txt`：
+
+```bash
+mkdir -p node_modules/electron/dist
+unzip -q -o ~/Library/Caches/electron/<hash>/electron-v43.3.0-darwin-arm64.zip -d node_modules/electron/dist
+printf 'Electron.app/Contents/MacOS/Electron' > node_modules/electron/path.txt
+```
+
+验证只看一件事：`Electron --version` 必须输出 Electron 版本（`v43.3.0`），输出 Node 版本说明它退化成了纯 Node（见第 1 条）。
+
+版本要选**缓存里已有的**：改 `package.json` 的 `electron` 到那个版本，比重新下载 100 MB 快得多。
+
 ## 边界
 
 - 三个坑都只在「Electron 被另一个 Electron/沙箱拉起」时出现。终端里 `npm run desktop` 是干净的。
